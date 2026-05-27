@@ -1,0 +1,12 @@
+{
+  "name": "localagents",
+  "version": "0.0.1",
+  "type": "module",
+  "bin": {
+    "localagents": "./src/index.ts"
+  },
+  "files": ["src"],
+  "dependencies": {
+    "@localagents/orchestrator": "workspace:*"
+  }
+}
