@@ -1,0 +1,14 @@
+{
+  "name": "@localagents/react",
+  "version": "0.0.1",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "peerDependencies": {
+    "react": ">=17"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.2"
+  }
+}

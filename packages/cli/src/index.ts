@@ -5,6 +5,8 @@ import { start, VERSION } from '@localagents/orchestrator';
 
 type CliArgs = {
   port?: number;
+  mainPort?: number;
+  devCmd?: string;
   anthropic?: string;
   openai?: string;
   help: boolean;
@@ -17,6 +19,12 @@ function parseArgs(argv: string[]): CliArgs {
     const next = argv[i + 1];
     if (a === '--port' && next) {
       out.port = Number(next);
+      i++;
+    } else if (a === '--main-port' && next) {
+      out.mainPort = Number(next);
+      i++;
+    } else if (a === '--dev-cmd' && next) {
+      out.devCmd = next;
       i++;
     } else if (a === '--anthropic-key' && next) {
       out.anthropic = next;
@@ -39,7 +47,10 @@ Usage:
   localagents [options]
 
 Options:
-  --port <number>           Port to listen on (default: 4747)
+  --port <number>           Daemon port (default: 4747)
+  --main-port <number>      User's main dev server port (default: 3000)
+  --dev-cmd <cmd>           Command to spawn dev server in a worktree.
+                            %PORT% is substituted. Default: 'bun run dev --port %PORT%'
   --anthropic-key <key>     Anthropic API key (overrides ANTHROPIC_API_KEY env)
   --openai-key <key>        OpenAI API key (overrides OPENAI_API_KEY env)
   -h, --help                Show this message
@@ -72,6 +83,8 @@ async function main(): Promise<void> {
   const orchestrator = await start({
     repoRoot,
     port: args.port,
+    mainPort: args.mainPort,
+    devCmd: args.devCmd,
     flagAnthropic: args.anthropic,
     flagOpenai: args.openai,
   });
@@ -82,6 +95,7 @@ async function main(): Promise<void> {
       `  \x1b[1mlocalagents\x1b[0m v${VERSION}`,
       `  repo:     ${repoRoot}`,
       `  port:     ${orchestrator.port}`,
+      `  main:     :${orchestrator.mainPort}  (your dev server — keep it running)`,
       describeAuth(
         'claude',
         Boolean(orchestrator.auth.anthropic),

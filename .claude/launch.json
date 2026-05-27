@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "next-example",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "--cwd", "examples/next-app", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "localagents-shell",
+      "runtimeExecutable": "echo",
+      "runtimeArgs": ["shell at :4747"],
+      "port": 4747
+    }
+  ]
+}

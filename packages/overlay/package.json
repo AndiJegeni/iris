@@ -1,0 +1,13 @@
+{
+  "name": "@localagents/overlay",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.tsx"
+  },
+  "dependencies": {
+    "@localagents/shared": "workspace:*",
+    "preact": "^10.25.4"
+  }
+}

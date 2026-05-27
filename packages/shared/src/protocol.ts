@@ -23,7 +23,7 @@ export type SourceConfidence = z.infer<typeof SourceConfidence>;
 
 // ---------- Annotation ----------
 
-export const Backend = z.enum(['claude', 'codex']);
+export const Backend = z.enum(['claude', 'codex', 'echo']);
 export type Backend = z.infer<typeof Backend>;
 
 export const WorktreeMode = z.enum(['same', 'new']);
