@@ -1,5 +1,5 @@
-import type { ServerWebSocket } from 'bun';
 import type { Task, Worktree, WsEvent } from '@localagents/shared';
+import type { ServerWebSocket } from 'bun';
 
 export type WsClientData = { id: string };
 

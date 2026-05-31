@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { execSync } from 'node:child_process';
 import { resolve } from 'node:path';
-import { start, VERSION } from '@localagents/orchestrator';
+import { VERSION, start } from '@localagents/orchestrator';
 
 type CliArgs = {
   port?: number;

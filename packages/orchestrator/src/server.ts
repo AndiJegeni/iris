@@ -2,7 +2,7 @@ import { Annotation } from '@localagents/shared';
 import { Hono } from 'hono';
 import { getRunner } from './agents';
 import type { RunRequest } from './agents/types';
-import { resolveAuth, type AuthState } from './auth';
+import { type AuthState, resolveAuth } from './auth';
 import { EventBus, type WsClientData } from './events';
 import { bundleOverlay } from './overlay-bundle';
 import { TaskQueue } from './queue';
@@ -63,9 +63,7 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
     c.html(shellHtml(mainPort), 200, { 'Cache-Control': 'no-store' }),
   );
 
-  app.get('/health', (c) =>
-    c.json({ ok: true as const, repo: opts.repoRoot, version: VERSION }),
-  );
+  app.get('/health', (c) => c.json({ ok: true as const, repo: opts.repoRoot, version: VERSION }));
 
   app.get('/auth/status', (c) =>
     c.json({
@@ -159,6 +157,7 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
       componentPath: annotation.componentPath,
       selector: annotation.selector ?? '',
       text: annotation.nearbyText,
+      images: annotation.images,
       cwd: worktreePath,
     };
 

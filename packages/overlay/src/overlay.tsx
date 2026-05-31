@@ -1,16 +1,13 @@
-import { useEffect, useRef, useState } from 'preact/hooks';
-import { startSelectMode, type SelectController } from './select-mode';
-import { resolveSource, type Resolution } from './source-map';
+/** @jsxImportSource preact */
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
+import { type SelectModeController, startSelectMode } from './select-mode';
+import { type Resolution, resolveSource } from './source-map';
 import { ElementOutline } from './ui/element-outline';
 import { PickedPopover } from './ui/picked-popover';
 import { Pill } from './ui/pill';
 import { TaskPanel } from './ui/task-panel';
+import type { OverlayTheme } from './ui/theme';
 import { useTransport } from './use-transport';
-
-type SelectState = {
-  active: boolean;
-  hovered: Element | null;
-};
 
 type PickState = {
   element: Element;
@@ -18,24 +15,42 @@ type PickState = {
 };
 
 export function Overlay() {
-  const [select, setSelect] = useState<SelectState>({ active: false, hovered: null });
+  // `armed` is the sticky pill state; `selecting` is armed-or-Alt and drives hover outlines.
+  const [armed, setArmed] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  const [hovered, setHovered] = useState<Element | null>(null);
   const [picked, setPicked] = useState<PickState | null>(null);
-  const controllerRef = useRef<SelectController | null>(null);
+  const controllerRef = useRef<SelectModeController | null>(null);
+  const theme = usePrefersColorScheme();
   const { state, send, cancel } = useTransport();
 
   useEffect(() => {
     const controller = startSelectMode({
-      onEnter: () => setSelect({ active: true, hovered: null }),
-      onHover: (el) => setSelect((s) => (s.active ? { ...s, hovered: el } : s)),
-      onCancel: () => setSelect({ active: false, hovered: null }),
+      onSelectingChange: (s) => {
+        setSelecting(s);
+        if (!s) setHovered(null);
+      },
+      onArmedChange: setArmed,
+      onHover: (el) => setHovered(el),
       onPick: (el) => {
         const resolution = resolveSource(el);
-        setSelect({ active: false, hovered: null });
+        setHovered(null);
+        // Pause hover/pick while the popover is open — but stay armed so the
+        // pill keeps showing the active toolbar across sends.
+        controller.pause();
         setPicked({ element: el, resolution });
       },
     });
     controllerRef.current = controller;
-    return controller.dispose;
+    return () => {
+      controller.dispose();
+      controllerRef.current = null;
+    };
+  }, []);
+
+  const closePopover = useCallback(() => {
+    setPicked(null);
+    controllerRef.current?.resume();
   }, []);
 
   useEffect(() => {
@@ -43,16 +58,16 @@ export function Overlay() {
     const onKey = (e: KeyboardEvent) => {
       // Don't swallow Esc inside textareas/inputs unless they're empty —
       // but we WANT Esc to close the popover. Keep simple for v0.
-      if (e.key === 'Escape') setPicked(null);
+      if (e.key === 'Escape') closePopover();
     };
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('keydown', onKey);
     };
-  }, [picked]);
+  }, [picked, closePopover]);
 
   const hoverOutline =
-    select.active && select.hovered ? <ElementOutline element={select.hovered} /> : null;
+    selecting && hovered && !picked ? <ElementOutline element={hovered} /> : null;
   const pickedOutline = picked ? <ElementOutline element={picked.element} /> : null;
 
   return (
@@ -64,9 +79,9 @@ export function Overlay() {
         }
       `}</style>
       <Pill
-        active={select.active}
-        connection={state.status}
-        onToggle={() => controllerRef.current?.toggleSticky()}
+        active={armed}
+        onArm={() => controllerRef.current?.arm()}
+        onDisarm={() => controllerRef.current?.disarm()}
       />
       {hoverOutline}
       {pickedOutline}
@@ -74,7 +89,8 @@ export function Overlay() {
         <PickedPopover
           element={picked.element}
           resolution={picked.resolution}
-          onClose={() => setPicked(null)}
+          theme={theme}
+          onClose={closePopover}
           onSubmit={async (annotation) => {
             await send(annotation);
           }}
@@ -83,4 +99,18 @@ export function Overlay() {
       <TaskPanel tasks={state.tasks} logs={state.logs} onCancel={(id) => void cancel(id)} />
     </>
   );
+}
+
+/** Track the host page's color scheme so the overlay matches dark/light sites. */
+function usePrefersColorScheme(): OverlayTheme {
+  const [theme, setTheme] = useState<OverlayTheme>('dark');
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(prefers-color-scheme: light)');
+    const update = () => setTheme(mq.matches ? 'light' : 'dark');
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+  return theme;
 }

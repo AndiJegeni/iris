@@ -1,4 +1,4 @@
-import type { SourceLocation } from '@localagents/shared';
+import type { AttachedImage, SourceLocation } from '@localagents/shared';
 
 export type RunRequest = {
   prompt: string;
@@ -6,6 +6,8 @@ export type RunRequest = {
   componentPath: string[];
   selector: string;
   text: string | null;
+  /** Images the user attached in the popover (base64). Empty when none. */
+  images: AttachedImage[];
   /** Absolute path to the working directory the agent should operate in. */
   cwd: string;
   signal: AbortSignal;

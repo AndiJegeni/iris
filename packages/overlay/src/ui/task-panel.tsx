@@ -1,3 +1,4 @@
+/** @jsxImportSource preact */
 import type { Task } from '@localagents/shared';
 import { useEffect, useState } from 'preact/hooks';
 
@@ -99,8 +100,13 @@ export function TaskPanel({ tasks, logs, onCancel }: TaskPanelProps) {
           <div style={panelHeader}>
             <span style={{ fontWeight: 600, fontSize: '15px' }}>Background Tasks</span>
             <button type="button" onClick={() => setOpen(false)} style={iconBtn} aria-label="Close">
-              <svg viewBox="0 0 16 16" width="15" height="15">
-                <path d="M4 4 L12 12 M12 4 L4 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+                <path
+                  d="M4 4 L12 12 M12 4 L4 12"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
               </svg>
             </button>
           </div>
@@ -149,7 +155,9 @@ export function TaskPanel({ tasks, logs, onCancel }: TaskPanelProps) {
             ) : null}
 
             {running.length === 0 && finished.length === 0 ? (
-              <div style={{ color: '#a1a1aa', fontSize: '13px', padding: '12px 0' }}>No tasks yet.</div>
+              <div style={{ color: '#a1a1aa', fontSize: '13px', padding: '12px 0' }}>
+                No tasks yet.
+              </div>
             ) : null}
           </div>
         </div>
@@ -178,7 +186,9 @@ function TaskRow({ task, logs, expanded, onToggle, onCancel }: TaskRowProps) {
             background: DOT_COLOR[task.status],
             marginTop: '5px',
             flexShrink: 0,
-            ...(isRunning(task) ? { animation: 'localagents-pulse 1.4s ease-in-out infinite' } : {}),
+            ...(isRunning(task)
+              ? { animation: 'localagents-pulse 1.4s ease-in-out infinite' }
+              : {}),
           }}
         />
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -191,9 +201,7 @@ function TaskRow({ task, logs, expanded, onToggle, onCancel }: TaskRowProps) {
               {expanded ? 'Hide transcript' : 'View transcript'}
             </button>
           ) : null}
-          {expanded && logs.length > 0 ? (
-            <pre style={transcriptBox}>{logs.join('\n')}</pre>
-          ) : null}
+          {expanded && logs.length > 0 ? <pre style={transcriptBox}>{logs.join('\n')}</pre> : null}
         </div>
         {onCancel ? (
           <button type="button" style={stopBtn} onClick={onCancel}>
@@ -207,7 +215,7 @@ function TaskRow({ task, logs, expanded, onToggle, onCancel }: TaskRowProps) {
 
 function DoubleChevron() {
   return (
-    <svg viewBox="0 0 20 20" width="17" height="17" style={{ display: 'block' }}>
+    <svg viewBox="0 0 20 20" width="17" height="17" style={{ display: 'block' }} aria-hidden="true">
       <g stroke="#2563eb" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
         <path d="M3 5 L8 10 L3 15" />
         <path d="M10 5 L15 10 L10 15" />

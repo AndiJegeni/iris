@@ -1,52 +1,179 @@
-import type { ConnectionStatus } from '../transport';
+/** @jsxImportSource preact */
 
 type PillProps = {
+  /** Persistent armed state — drives circle (off) vs. toolbar (on). */
   active: boolean;
-  connection: ConnectionStatus;
-  onToggle: () => void;
+  onArm: () => void;
+  onDisarm: () => void;
 };
 
-export function Pill({ active, connection, onToggle }: PillProps) {
-  const dotColor =
-    connection === 'connected' ? '#22c55e' : connection === 'connecting' ? '#eab308' : '#ef4444';
+// #373734 at 10% opacity — used for the pill outline and the active divider.
+const STROKE = 'rgba(55, 55, 52, 0.1)';
+const ICON = '#373734';
+
+const baseSurface = {
+  position: 'fixed' as const,
+  bottom: '16px',
+  right: '16px',
+  background: '#ffffff',
+  border: `1px solid ${STROKE}`,
+  boxShadow: '0 2px 16px rgba(0, 0, 0, 0.12)',
+  pointerEvents: 'auto' as const,
+  userSelect: 'none' as const,
+  color: ICON,
+};
+
+export function Pill({ active, onArm, onDisarm }: PillProps) {
+  if (!active) {
+    return (
+      <button
+        type="button"
+        onClick={onArm}
+        aria-label="localagents"
+        style={{
+          ...baseSurface,
+          width: '40px',
+          height: '40px',
+          padding: 0,
+          borderRadius: '999px',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+        }}
+      >
+        <StarIcon />
+      </button>
+    );
+  }
+
   return (
-    <button
-      type="button"
-      onClick={onToggle}
+    <div
       style={{
-        position: 'fixed',
-        bottom: '16px',
-        right: '16px',
-        padding: '7px 13px',
-        background: active ? '#3b82f6' : 'rgba(20, 20, 20, 0.9)',
-        color: 'white',
-        fontSize: '12px',
-        fontWeight: 500,
-        letterSpacing: '0.01em',
+        ...baseSurface,
+        padding: '8px 10px',
         borderRadius: '999px',
-        border: 'none',
-        boxShadow: '0 2px 16px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.08) inset',
-        transition: 'background 100ms ease',
-        pointerEvents: 'auto',
-        cursor: 'pointer',
-        userSelect: 'none',
         display: 'inline-flex',
         alignItems: 'center',
-        gap: '8px',
-        fontFamily: 'inherit',
       }}
-      title={active ? 'Click an element, or click here to cancel' : 'Click to select an element (or hold ⌥ and hover)'}
     >
+      <button type="button" aria-label="chat" onClick={onArm} style={iconButton}>
+        <ChatIcon />
+      </button>
+      <button
+        type="button"
+        aria-label="settings"
+        onClick={() => {}}
+        style={{ ...iconButton, marginLeft: '6px' }}
+      >
+        <SettingsIcon />
+      </button>
       <span
         style={{
-          display: 'inline-block',
-          width: '6px',
-          height: '6px',
-          borderRadius: '999px',
-          background: dotColor,
+          width: '1px',
+          alignSelf: 'stretch',
+          background: STROKE,
+          marginLeft: '8px',
         }}
       />
-      {active ? 'click an element' : 'localagents'}
-    </button>
+      <button
+        type="button"
+        aria-label="close"
+        onClick={onDisarm}
+        style={{ ...iconButton, marginLeft: '8px' }}
+      >
+        <CloseIcon />
+      </button>
+    </div>
+  );
+}
+
+const iconButton = {
+  display: 'inline-flex' as const,
+  alignItems: 'center' as const,
+  justifyContent: 'center' as const,
+  padding: 0,
+  background: 'transparent',
+  border: 'none',
+  color: ICON,
+  cursor: 'pointer',
+};
+
+const ICON_SIZE = 18;
+
+function StarIcon() {
+  return (
+    <svg
+      width={ICON_SIZE}
+      height={ICON_SIZE}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M12 2.5l2.6 5.85 6.4.56-4.84 4.23 1.45 6.26L12 16.1l-5.61 3.3 1.45-6.26L3 8.91l6.4-.56L12 2.5z" />
+    </svg>
+  );
+}
+
+function ChatIcon() {
+  return (
+    <svg
+      width={ICON_SIZE}
+      height={ICON_SIZE}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
+function SettingsIcon() {
+  return (
+    <svg
+      width={ICON_SIZE}
+      height={ICON_SIZE}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <line x1="21" x2="14" y1="4" y2="4" />
+      <line x1="10" x2="3" y1="4" y2="4" />
+      <line x1="21" x2="12" y1="12" y2="12" />
+      <line x1="8" x2="3" y1="12" y2="12" />
+      <line x1="21" x2="16" y1="20" y2="20" />
+      <line x1="12" x2="3" y1="20" y2="20" />
+      <line x1="14" x2="14" y1="2" y2="6" />
+      <line x1="8" x2="8" y1="10" y2="14" />
+      <line x1="16" x2="16" y1="18" y2="22" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg
+      width={ICON_SIZE}
+      height={ICON_SIZE}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </svg>
   );
 }

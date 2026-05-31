@@ -21,6 +21,23 @@ export type SourceLocation = z.infer<typeof SourceLocation>;
 export const SourceConfidence = z.enum(['high', 'medium', 'low']);
 export type SourceConfidence = z.infer<typeof SourceConfidence>;
 
+// ---------- Attached image ----------
+
+export const ImageMediaType = z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+export type ImageMediaType = z.infer<typeof ImageMediaType>;
+
+export const AttachedImage = z.object({
+  /** Original filename when known — helps the agent and debugging. */
+  name: z.string().optional(),
+  mediaType: ImageMediaType,
+  /** Raw base64 payload, WITHOUT the `data:<type>;base64,` URI prefix. */
+  dataBase64: z.string().min(1),
+});
+export type AttachedImage = z.infer<typeof AttachedImage>;
+
+/** Soft cap on attachments per annotation (keeps the JSON POST reasonable). */
+export const MAX_IMAGES_PER_ANNOTATION = 6;
+
 // ---------- Annotation ----------
 
 export const Backend = z.enum(['claude', 'codex', 'echo']);
@@ -38,6 +55,7 @@ export const Annotation = z.object({
   confidence: SourceConfidence,
   worktreeMode: WorktreeMode,
   backend: Backend,
+  images: z.array(AttachedImage).max(MAX_IMAGES_PER_ANNOTATION).default([]),
 });
 export type Annotation = z.infer<typeof Annotation>;
 
@@ -57,14 +75,7 @@ export type Worktree = z.infer<typeof Worktree>;
 
 // ---------- Task ----------
 
-export const TaskStatus = z.enum([
-  'queued',
-  'running',
-  'editing',
-  'done',
-  'failed',
-  'cancelled',
-]);
+export const TaskStatus = z.enum(['queued', 'running', 'editing', 'done', 'failed', 'cancelled']);
 export type TaskStatus = z.infer<typeof TaskStatus>;
 
 export const Task = z.object({

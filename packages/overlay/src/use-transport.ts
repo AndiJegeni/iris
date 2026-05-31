@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { getTransport, type TransportState } from './transport';
+import { type TransportState, getTransport } from './transport';
 
 /**
  * Subscribe to the singleton Transport state. Returns the current snapshot
