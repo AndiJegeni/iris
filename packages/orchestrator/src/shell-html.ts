@@ -72,6 +72,8 @@ export function shellHtml(mainPort: number): string {
           <option value="main" data-port="${mainPort}">main · :${mainPort}</option>
         </select>
       </label>
+      <button id="ship-btn" type="button" style="background: #16a34a; color: white; border: none; border-radius: 6px; padding: 4px 12px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit; display: none;" title="Merge this worktree's branch into main">Ship it</button>
+      <button id="discard-btn" type="button" style="background: transparent; color: #a1a1aa; border: 1px solid #3f3f46; border-radius: 6px; padding: 3px 10px; font-size: 11px; cursor: pointer; font-family: inherit; display: none;" title="Tear down this worktree without merging">Discard</button>
       <span class="status" id="status-text">connecting to daemon…</span>
     </header>
     <iframe id="viewport" src="http://localhost:${mainPort}/" referrerpolicy="no-referrer-when-downgrade"></iframe>
@@ -121,8 +123,44 @@ export function shellHtml(mainPort: number): string {
           if (iframeEl.src !== url) iframeEl.src = url;
         }
 
+        function updateShipButtons() {
+          var isAgent = selectEl.value !== 'main';
+          document.getElementById('ship-btn').style.display = isAgent ? '' : 'none';
+          document.getElementById('discard-btn').style.display = isAgent ? '' : 'none';
+        }
+
         selectEl.addEventListener('change', function() {
           switchTo(selectEl.value);
+          updateShipButtons();
+        });
+
+        document.getElementById('ship-btn').addEventListener('click', async function() {
+          var slug = selectEl.value;
+          if (slug === 'main') return;
+          if (!confirm('Merge ' + slug + ' into main? This commits any pending changes in the worktree and runs git merge --no-ff.')) return;
+          var btn = document.getElementById('ship-btn');
+          btn.disabled = true; btn.textContent = 'shipping…';
+          try {
+            var res = await fetch(daemonOrigin + '/worktrees/' + slug + '/ship', { method: 'POST' });
+            var json = await res.json();
+            if (!res.ok) throw new Error(json.error || 'ship failed');
+            // On success the daemon broadcasts worktree:removed and the dropdown switches to main.
+          } catch (e) {
+            alert('Ship failed: ' + (e && e.message ? e.message : String(e)));
+          } finally {
+            btn.disabled = false; btn.textContent = 'Ship it';
+          }
+        });
+
+        document.getElementById('discard-btn').addEventListener('click', async function() {
+          var slug = selectEl.value;
+          if (slug === 'main') return;
+          if (!confirm('Discard worktree ' + slug + '? This kills its dev server and removes the worktree directory. Branch ' + slug + ' is kept.')) return;
+          try {
+            await fetch(daemonOrigin + '/worktrees/' + encodeURIComponent(slug), { method: 'DELETE' });
+          } catch (e) {
+            alert('Discard failed: ' + String(e));
+          }
         });
 
         function connect() {
@@ -146,6 +184,7 @@ export function shellHtml(mainPort: number): string {
               if (selectEl.value === msg.slug) {
                 selectEl.value = 'main';
                 switchTo('main');
+                updateShipButtons();
               }
               render();
             }
@@ -154,6 +193,7 @@ export function shellHtml(mainPort: number): string {
 
         connect();
         render();
+        updateShipButtons();
 
         // Detect missing main dev server with a soft probe.
         fetch('http://localhost:${mainPort}/', { method: 'HEAD', mode: 'no-cors' }).catch(function() {

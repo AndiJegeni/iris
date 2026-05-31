@@ -1,9 +1,8 @@
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { fileURLToPath } from 'node:url';
 import type { AgentRunner, RunEvent, RunRequest } from './types';
 
 /**
  * Compose the prompt the agent sees from the user's annotation.
- * Structure: short context block, then the user's literal prompt.
  */
 function buildPrompt(req: RunRequest): string {
   const ctx: string[] = [];
@@ -17,15 +16,20 @@ function buildPrompt(req: RunRequest): string {
   if (req.selector) ctx.push(`Selector: ${req.selector}`);
   if (req.text) ctx.push(`Element text: "${req.text}"`);
 
-  const header = ctx.length > 0 ? `Context (auto-captured from the browser):\n${ctx.map((l) => `  ${l}`).join('\n')}\n\n` : '';
+  const header =
+    ctx.length > 0
+      ? `Context (auto-captured from the browser):\n${ctx.map((l) => `  ${l}`).join('\n')}\n\n`
+      : '';
   return `${header}User request:\n${req.prompt}`;
 }
 
+const WORKER_PATH = fileURLToPath(new URL('./claude-worker.ts', import.meta.url));
+
 /**
- * Drive a single Claude Code session via the Agent SDK.
- *
- * Auth: `ANTHROPIC_API_KEY` must be in `process.env` when the daemon starts.
- *       The SDK does NOT inherit from a logged-in Claude Code CLI install.
+ * Drive a single Claude Code session. Spawns `claude-worker.ts` as a child
+ * process with `cwd` = the task's worktree, so the SDK's file edits land in the
+ * worktree (the SDK resolves edits against process.cwd(), ignoring its own cwd
+ * option — see claude-worker.ts).
  */
 export function createClaudeRunner(env: { anthropicKey: string | null }): AgentRunner {
   return async function* claudeRunner(req: RunRequest): AsyncGenerator<RunEvent> {
@@ -37,120 +41,81 @@ export function createClaudeRunner(env: { anthropicKey: string | null }): AgentR
       return;
     }
 
-    // SDK reads from process.env, not from a passed param. Make sure it's set.
-    process.env.ANTHROPIC_API_KEY = env.anthropicKey;
-
     yield { kind: 'status', status: 'running' };
 
-    const prompt = buildPrompt(req);
+    const proc = Bun.spawn(['bun', WORKER_PATH], {
+      cwd: req.cwd, // ← the worktree; becomes the worker's process.cwd()
+      env: {
+        ...process.env,
+        // CRITICAL: override PWD. Claude Code resolves the project dir from
+        // $PWD, not process.cwd(). The daemon inherited PWD=<main repo> from
+        // the shell that started it; without this override every worktree task
+        // would edit main. (chpwd/OLDPWD cleared for good measure.)
+        PWD: req.cwd,
+        OLDPWD: req.cwd,
+        ANTHROPIC_API_KEY: env.anthropicKey,
+      },
+      stdin: 'pipe',
+      stdout: 'pipe',
+      stderr: 'inherit',
+    });
+
+    // Send the prompt, then close stdin.
+    proc.stdin.write(JSON.stringify({ prompt: buildPrompt(req) }));
+    proc.stdin.end();
+
+    const onAbort = () => {
+      try {
+        proc.kill();
+      } catch {
+        // already exited
+      }
+    };
+    req.signal.addEventListener('abort', onAbort);
 
     try {
-      const iter = query({
-        prompt,
-        options: {
-          cwd: req.cwd,
-          // Allow file edits + reads + a permissive bash. The user has already
-          // consented by running the daemon.
-          allowedTools: ['Read', 'Edit', 'Write', 'Bash', 'Glob', 'Grep'],
-          // Keep the loop bounded.
-          maxTurns: 25,
-        },
-      });
-
-      let editedFiles = new Set<string>();
-      let lastSummary: string | undefined;
-
-      for await (const message of iter) {
-        if (req.signal.aborted) {
-          yield { kind: 'error', message: 'cancelled' };
-          return;
-        }
-        const event = translateSdkMessage(message, editedFiles);
-        if (event) yield event;
-        // Capture assistant text for summary if present
-        if (
-          typeof message === 'object' &&
-          message !== null &&
-          'type' in message &&
-          message.type === 'result'
-        ) {
-          // biome-ignore lint/suspicious/noExplicitAny: SDK message shape
-          const m = message as any;
-          lastSummary = m.result ?? m.summary;
+      // Read stdout as JSON-lines, yielding each RunEvent.
+      const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl = buffer.indexOf('\n');
+        while (nl !== -1) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (line) {
+            const ev = parseEvent(line);
+            if (ev) yield ev;
+          }
+          nl = buffer.indexOf('\n');
         }
       }
+      const tail = buffer.trim();
+      if (tail) {
+        const ev = parseEvent(tail);
+        if (ev) yield ev;
+      }
 
-      yield {
-        kind: 'done',
-        summary: lastSummary ?? (editedFiles.size > 0 ? `Edited ${editedFiles.size} file(s)` : 'No changes'),
-      };
-    } catch (err) {
-      yield {
-        kind: 'error',
-        message: err instanceof Error ? err.message : String(err),
-      };
+      const code = await proc.exited;
+      if (code !== 0 && !req.signal.aborted) {
+        yield {
+          kind: 'error',
+          message: `claude worker exited with code ${code} (see daemon logs)`,
+        };
+      }
+    } finally {
+      req.signal.removeEventListener('abort', onAbort);
     }
   };
 }
 
-/**
- * Map an SDK message to one of our RunEvents.
- * The SDK's message shape is evolving (`SDKAssistantMessage`, `SDKToolProgressMessage`,
- * `SDKResultMessage`, etc.). We pattern-match on the discriminator and emit
- * a coarse-grained event the overlay can render.
- */
-function translateSdkMessage(
-  // biome-ignore lint/suspicious/noExplicitAny: SDK message shape
-  message: any,
-  editedFiles: Set<string>,
-): RunEvent | null {
-  if (!message || typeof message !== 'object') return null;
-  const type = message.type;
-
-  // Assistant text (model output we want to stream as log lines)
-  if (type === 'assistant') {
-    const text = extractAssistantText(message);
-    if (text) return { kind: 'log', line: text };
+function parseEvent(line: string): RunEvent | null {
+  try {
+    return JSON.parse(line) as RunEvent;
+  } catch {
     return null;
   }
-
-  // Tool use lifecycle
-  if (type === 'tool_use' || type === 'tool_result' || type === 'tool_progress') {
-    const name = message.name ?? message.tool_name;
-    if (name === 'Edit' || name === 'Write') {
-      const file = message.input?.file_path ?? message.input?.path;
-      if (file && !editedFiles.has(file)) {
-        editedFiles.add(file);
-        return { kind: 'edit', file, description: name === 'Write' ? 'wrote' : 'edited' };
-      }
-    }
-    if (name === 'Bash') {
-      const cmd = message.input?.command;
-      if (cmd) return { kind: 'log', line: `$ ${String(cmd).slice(0, 200)}` };
-    }
-    if (name) return { kind: 'status', status: 'editing' };
-    return null;
-  }
-
-  if (type === 'result') {
-    return null; // handled separately for summary
-  }
-
-  return null;
-}
-
-// biome-ignore lint/suspicious/noExplicitAny: SDK message shape
-function extractAssistantText(m: any): string | null {
-  const content = m?.message?.content ?? m?.content;
-  if (!content) return null;
-  if (typeof content === 'string') return content.slice(0, 500);
-  if (Array.isArray(content)) {
-    const text = content
-      .filter((c) => c?.type === 'text')
-      .map((c) => c.text)
-      .join(' ')
-      .trim();
-    return text ? text.slice(0, 500) : null;
-  }
-  return null;
 }
