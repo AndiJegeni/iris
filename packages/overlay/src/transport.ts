@@ -145,12 +145,16 @@ class Transport {
 
 let _transport: Transport | null = null;
 
-/** Daemon URL is inferred from import.meta.url (we were loaded by the daemon). */
+/**
+ * Daemon URL inference. The overlay is loaded via `<script src="http://localhost:4747/overlay.js">`
+ * by the `<LocalAgents />` React component, so `import.meta.url` is the daemon URL.
+ */
 function inferDaemonUrl(): string {
   try {
     const u = new URL(import.meta.url);
     return `${u.protocol}//${u.host}`;
   } catch {
+    if (typeof window !== 'undefined') return window.location.origin;
     return 'http://localhost:4747';
   }
 }

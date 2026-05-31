@@ -1,6 +1,6 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { execSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { Worktree } from '@localagents/shared';
 import type { EventBus } from './events';
@@ -8,7 +8,7 @@ import type { EventBus } from './events';
 const WORKTREE_DIR_NAME = '.localagents-worktrees';
 const FIRST_AGENT_PORT = 3001;
 const MAX_PORT = 3199;
-const READY_TIMEOUT_MS = 30_000;
+const READY_TIMEOUT_MS = 60_000;
 const READY_POLL_INTERVAL_MS = 400;
 
 type ManagedWorktree = {
@@ -85,22 +85,34 @@ export class WorktreeManager {
     const slug = this.allocateSlug();
     const branch = `la/${slug}`;
     const path = join(this.worktreeRoot, slug);
-    const port = this.allocatePort();
+    const port = await this.allocatePort();
 
-    // Refuse if path exists (would conflict with `git worktree add`).
     if (existsSync(path)) {
-      try {
-        execSync(`git worktree remove --force ${quote(path)}`, { cwd: this.repoRoot });
-      } catch {
-        rmSync(path, { recursive: true, force: true });
-      }
+      rmSync(path, { recursive: true, force: true });
     }
 
-    // `-B` creates the branch (or moves it to current HEAD), then creates the worktree.
-    execSync(`git worktree add -B ${quote(branch)} ${quote(path)}`, {
-      cwd: this.repoRoot,
+    // Standalone local clone — NOT a `git worktree`. Linked worktrees share the
+    // primary repo's git-common-dir, and Claude Code resolves file edits to the
+    // PRIMARY worktree regardless of cwd — so worktree tasks would edit main.
+    // A clone is its own primary repo, so the agent edits stay isolated here.
+    // `--local` hardlinks git objects (fast, no object copy); only the working
+    // tree is checked out.
+    execSync(`git clone --local --quiet ${quote(this.repoRoot)} ${quote(path)}`, {
+      cwd: dirname(path),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    execSync(`git checkout -B ${quote(branch)}`, {
+      cwd: path,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    // Symlink node_modules from main so the dev server starts without install.
+    this.linkNodeModules(path);
+
+    // Carry main's UNCOMMITTED changes into the clone (clone only has committed
+    // state). Tracked edits via patch; untracked files copied best-effort. This
+    // is what brings <LocalAgents/> and your current work-in-progress along.
+    this.carryUncommittedChanges(path);
 
     const worktree: Worktree = {
       slug,
@@ -167,15 +179,9 @@ export class WorktreeManager {
       if (m.proc.exitCode === null) m.proc.kill('SIGKILL');
     }
 
-    try {
-      execSync(`git worktree remove --force ${quote(m.worktree.path)}`, {
-        cwd: this.repoRoot,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-    } catch {
-      if (existsSync(m.worktree.path)) {
-        rmSync(m.worktree.path, { recursive: true, force: true });
-      }
+    // Standalone clone — just delete the directory.
+    if (existsSync(m.worktree.path)) {
+      rmSync(m.worktree.path, { recursive: true, force: true });
     }
 
     this.worktrees.delete(slug);
@@ -211,12 +217,18 @@ export class WorktreeManager {
       return { ok: false, error: `commit failed: ${String(err)}` };
     }
 
+    // The agent branch lives in the CLONE (a separate repo), so fetch+merge it
+    // into main from the clone's path rather than a local `git merge`.
     try {
-      execSync(`git merge --no-ff ${quote(m.worktree.branch)} -m "Merge ${slug}"`, {
-        cwd: this.repoRoot,
-      });
+      execSync(
+        `git pull --no-edit --no-rebase ${quote(m.worktree.path)} ${quote(m.worktree.branch)}`,
+        { cwd: this.repoRoot, stdio: ['ignore', 'pipe', 'pipe'] },
+      );
     } catch (err) {
-      return { ok: false, error: `merge failed: ${String(err)}` };
+      return {
+        ok: false,
+        error: `merge into main failed (resolve conflicts manually): ${String(err)}`,
+      };
     }
 
     await this.remove(slug);
@@ -229,6 +241,87 @@ export class WorktreeManager {
     await Promise.all(slugs.map((s) => this.remove(s).catch(() => undefined)));
   }
 
+  /**
+   * Apply main's uncommitted tracked-file diff to the worktree, then copy over
+   * untracked (non-ignored) files. Best-effort: failures are logged, not fatal.
+   */
+  private carryUncommittedChanges(worktreePath: string): void {
+    // 1. Tracked changes (staged + unstaged) via a patch.
+    try {
+      const diff = execSync('git diff HEAD', {
+        cwd: this.repoRoot,
+        encoding: 'utf8',
+        maxBuffer: 64 * 1024 * 1024,
+      });
+      if (diff.trim()) {
+        execSync('git apply --whitespace=nowarn -', {
+          cwd: worktreePath,
+          input: diff,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+      }
+    } catch (err) {
+      process.stderr.write(
+        `[localagents] could not carry tracked changes into worktree: ${String(err)}\n`,
+      );
+    }
+
+    // 2. Untracked, non-ignored files (e.g. brand-new components).
+    try {
+      const out = execSync('git ls-files --others --exclude-standard', {
+        cwd: this.repoRoot,
+        encoding: 'utf8',
+        maxBuffer: 16 * 1024 * 1024,
+      });
+      const files = out.split('\n').map((l) => l.trim()).filter(Boolean);
+      for (const rel of files) {
+        const src = join(this.repoRoot, rel);
+        const dst = join(worktreePath, rel);
+        try {
+          mkdirSync(dirname(dst), { recursive: true });
+          copyFileSync(src, dst);
+        } catch {
+          // skip individual file failures
+        }
+      }
+    } catch {
+      // ls-files failed — ignore
+    }
+  }
+
+  /**
+   * Symlink node_modules from main into worktree (root level + every nested
+   * package or example that has its own). Walks one level deep for monorepos.
+   */
+  private linkNodeModules(worktreePath: string): void {
+    const tryLink = (subdir: string): void => {
+      const src = join(this.repoRoot, subdir, 'node_modules');
+      if (!existsSync(src)) return;
+      const dst = join(worktreePath, subdir, 'node_modules');
+      if (existsSync(dst)) return;
+      try {
+        symlinkSync(src, dst, 'dir');
+      } catch {
+        // ignore
+      }
+    };
+
+    tryLink('.');
+    // Walk one level — packages/* and examples/* commonly have their own.
+    for (const top of ['packages', 'examples', 'apps']) {
+      const topPath = join(this.repoRoot, top);
+      if (!existsSync(topPath)) continue;
+      try {
+        const entries = require('node:fs').readdirSync(topPath, { withFileTypes: true });
+        for (const ent of entries) {
+          if (ent.isDirectory()) tryLink(join(top, ent.name));
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+
   private allocateSlug(): string {
     while (true) {
       const candidate = `agent-${this.nextSlugNum++}`;
@@ -236,10 +329,11 @@ export class WorktreeManager {
     }
   }
 
-  private allocatePort(): number {
+  private async allocatePort(): Promise<number> {
     const used = new Set(Array.from(this.worktrees.values()).map((w) => w.worktree.port));
     for (let p = FIRST_AGENT_PORT; p <= MAX_PORT; p++) {
-      if (!used.has(p)) return p;
+      if (used.has(p)) continue;
+      if (await isPortFree(p)) return p;
     }
     throw new Error('no agent port available in 3001-3199');
   }
@@ -272,6 +366,25 @@ export class WorktreeManager {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * True if nothing is listening on `port`. Probes by attempting a TCP bind —
+ * more reliable than an HTTP fetch (catches non-HTTP listeners and zombie
+ * dev servers from prior runs that would otherwise cause EADDRINUSE).
+ */
+async function isPortFree(port: number): Promise<boolean> {
+  try {
+    const server = Bun.listen({
+      hostname: '0.0.0.0',
+      port,
+      socket: { data() {}, open() {}, close() {} },
+    });
+    server.stop(true);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Wrap a path in quotes for shell-safe command execution. */

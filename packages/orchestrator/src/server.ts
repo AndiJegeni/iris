@@ -58,13 +58,9 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
   });
   app.options('*', (c) => c.body(null, 204));
 
+  // Root: shell page with iframe + viewport switcher (M5).
   app.get('/', (c) =>
-    c.html(shellHtml(mainPort), 200, {
-      // Critical: allow our shell to embed user's dev server in an iframe.
-      // We can't strip the user's app's X-Frame-Options/CSP from here, but most
-      // dev servers (Next/Vite/etc.) don't set them by default.
-      'Cache-Control': 'no-store',
-    }),
+    c.html(shellHtml(mainPort), 200, { 'Cache-Control': 'no-store' }),
   );
 
   app.get('/health', (c) => c.json({ ok: true as const, repo: opts.repoRoot, version: VERSION }));
@@ -75,34 +71,6 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
       openai: { configured: Boolean(auth.openai), source: auth.source.openai },
     }),
   );
-
-  app.get('/worktrees', (c) => c.json(worktrees.list()));
-
-  app.post('/worktrees/spawn', async (c) => {
-    try {
-      const wt = await worktrees.spawnWorktree();
-      return c.json({ worktree: wt });
-    } catch (err) {
-      return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
-    }
-  });
-
-  app.post('/worktrees/:slug/ship', async (c) => {
-    const slug = c.req.param('slug');
-    const result = await worktrees.shipIt(slug);
-    if (result.ok) return c.json({ ok: true });
-    return c.json({ error: result.error }, 400);
-  });
-
-  app.delete('/worktrees/:slug', async (c) => {
-    const slug = c.req.param('slug');
-    try {
-      await worktrees.remove(slug);
-      return c.json({ ok: true });
-    } catch (err) {
-      return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
-    }
-  });
 
   app.get('/overlay.js', async (c) => {
     try {
@@ -123,11 +91,31 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
     }
   });
 
-  /**
-   * POST /annotate
-   * Body: Annotation. Picks the target worktree (same / new), enqueues a task,
-   * returns the created task. Live progress via WS /tasks.
-   */
+  app.get('/worktrees', (c) => c.json(worktrees.list()));
+  app.post('/worktrees/spawn', async (c) => {
+    try {
+      const wt = await worktrees.spawnWorktree();
+      return c.json({ worktree: wt });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
+    }
+  });
+  app.post('/worktrees/:slug/ship', async (c) => {
+    const slug = c.req.param('slug');
+    const result = await worktrees.shipIt(slug);
+    if (result.ok) return c.json({ ok: true });
+    return c.json({ error: result.error }, 400);
+  });
+  app.delete('/worktrees/:slug', async (c) => {
+    const slug = c.req.param('slug');
+    try {
+      await worktrees.remove(slug);
+      return c.json({ ok: true });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
+    }
+  });
+
   app.post('/annotate', async (c) => {
     const raw = await c.req.json().catch(() => null);
     const parsed = Annotation.safeParse(raw);
@@ -144,7 +132,6 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
       return c.json({ error: `backend "${annotation.backend}" not available yet` }, 400);
     }
 
-    // Pick target worktree.
     let worktreeSlug = 'main';
     let worktreePath = opts.repoRoot;
 
@@ -153,9 +140,12 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
         const wt = await worktrees.spawnWorktree();
         worktreeSlug = wt.slug;
         worktreePath = wt.path;
-        // Kick off readiness wait in the background; queue serializes within slug
-        // so the task starts only after the dev server is up.
-        void worktrees.waitForReady(wt.slug);
+        // Readiness is best-effort (only affects preview availability, not the
+        // agent run). Swallow its rejection so a slow/failed dev server can't
+        // crash the daemon.
+        worktrees.waitForReady(wt.slug).catch((err) => {
+          console.error(`[localagents] worktree ${wt.slug} dev server not ready:`, String(err));
+        });
       } catch (err) {
         return c.json({ error: `worktree spawn failed: ${String(err)}` }, 500);
       }
