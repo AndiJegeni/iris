@@ -1,5 +1,32 @@
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { type SDKUserMessage, query } from '@anthropic-ai/claude-agent-sdk';
+import type { AttachedImage } from '@localagents/shared';
 import type { AgentRunner, RunEvent, RunRequest } from './types';
+
+/**
+ * Build a streaming-input prompt carrying the user's text plus attached images
+ * as base64 content blocks. Claude is multimodal, so the agent sees the
+ * screenshots alongside the request. Used only when images are present; the
+ * plain string form is kept for the (common) text-only case.
+ */
+function imagePrompt(text: string, images: AttachedImage[]): AsyncIterable<SDKUserMessage> {
+  const message: SDKUserMessage = {
+    type: 'user',
+    parent_tool_use_id: null,
+    message: {
+      role: 'user',
+      content: [
+        { type: 'text', text },
+        ...images.map((img) => ({
+          type: 'image' as const,
+          source: { type: 'base64' as const, media_type: img.mediaType, data: img.dataBase64 },
+        })),
+      ],
+    },
+  };
+  return (async function* () {
+    yield message;
+  })();
+}
 
 /**
  * Compose the prompt the agent sees from the user's annotation.
@@ -17,7 +44,10 @@ function buildPrompt(req: RunRequest): string {
   if (req.selector) ctx.push(`Selector: ${req.selector}`);
   if (req.text) ctx.push(`Element text: "${req.text}"`);
 
-  const header = ctx.length > 0 ? `Context (auto-captured from the browser):\n${ctx.map((l) => `  ${l}`).join('\n')}\n\n` : '';
+  const header =
+    ctx.length > 0
+      ? `Context (auto-captured from the browser):\n${ctx.map((l) => `  ${l}`).join('\n')}\n\n`
+      : '';
   return `${header}User request:\n${req.prompt}`;
 }
 
@@ -42,7 +72,9 @@ export function createClaudeRunner(env: { anthropicKey: string | null }): AgentR
 
     yield { kind: 'status', status: 'running' };
 
-    const prompt = buildPrompt(req);
+    const promptText = buildPrompt(req);
+    // Text-only → pass the string; with attachments → stream a multimodal message.
+    const prompt = req.images.length > 0 ? imagePrompt(promptText, req.images) : promptText;
 
     try {
       const iter = query({
@@ -57,7 +89,7 @@ export function createClaudeRunner(env: { anthropicKey: string | null }): AgentR
         },
       });
 
-      let editedFiles = new Set<string>();
+      const editedFiles = new Set<string>();
       let lastSummary: string | undefined;
 
       for await (const message of iter) {
@@ -82,7 +114,9 @@ export function createClaudeRunner(env: { anthropicKey: string | null }): AgentR
 
       yield {
         kind: 'done',
-        summary: lastSummary ?? (editedFiles.size > 0 ? `Edited ${editedFiles.size} file(s)` : 'No changes'),
+        summary:
+          lastSummary ??
+          (editedFiles.size > 0 ? `Edited ${editedFiles.size} file(s)` : 'No changes'),
       };
     } catch (err) {
       yield {

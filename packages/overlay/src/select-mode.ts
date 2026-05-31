@@ -1,50 +1,96 @@
 import { OVERLAY_HOST_ID } from './index';
 
 export type SelectModeHandlers = {
-  onEnter: () => void;
+  /** Fired when the hover/pick "selecting" mode turns on or off (armed OR Alt-held, and not paused). */
+  onSelectingChange: (selecting: boolean) => void;
+  /** Fired when the persistent armed state (driven by the pill) changes. */
+  onArmedChange: (armed: boolean) => void;
   onHover: (el: Element | null) => void;
-  onCancel: () => void;
   onPick: (el: Element) => void;
+};
+
+export type SelectModeController = {
+  /** Persistently turn select mode on (pill click). Survives picks/sends until disarmed. */
+  arm: () => void;
+  /** Persistently turn select mode off (pill × button). */
+  disarm: () => void;
+  /** Temporarily suspend hover/pick (e.g. while a popover is open) without disarming. */
+  pause: () => void;
+  resume: () => void;
+  dispose: () => void;
 };
 
 /**
  * Select mode UX:
- *   - Hold Alt/Option to enter (or arm by clicking the pill in M4+).
+ *   - Click the pill to arm: select mode stays on across picks and sends until
+ *     you click the × (disarm). This is the primary, sticky mode.
+ *   - Or hold Alt/Option for a transient session (released → cancelled).
  *   - Move the cursor: nearest visible element is outlined.
- *   - Click while Alt is held: pick. Outline disappears, handler fires.
- *   - Release Alt OR press Escape: cancel.
+ *   - Click an element while selecting: pick. Outline disappears, handler fires.
+ *   - Escape: disarm + cancel everything.
  */
-export function startSelectMode(handlers: SelectModeHandlers): () => void {
-  let active = false;
+export function startSelectMode(handlers: SelectModeHandlers): SelectModeController {
+  let armed = false;
+  let altActive = false;
+  let paused = false;
   let lastHovered: Element | null = null;
+  let lastSelecting = false;
+  let lastArmed = false;
 
-  const enter = () => {
-    if (active) return;
-    active = true;
-    handlers.onEnter();
+  const isSelecting = () => (armed || altActive) && !paused;
+
+  const emit = () => {
+    const selecting = isSelecting();
+    if (selecting !== lastSelecting) {
+      lastSelecting = selecting;
+      if (!selecting) lastHovered = null;
+      handlers.onSelectingChange(selecting);
+    }
+    if (armed !== lastArmed) {
+      lastArmed = armed;
+      handlers.onArmedChange(armed);
+    }
   };
 
-  const cancel = () => {
-    if (!active) return;
-    active = false;
-    lastHovered = null;
-    handlers.onCancel();
+  const arm = () => {
+    armed = true;
+    emit();
+  };
+  const disarm = () => {
+    armed = false;
+    emit();
+  };
+  const pause = () => {
+    paused = true;
+    emit();
+  };
+  const resume = () => {
+    paused = false;
+    emit();
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
-      cancel();
+      armed = false;
+      altActive = false;
+      emit();
       return;
     }
-    if (e.altKey) enter();
+    if (e.altKey && !altActive) {
+      altActive = true;
+      emit();
+    }
   };
 
   const onKeyUp = (e: KeyboardEvent) => {
-    if (!e.altKey) cancel();
+    if (!e.altKey && altActive) {
+      altActive = false;
+      emit();
+    }
   };
 
   const onMouseMove = (e: MouseEvent) => {
-    if (!active) return;
+    if (!isSelecting()) return;
     const el = pickElementUnder(e.clientX, e.clientY);
     if (el === lastHovered) return;
     lastHovered = el;
@@ -52,8 +98,11 @@ export function startSelectMode(handlers: SelectModeHandlers): () => void {
   };
 
   const onClickCapture = (e: MouseEvent) => {
-    if (!active) return;
-    if (!e.altKey) return;
+    // Never treat clicks on our own overlay (pill, popover) as element picks.
+    if ((e.target as Element | null)?.id === OVERLAY_HOST_ID) return;
+    if (!isSelecting()) return;
+    // When armed, a plain click picks. For transient Alt mode, require Alt held.
+    if (!armed && !e.altKey) return;
     const el = pickElementUnder(e.clientX, e.clientY);
     if (!el) return;
     e.preventDefault();
@@ -62,8 +111,14 @@ export function startSelectMode(handlers: SelectModeHandlers): () => void {
     handlers.onPick(el);
   };
 
-  // Cancel select mode if window loses focus (avoids "stuck Alt" state)
-  const onBlur = () => cancel();
+  // Drop the transient Alt session if the window loses focus (avoids "stuck Alt"),
+  // but keep the sticky armed state.
+  const onBlur = () => {
+    if (altActive) {
+      altActive = false;
+      emit();
+    }
+  };
 
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('keyup', onKeyUp);
@@ -72,13 +127,15 @@ export function startSelectMode(handlers: SelectModeHandlers): () => void {
   window.addEventListener('click', onClickCapture, { capture: true });
   window.addEventListener('blur', onBlur);
 
-  return () => {
+  const dispose = () => {
     window.removeEventListener('keydown', onKeyDown);
     window.removeEventListener('keyup', onKeyUp);
     window.removeEventListener('mousemove', onMouseMove);
     window.removeEventListener('click', onClickCapture, { capture: true });
     window.removeEventListener('blur', onBlur);
   };
+
+  return { arm, disarm, pause, resume, dispose };
 }
 
 /**

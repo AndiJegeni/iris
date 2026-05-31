@@ -12,10 +12,7 @@ export type RunnerFactoryOpts = {
  * Resolve a backend identifier to a runner. Returns null if the requested
  * backend isn't available (e.g. Codex requested but not implemented yet).
  */
-export function getRunner(
-  backend: Backend | 'echo',
-  opts: RunnerFactoryOpts,
-): AgentRunner | null {
+export function getRunner(backend: Backend | 'echo', opts: RunnerFactoryOpts): AgentRunner | null {
   if (backend === 'claude') return createClaudeRunner({ anthropicKey: opts.anthropicKey });
   if (backend === 'echo') return echoRunner;
   // 'codex' is M6.

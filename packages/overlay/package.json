@@ -4,7 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.tsx"
+    ".": "./src/index.tsx",
+    "./ui/pill": "./src/ui/pill.tsx",
+    "./ui/element-outline": "./src/ui/element-outline.tsx",
+    "./ui/picked-popover": "./src/ui/picked-popover.tsx",
+    "./ui/task-panel": "./src/ui/task-panel.tsx"
   },
   "dependencies": {
     "@localagents/shared": "workspace:*",

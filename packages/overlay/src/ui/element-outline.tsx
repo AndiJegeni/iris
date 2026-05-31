@@ -1,3 +1,4 @@
+/** @jsxImportSource preact */
 import { useEffect, useState } from 'preact/hooks';
 
 type Rect = { top: number; left: number; width: number; height: number };

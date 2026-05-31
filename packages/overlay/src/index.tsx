@@ -1,3 +1,4 @@
+/** @jsxImportSource preact */
 import { render } from 'preact';
 import { Overlay } from './overlay';
 

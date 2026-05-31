@@ -15,6 +15,12 @@ export const echoRunner: AgentRunner = async function* (req: RunRequest): AsyncG
   yield { kind: 'log', line: `Echo received prompt: "${req.prompt.slice(0, 80)}"` };
   await sleep(400);
 
+  if (req.images.length > 0) {
+    const names = req.images.map((img) => img.name ?? img.mediaType).join(', ');
+    yield { kind: 'log', line: `Attached ${req.images.length} image(s): ${names}` };
+    await sleep(400);
+  }
+
   if (req.source) {
     yield {
       kind: 'log',
