@@ -73,6 +73,14 @@ function describeAuth(label: string, configured: boolean, source: string, envNam
 }
 
 async function main(): Promise<void> {
+  // Safety net: never let a stray rejection or exception take down the daemon.
+  process.on('unhandledRejection', (reason) => {
+    process.stderr.write(`[localagents] unhandled rejection: ${String(reason)}\n`);
+  });
+  process.on('uncaughtException', (err) => {
+    process.stderr.write(`[localagents] uncaught exception: ${String(err)}\n`);
+  });
+
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
     printHelp();

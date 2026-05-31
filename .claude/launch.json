@@ -2,16 +2,26 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "next-example",
+      "name": "example-direct",
       "runtimeExecutable": "bun",
-      "runtimeArgs": ["run", "--cwd", "examples/next-app", "dev"],
-      "port": 3000
+      "runtimeArgs": ["run", "--cwd", "examples/next-app", "dev", "--port", "3200"],
+      "port": 3200,
+      "autoPort": false
     },
     {
       "name": "localagents-shell",
-      "runtimeExecutable": "echo",
-      "runtimeArgs": ["shell at :4747"],
-      "port": 4747
+      "runtimeExecutable": "bun",
+      "runtimeArgs": [
+        "packages/cli/src/index.ts",
+        "--port",
+        "4747",
+        "--main-port",
+        "3200",
+        "--dev-cmd",
+        "cd examples/next-app && bun run dev --port %PORT%"
+      ],
+      "port": 4747,
+      "autoPort": false
     }
   ]
 }
