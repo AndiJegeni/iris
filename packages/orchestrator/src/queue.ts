@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Annotation, Task, TaskStatus } from '@localagents/shared';
+import type { Annotation, Task, TaskStatus, TranscriptEntry } from '@localagents/shared';
 import type { AgentRunner, RunRequest } from './agents/types';
 import type { EventBus } from './events';
 
@@ -8,7 +8,16 @@ type QueueEntry = {
   request: Omit<RunRequest, 'signal'>;
   runner: AgentRunner;
   abort: AbortController;
+  /** Backend session id, captured on first run; replayed for follow-ups. */
+  sessionId?: string;
 };
+
+/** Result of a follow-up message attempt. */
+export type ContinueResult = { ok: true; task: Task } | { ok: false; error: string };
+
+function isRunnable(status: TaskStatus): boolean {
+  return status === 'queued' || status === 'running' || status === 'editing';
+}
 
 /**
  * Per-worktree FIFO task queue.
@@ -23,8 +32,15 @@ export class TaskQueue {
   private waiting = new Map<string, QueueEntry[]>(); // by worktreeSlug
   private running = new Map<string, QueueEntry>(); // by worktreeSlug
   private byId = new Map<string, QueueEntry>();
+  /** Per-task structured conversation, retained after completion for follow-ups. */
+  private transcripts = new Map<string, TranscriptEntry[]>();
 
   constructor(private readonly bus: EventBus) {}
+
+  /** The full structured transcript for a task (empty if unknown). */
+  getTranscript(taskId: string): TranscriptEntry[] {
+    return this.transcripts.get(taskId) ?? [];
+  }
 
   /** Snapshot every known task. Used to populate `hello` events. */
   list(): Task[] {
@@ -64,8 +80,55 @@ export class TaskQueue {
     this.waiting.set(worktreeSlug, q);
 
     this.bus.broadcast({ type: 'task:created', task });
+    // Seed the transcript with the user's opening message (backend-agnostic).
+    this.appendEntry(task.id, { id: randomUUID(), role: 'user', at: now, text: annotation.prompt });
     void this.pump(worktreeSlug);
     return task;
+  }
+
+  /**
+   * Send a follow-up message to an existing task, resuming its backend session
+   * so the agent keeps full context. Rejected while the task is still running.
+   */
+  continue(taskId: string, text: string): ContinueResult {
+    const entry = this.byId.get(taskId);
+    if (!entry) return { ok: false, error: 'task not found' };
+    if (isRunnable(entry.task.status)) return { ok: false, error: 'task is still running' };
+
+    // Record the follow-up, then re-arm the entry to resume with the new prompt.
+    this.appendEntry(taskId, { id: randomUUID(), role: 'user', at: Date.now(), text });
+    entry.abort = new AbortController();
+    entry.request = {
+      ...entry.request,
+      prompt: text,
+      ...(entry.sessionId ? { resumeSessionId: entry.sessionId } : {}),
+    };
+    this.updateStatus(entry, 'queued');
+
+    const slug = entry.task.worktreeSlug;
+    const q = this.waiting.get(slug) ?? [];
+    q.push(entry);
+    this.waiting.set(slug, q);
+    void this.pump(slug);
+    return { ok: true, task: entry.task };
+  }
+
+  /** Append a transcript entry, or update one in place when its id already exists. */
+  private appendEntry(taskId: string, entry: TranscriptEntry): void {
+    const cur = this.transcripts.get(taskId) ?? [];
+    const idx = cur.findIndex((e) => e.id === entry.id);
+    let merged: TranscriptEntry;
+    let next: TranscriptEntry[];
+    if (idx >= 0) {
+      merged = { ...cur[idx], ...entry };
+      next = [...cur];
+      next[idx] = merged;
+    } else {
+      merged = entry;
+      next = [...cur, entry];
+    }
+    this.transcripts.set(taskId, next);
+    this.bus.broadcast({ type: 'task:entry', id: taskId, entry: merged });
   }
 
   cancel(taskId: string): boolean {
@@ -113,6 +176,12 @@ export class TaskQueue {
           case 'log':
             this.bus.broadcast({ type: 'task:log', id: next.task.id, line: ev.line });
             break;
+          case 'entry':
+            this.appendEntry(next.task.id, ev.entry);
+            break;
+          case 'session':
+            next.sessionId = ev.sessionId;
+            break;
           case 'done':
             this.updateStatus(next, 'done', ev.summary);
             break;
@@ -129,7 +198,8 @@ export class TaskQueue {
       this.updateStatus(next, 'failed', err instanceof Error ? err.message : String(err));
     } finally {
       this.running.delete(slug);
-      this.byId.delete(next.task.id);
+      // Keep the entry in `byId` (and its transcript) after completion so a
+      // follow-up message can resume the session. Dropped only on cancel.
       void this.pump(slug);
     }
   }

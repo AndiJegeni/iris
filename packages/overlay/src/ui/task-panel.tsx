@@ -1,14 +1,24 @@
 /** @jsxImportSource preact */
-import type { Task } from '@localagents/shared';
+import type { Task, TranscriptEntry } from '@localagents/shared';
 import { useEffect, useState } from 'preact/hooks';
+import { TaskChat } from './task-chat';
+import { type OverlayTheme, type ThemeTokens, tokens } from './theme';
 
 type TaskPanelProps = {
   tasks: Task[];
   logs: Record<string, string[]>;
+  /** Structured per-task transcripts for the chat view (optional). */
+  transcripts?: Record<string, TranscriptEntry[]>;
+  theme?: OverlayTheme;
   onCancel: (id: string) => void;
+  /** Send a follow-up message to a task (resumes its session). */
+  onSendMessage?: (id: string, text: string) => void | Promise<void>;
+  /** Called when a task's chat is opened (e.g. to load its full transcript). */
+  onOpenChat?: (id: string) => void;
 };
 
 const DRAWER_WIDTH = 400;
+const CHAT_WIDTH = 460;
 const DRAWER_MARGIN = 8;
 
 function isRunning(t: Task): boolean {
@@ -57,17 +67,27 @@ const DOT_COLOR: Record<Task['status'], string> = {
 /**
  * Top-right "Background tasks" button (icon + running count) that opens a
  * Conductor-style panel: Running section with Stop + transcript, Finished
- * section with Clear. Light theme to match the message box.
+ * section with Clear. Clicking a task's "View transcript" swaps the panel into
+ * a full chat view (see TaskChat). Theme-aware (dark/light).
  */
-export function TaskPanel({ tasks, logs, onCancel }: TaskPanelProps) {
+export function TaskPanel({
+  tasks,
+  logs,
+  transcripts,
+  theme = 'dark',
+  onCancel,
+  onSendMessage,
+  onOpenChat,
+}: TaskPanelProps) {
+  const t = tokens(theme);
   const [open, setOpen] = useState(false);
   const [cleared, setCleared] = useState<Set<string>>(() => new Set());
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [chatTaskId, setChatTaskId] = useState<string | null>(null);
   const [, setTick] = useState(0);
 
   const running = tasks.filter(isRunning).sort((a, b) => a.createdAt - b.createdAt);
   const finished = tasks
-    .filter((t) => !isRunning(t) && !cleared.has(t.id))
+    .filter((task) => !isRunning(task) && !cleared.has(task.id))
     .sort((a, b) => b.updatedAt - a.updatedAt);
 
   // Re-render every second while tasks run, to tick the elapsed timers.
@@ -77,7 +97,35 @@ export function TaskPanel({ tasks, logs, onCancel }: TaskPanelProps) {
     return () => window.clearInterval(id);
   }, [running.length]);
 
+  const chatTask = chatTaskId ? tasks.find((task) => task.id === chatTaskId) : undefined;
+  // If the chatted task disappears, fall back to the list.
+  useEffect(() => {
+    if (chatTaskId && !chatTask) setChatTaskId(null);
+  }, [chatTaskId, chatTask]);
+
   if (tasks.length === 0) return null;
+
+  const width = chatTask ? CHAT_WIDTH : DRAWER_WIDTH;
+
+  const openChat = (id: string) => {
+    setChatTaskId(id);
+    onOpenChat?.(id);
+  };
+
+  // Every chat shown as a tab in the chat header (stable order, cleared hidden).
+  const chatTabs = tasks
+    .filter((task) => !cleared.has(task.id) || task.id === chatTaskId)
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .map((task) => ({ id: task.id, title: task.prompt, status: task.status }));
+
+  const closeTab = (id: string) => {
+    setCleared((prev) => new Set(prev).add(id));
+    if (id === chatTaskId) {
+      const next = chatTabs.find((tb) => tb.id !== id)?.id ?? null;
+      setChatTaskId(next);
+      if (next) onOpenChat?.(next);
+    }
+  };
 
   return (
     <>
@@ -85,81 +133,116 @@ export function TaskPanel({ tasks, logs, onCancel }: TaskPanelProps) {
         type="button"
         onClick={() => setOpen((o) => !o)}
         style={{
-          ...buttonStyle,
-          right: open ? `${DRAWER_WIDTH + DRAWER_MARGIN + 10}px` : '14px',
-          background: open ? '#e0e7ff' : '#eef2ff',
+          ...buttonStyle(t),
+          right: open ? `${width + DRAWER_MARGIN + 10}px` : '14px',
         }}
         title="Background tasks"
       >
-        <DoubleChevron />
-        {running.length > 0 ? <span style={countStyle}>{running.length}</span> : null}
+        <DoubleChevron color={t.accent} />
+        {running.length > 0 ? (
+          <span style={{ ...countStyle, color: t.accent }}>{running.length}</span>
+        ) : null}
       </button>
 
       {open ? (
-        <div style={panelStyle}>
-          <div style={panelHeader}>
-            <span style={{ fontWeight: 600, fontSize: '15px' }}>Background Tasks</span>
-            <button type="button" onClick={() => setOpen(false)} style={iconBtn} aria-label="Close">
-              <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-                <path
-                  d="M4 4 L12 12 M12 4 L4 12"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
-          </div>
-
-          <div style={{ flex: 1, overflowY: 'auto', padding: '4px 16px 16px' }}>
-            {running.length > 0 ? (
-              <>
-                <div style={sectionHeader}>
-                  <span>Running</span>
-                </div>
-                {running.map((t) => (
-                  <TaskRow
-                    key={t.id}
-                    task={t}
-                    logs={logs[t.id] ?? []}
-                    expanded={expandedId === t.id}
-                    onToggle={() => setExpandedId((id) => (id === t.id ? null : t.id))}
-                    onCancel={() => onCancel(t.id)}
-                  />
-                ))}
-              </>
-            ) : null}
-
-            {finished.length > 0 ? (
-              <>
-                <div style={{ ...sectionHeader, marginTop: running.length > 0 ? '14px' : '4px' }}>
-                  <span>Finished</span>
-                  <button
-                    type="button"
-                    style={clearBtn}
-                    onClick={() => setCleared(new Set(tasks.map((t) => t.id)))}
-                  >
-                    Clear
-                  </button>
-                </div>
-                {finished.map((t) => (
-                  <TaskRow
-                    key={t.id}
-                    task={t}
-                    logs={logs[t.id] ?? []}
-                    expanded={expandedId === t.id}
-                    onToggle={() => setExpandedId((id) => (id === t.id ? null : t.id))}
-                  />
-                ))}
-              </>
-            ) : null}
-
-            {running.length === 0 && finished.length === 0 ? (
-              <div style={{ color: '#a1a1aa', fontSize: '13px', padding: '12px 0' }}>
-                No tasks yet.
+        <div style={{ ...panelStyle(t), width: `${width}px` }}>
+          {chatTask ? (
+            <TaskChat
+              task={chatTask}
+              tabs={chatTabs}
+              entries={transcripts?.[chatTask.id] ?? []}
+              logsFallback={logs[chatTask.id] ?? []}
+              theme={theme}
+              busy={isRunning(chatTask)}
+              onBack={() => setChatTaskId(null)}
+              onSelectTab={openChat}
+              onCloseTab={closeTab}
+              onSend={(text) => onSendMessage?.(chatTask.id, text)}
+              {...(isRunning(chatTask) ? { onCancel: () => onCancel(chatTask.id) } : {})}
+            />
+          ) : (
+            <>
+              <div style={panelHeader(t)}>
+                <span style={{ fontWeight: 600, fontSize: '15px' }}>Background Tasks</span>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  style={iconBtn(t)}
+                  aria-label="Close"
+                >
+                  <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+                    <path
+                      d="M4 4 L12 12 M12 4 L4 12"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
               </div>
-            ) : null}
-          </div>
+
+              <div style={{ flex: 1, overflowY: 'auto', padding: '4px 16px 16px' }}>
+                {running.length > 0 ? (
+                  <>
+                    <div style={sectionHeader(t)}>
+                      <span>Running</span>
+                    </div>
+                    {running.map((task) => (
+                      <TaskRow
+                        key={task.id}
+                        task={task}
+                        t={t}
+                        hasTranscript={
+                          (logs[task.id]?.length ?? 0) > 0 ||
+                          (transcripts?.[task.id]?.length ?? 0) > 0
+                        }
+                        onOpenChat={() => openChat(task.id)}
+                        onCancel={() => onCancel(task.id)}
+                      />
+                    ))}
+                  </>
+                ) : null}
+
+                {finished.length > 0 ? (
+                  <>
+                    <div
+                      style={{
+                        ...sectionHeader(t),
+                        marginTop: running.length > 0 ? '14px' : '4px',
+                      }}
+                    >
+                      <span>Finished</span>
+                      <button
+                        type="button"
+                        style={clearBtn(t)}
+                        onClick={() => setCleared(new Set(tasks.map((task) => task.id)))}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                    {finished.map((task) => (
+                      <TaskRow
+                        key={task.id}
+                        task={task}
+                        t={t}
+                        hasTranscript={
+                          (logs[task.id]?.length ?? 0) > 0 ||
+                          (transcripts?.[task.id]?.length ?? 0) > 0
+                        }
+                        onOpenChat={() => openChat(task.id)}
+                      />
+                    ))}
+                  </>
+                ) : null}
+
+                {running.length === 0 && finished.length === 0 ? (
+                  <div style={{ color: t.textFaint, fontSize: '13px', padding: '12px 0' }}>
+                    No tasks yet.
+                  </div>
+                ) : null}
+              </div>
+            </>
+          )}
         </div>
       ) : null}
     </>
@@ -168,15 +251,15 @@ export function TaskPanel({ tasks, logs, onCancel }: TaskPanelProps) {
 
 type TaskRowProps = {
   task: Task;
-  logs: string[];
-  expanded: boolean;
-  onToggle: () => void;
+  t: ThemeTokens;
+  hasTranscript: boolean;
+  onOpenChat: () => void;
   onCancel?: () => void;
 };
 
-function TaskRow({ task, logs, expanded, onToggle, onCancel }: TaskRowProps) {
+function TaskRow({ task, t, hasTranscript, onOpenChat, onCancel }: TaskRowProps) {
   return (
-    <div style={cardStyle}>
+    <div style={cardStyle(t)}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '9px' }}>
         <span
           style={{
@@ -192,19 +275,20 @@ function TaskRow({ task, logs, expanded, onToggle, onCancel }: TaskRowProps) {
           }}
         />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 500, fontSize: '14px', color: '#18181b' }}>{task.prompt}</div>
-          <div style={{ color: '#71717a', fontSize: '12px', marginTop: '2px' }}>
-            {statusLine(task)} <span style={{ color: '#a1a1aa' }}>· {elapsed(task)}</span>
+          <div style={{ fontWeight: 500, fontSize: '14px', color: t.textPrimary }}>
+            {task.prompt}
           </div>
-          {logs.length > 0 ? (
-            <button type="button" style={transcriptLink} onClick={onToggle}>
-              {expanded ? 'Hide transcript' : 'View transcript'}
+          <div style={{ color: t.textMuted, fontSize: '12px', marginTop: '2px' }}>
+            {statusLine(task)} <span style={{ color: t.textFaint }}>· {elapsed(task)}</span>
+          </div>
+          {hasTranscript ? (
+            <button type="button" style={transcriptLink(t)} onClick={onOpenChat}>
+              View transcript
             </button>
           ) : null}
-          {expanded && logs.length > 0 ? <pre style={transcriptBox}>{logs.join('\n')}</pre> : null}
         </div>
         {onCancel ? (
-          <button type="button" style={stopBtn} onClick={onCancel}>
+          <button type="button" style={stopBtn(t)} onClick={onCancel}>
             Stop
           </button>
         ) : null}
@@ -213,10 +297,10 @@ function TaskRow({ task, logs, expanded, onToggle, onCancel }: TaskRowProps) {
   );
 }
 
-function DoubleChevron() {
+function DoubleChevron({ color }: { color: string }) {
   return (
     <svg viewBox="0 0 20 20" width="17" height="17" style={{ display: 'block' }} aria-hidden="true">
-      <g stroke="#2563eb" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+      <g stroke={color} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
         <path d="M3 5 L8 10 L3 15" />
         <path d="M10 5 L15 10 L10 15" />
       </g>
@@ -224,7 +308,7 @@ function DoubleChevron() {
   );
 }
 
-const buttonStyle = {
+const buttonStyle = (t: ThemeTokens) => ({
   position: 'fixed' as const,
   top: '14px',
   right: '14px',
@@ -234,119 +318,102 @@ const buttonStyle = {
   display: 'inline-flex',
   alignItems: 'center',
   gap: '7px',
-  background: '#eef2ff',
-  border: '1px solid rgba(37, 99, 235, 0.18)',
+  background: t.controlBg,
+  border: `1px solid ${t.controlBorder}`,
   borderRadius: '999px',
   cursor: 'pointer',
-  boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+  boxShadow: t.pillShadow,
   pointerEvents: 'auto' as const,
-};
+});
 
 const countStyle = {
   fontSize: '13px',
   fontWeight: 600,
-  color: '#1d4ed8',
   fontFamily: 'ui-sans-serif, system-ui, sans-serif',
 };
 
-const panelStyle = {
+const panelStyle = (t: ThemeTokens) => ({
   position: 'fixed' as const,
   top: `${DRAWER_MARGIN}px`,
   right: `${DRAWER_MARGIN}px`,
   bottom: `${DRAWER_MARGIN}px`,
-  width: `${DRAWER_WIDTH}px`,
-  background: '#ffffff',
-  border: '1px solid rgba(0,0,0,0.08)',
+  background: t.surfaceBg,
+  border: `1px solid ${t.surfaceBorder}`,
   borderRadius: '16px',
-  boxShadow: '0 16px 48px rgba(0,0,0,0.22), 0 2px 8px rgba(0,0,0,0.1)',
+  boxShadow: t.surfaceShadow,
   pointerEvents: 'auto' as const,
   display: 'flex',
   flexDirection: 'column' as const,
-  color: '#18181b',
+  color: t.textPrimary,
   fontFamily: 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
   overflow: 'hidden',
-};
+});
 
-const panelHeader = {
+const panelHeader = (t: ThemeTokens) => ({
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
   padding: '16px 16px 10px',
-  borderBottom: '1px solid #f4f4f5',
-};
+  borderBottom: `1px solid ${t.surfaceBorder}`,
+});
 
-const sectionHeader = {
+const sectionHeader = (t: ThemeTokens) => ({
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  color: '#71717a',
+  color: t.textMuted,
   fontSize: '12px',
   fontWeight: 500,
   padding: '8px 2px 6px',
-};
+});
 
-const cardStyle = {
-  background: '#f4f4f5',
+const cardStyle = (t: ThemeTokens) => ({
+  background: t.controlBg,
   borderRadius: '10px',
   padding: '11px 12px',
   marginBottom: '7px',
-};
+});
 
-const stopBtn = {
-  background: '#ffffff',
-  border: '1px solid #e4e4e7',
+const stopBtn = (t: ThemeTokens) => ({
+  background: t.surfaceBg,
+  border: `1px solid ${t.controlBorder}`,
   borderRadius: '7px',
   padding: '4px 11px',
   fontSize: '12px',
   fontWeight: 500,
-  color: '#3f3f46',
+  color: t.textMuted,
   cursor: 'pointer',
   flexShrink: 0,
   fontFamily: 'inherit',
-};
+});
 
-const clearBtn = {
+const clearBtn = (t: ThemeTokens) => ({
   background: 'transparent',
   border: 'none',
-  color: '#2563eb',
+  color: t.link,
   fontSize: '12px',
   cursor: 'pointer',
   padding: 0,
   fontFamily: 'inherit',
-};
+});
 
-const transcriptLink = {
+const transcriptLink = (t: ThemeTokens) => ({
   background: 'transparent',
   border: 'none',
-  color: '#2563eb',
+  color: t.link,
   fontSize: '12px',
   cursor: 'pointer',
   padding: 0,
   marginTop: '4px',
   display: 'block',
   fontFamily: 'inherit',
-};
+});
 
-const transcriptBox = {
-  marginTop: '7px',
-  padding: '8px',
-  background: '#18181b',
-  color: '#e4e4e7',
-  borderRadius: '7px',
-  fontSize: '11px',
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  lineHeight: 1.5,
-  maxHeight: '160px',
-  overflow: 'auto',
-  whiteSpace: 'pre-wrap' as const,
-  wordBreak: 'break-word' as const,
-};
-
-const iconBtn = {
+const iconBtn = (t: ThemeTokens) => ({
   background: 'transparent',
   border: 'none',
-  color: '#a1a1aa',
+  color: t.textFaint,
   cursor: 'pointer',
   padding: '2px',
   display: 'inline-flex',
-};
+});
