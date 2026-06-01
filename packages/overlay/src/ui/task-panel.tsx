@@ -269,9 +269,6 @@ function TaskRow({ task, t, hasTranscript, onOpenChat, onCancel }: TaskRowProps)
             background: DOT_COLOR[task.status],
             marginTop: '5px',
             flexShrink: 0,
-            ...(isRunning(task)
-              ? { animation: 'localagents-pulse 1.4s ease-in-out infinite' }
-              : {}),
           }}
         />
         <div style={{ flex: 1, minWidth: 0 }}>

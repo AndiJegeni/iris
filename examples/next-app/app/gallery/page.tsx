@@ -224,6 +224,12 @@ export default function Gallery() {
     };
   }, [theme]);
 
+  // Bumping this remounts the entrance-test popover, replaying its open animation.
+  const [replayKey, setReplayKey] = useState(0);
+
+  // Live spacing tokens for the playground — drive the popover's CSS variables.
+  const [pad, setPad] = useState({ padX: 10, padT: 10, padB: 8, gap: 8 });
+
   if (!mounted) return null;
 
   // --- Pill variants ---
@@ -406,6 +412,7 @@ export default function Gallery() {
           color: 'var(--ga-text)',
           fontFamily:
             'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+          letterSpacing: '-0.02em',
         } as CSSProperties
       }
     >
@@ -549,7 +556,7 @@ export default function Gallery() {
             confidence: v.confidence,
           };
           return (
-            <Frame key={v.label} label={`PickedPopover / ${v.label}`} height={360} hint={v.hint}>
+            <Frame key={v.label} label={`PickedPopover / ${v.label}`} height={520} hint={v.hint}>
               {/* Show the would-be target so the popover anchor reads naturally */}
               <div
                 style={{
@@ -583,6 +590,211 @@ export default function Gallery() {
             </Frame>
           );
         })}
+      </Section>
+
+      <Section title="PickedPopover · entrance animation" columns={1}>
+        {(() => {
+          const targetRect = { top: 20, left: 16, width: 140, height: 32 };
+          const el = fakeElement(targetRect);
+          const resolution = {
+            source: { file: 'app/page.tsx', line: 14, column: 9 },
+            selector: 'main > section.card > button.cta',
+            componentPath: ['Home', 'Card', 'Button'],
+            text: 'Get started',
+            confidence: 'high' as const,
+          };
+          return (
+            <div style={{ maxWidth: 520 }}>
+              <button
+                type="button"
+                onClick={() => setReplayKey((k) => k + 1)}
+                style={{
+                  marginBottom: 10,
+                  padding: '7px 14px',
+                  background: 'var(--ga-frame-bg)',
+                  color: 'var(--ga-text)',
+                  border: '1px solid var(--ga-frame-border)',
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                ↻ Replay entrance
+              </button>
+              <Frame
+                label="PickedPopover / entrance"
+                height={520}
+                hint="click Replay to watch the open animation"
+              >
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: targetRect.top,
+                    left: targetRect.left,
+                    width: targetRect.width,
+                    height: targetRect.height,
+                    border: '1px dashed var(--ga-target-border)',
+                    borderRadius: 2,
+                    color: 'var(--ga-hint)',
+                    fontSize: 10,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  target
+                </div>
+                {/* key={replayKey} forces a remount on Replay, replaying the CSS
+                    entrance animation from a fresh mount. */}
+                <PreactMount
+                  key={replayKey}
+                  component={PickedPopover}
+                  props={{
+                    element: el,
+                    resolution,
+                    theme,
+                    onClose: () => {},
+                    onSubmit: async () => {},
+                  }}
+                  source="packages/overlay/src/ui/picked-popover.tsx"
+                />
+              </Frame>
+            </div>
+          );
+        })()}
+      </Section>
+
+      <Section title="PickedPopover · spacing playground" columns={1}>
+        {(() => {
+          const targetRect = { top: 20, left: 16, width: 140, height: 32 };
+          const el = fakeElement(targetRect);
+          const resolution = {
+            source: { file: 'app/page.tsx', line: 14, column: 9 },
+            selector: 'main > section.card > button.cta',
+            componentPath: ['Home', 'Card', 'Button'],
+            text: 'Get started',
+            confidence: 'high' as const,
+          };
+          const sliders: { key: keyof typeof pad; label: string; min: number; max: number }[] = [
+            { key: 'padX', label: 'Card padding · X', min: 0, max: 40 },
+            { key: 'padT', label: 'Card padding · top', min: 0, max: 40 },
+            { key: 'padB', label: 'Card padding · bottom', min: 0, max: 40 },
+            { key: 'gap', label: 'Row gap', min: 0, max: 32 },
+          ];
+          return (
+            <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 20 }}>
+              {/* Controls */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {sliders.map((s) => (
+                  <label key={s.key} style={{ display: 'block' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        fontSize: 12,
+                        color: 'var(--ga-label)',
+                        marginBottom: 6,
+                        fontFamily: 'ui-monospace, monospace',
+                      }}
+                    >
+                      <span>{s.label}</span>
+                      <span style={{ color: 'var(--ga-muted)' }}>{pad[s.key]}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={s.min}
+                      max={s.max}
+                      value={pad[s.key]}
+                      onChange={(e) =>
+                        setPad((p) => ({ ...p, [s.key]: Number(e.target.value) }))
+                      }
+                      style={{ width: '100%', accentColor: '#3b82f6', cursor: 'pointer' }}
+                    />
+                  </label>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setPad({ padX: 10, padT: 10, padB: 8, gap: 8 })}
+                  style={{
+                    marginTop: 4,
+                    padding: '6px 12px',
+                    background: 'var(--ga-frame-bg)',
+                    color: 'var(--ga-text)',
+                    border: '1px solid var(--ga-frame-border)',
+                    borderRadius: 8,
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  Reset to defaults
+                </button>
+                <div
+                  style={{
+                    fontFamily: 'ui-monospace, monospace',
+                    fontSize: 11,
+                    color: 'var(--ga-hint)',
+                    lineHeight: 1.6,
+                  }}
+                >
+                  padding: {pad.padT}px {pad.padX}px {pad.padB}px;
+                  <br />
+                  row-gap: {pad.gap}px;
+                </div>
+              </div>
+
+              {/* Live popover — CSS vars on this wrapper cascade into it. */}
+              <div
+                style={
+                  {
+                    '--la-pp-pad-x': `${pad.padX}px`,
+                    '--la-pp-pad-t': `${pad.padT}px`,
+                    '--la-pp-pad-b': `${pad.padB}px`,
+                    '--la-pp-gap': `${pad.gap}px`,
+                  } as CSSProperties
+                }
+              >
+                <Frame
+                  label="PickedPopover / live"
+                  height={340}
+                  hint="drag the sliders to adjust spacing"
+                >
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: targetRect.top,
+                      left: targetRect.left,
+                      width: targetRect.width,
+                      height: targetRect.height,
+                      border: '1px dashed var(--ga-target-border)',
+                      borderRadius: 2,
+                      color: 'var(--ga-hint)',
+                      fontSize: 10,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    target
+                  </div>
+                  <PreactMount
+                    component={PickedPopover}
+                    props={{
+                      element: el,
+                      resolution,
+                      theme,
+                      onClose: () => {},
+                      onSubmit: async () => {},
+                    }}
+                    source="packages/overlay/src/ui/picked-popover.tsx"
+                  />
+                </Frame>
+              </div>
+            </div>
+          );
+        })()}
       </Section>
 
       <Section title="TaskPanel" columns={1}>
