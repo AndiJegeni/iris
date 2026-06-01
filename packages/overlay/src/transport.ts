@@ -1,4 +1,4 @@
-import type { Annotation, Task, Worktree, WsEvent } from '@localagents/shared';
+import type { Annotation, Task, TranscriptEntry, Worktree, WsEvent } from '@localagents/shared';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
@@ -8,12 +8,23 @@ export type TransportState = {
   worktrees: Worktree[];
   /** Per-task rolling log lines (most recent last, capped). */
   logs: Record<string, string[]>;
+  /** Per-task structured transcript for the chat UI (full history). */
+  transcripts: Record<string, TranscriptEntry[]>;
 };
 
 const LOG_CAP_PER_TASK = 40;
 const RECONNECT_DELAY_MS = 1500;
 
 type Listener = (state: TransportState) => void;
+
+/** Append a transcript entry, or update one in place when its id already exists. */
+function mergeEntry(cur: TranscriptEntry[], entry: TranscriptEntry): TranscriptEntry[] {
+  const idx = cur.findIndex((e) => e.id === entry.id);
+  if (idx < 0) return [...cur, entry];
+  const next = [...cur];
+  next[idx] = { ...cur[idx], ...entry };
+  return next;
+}
 
 /**
  * Singleton WebSocket connection to the orchestrator's /tasks endpoint, plus
@@ -26,6 +37,7 @@ class Transport {
     tasks: [],
     worktrees: [],
     logs: {},
+    transcripts: {},
   };
   private listeners = new Set<Listener>();
   private ws: WebSocket | null = null;
@@ -90,6 +102,15 @@ class Transport {
         this.setState({ logs: { ...this.state.logs, [event.id]: next } });
         return;
       }
+      case 'task:entry': {
+        this.setState({
+          transcripts: {
+            ...this.state.transcripts,
+            [event.id]: mergeEntry(this.state.transcripts[event.id] ?? [], event.entry),
+          },
+        });
+        return;
+      }
       case 'worktree:created':
       case 'worktree:updated': {
         const wt = event.worktree;
@@ -140,6 +161,35 @@ class Transport {
 
   async cancelTask(id: string): Promise<void> {
     await fetch(`${this.daemonUrl}/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  /** Send a follow-up message to an existing task (resumes its session). */
+  async sendMessage(id: string, text: string): Promise<void> {
+    const res = await fetch(`${this.daemonUrl}/tasks/${encodeURIComponent(id)}/message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`message ${res.status}: ${body || res.statusText}`);
+    }
+  }
+
+  /** Load a task's full transcript (e.g. when opening its chat) and seed state. */
+  async fetchTranscript(id: string): Promise<void> {
+    try {
+      const res = await fetch(`${this.daemonUrl}/tasks/${encodeURIComponent(id)}/transcript`);
+      if (!res.ok) return;
+      const json = (await res.json()) as { entries: TranscriptEntry[] };
+      if (Array.isArray(json.entries) && json.entries.length > 0) {
+        this.setState({
+          transcripts: { ...this.state.transcripts, [id]: json.entries },
+        });
+      }
+    } catch {
+      // best-effort; live `task:entry` events will still populate the chat
+    }
   }
 }
 

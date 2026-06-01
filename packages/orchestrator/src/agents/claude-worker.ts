@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Claude agent worker — runs ONE task in its own process.
+ * Claude agent worker — runs ONE task (or one follow-up turn) in its own process.
  *
  * Why a separate process: the Agent SDK resolves file edits against
  * `process.cwd()`, NOT the `cwd` option passed to `query()`. To isolate a task
@@ -9,16 +9,24 @@
  * and parallel tasks (each its own process) never clobber each other's cwd.
  *
  * Protocol:
- *   - stdin:  one JSON line `{ prompt: string }`
- *   - stdout: JSON-line RunEvents (`{kind:'log'|'edit'|'status'|'done'|'error', ...}`)
+ *   - stdin:  one JSON line `{ prompt: string, resume?: string }`
+ *             (`resume` is a prior SDK session id, for follow-up messages)
+ *   - stdout: JSON-line RunEvents — besides the legacy `log`/`edit`/`status`/
+ *             `done`/`error`, we now emit structured `entry` events (one per
+ *             assistant text / thinking block / tool call) and a `session`
+ *             event carrying the resumable session id.
  *   ANTHROPIC_API_KEY is inherited from the spawn env.
  */
+import { randomUUID } from 'node:crypto';
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import type { TranscriptEntry } from '@localagents/shared';
 
 type RunEvent =
   | { kind: 'status'; status: 'running' | 'editing' }
   | { kind: 'log'; line: string }
   | { kind: 'edit'; file: string; description?: string }
+  | { kind: 'entry'; entry: TranscriptEntry }
+  | { kind: 'session'; sessionId: string }
   | { kind: 'done'; summary?: string }
   | { kind: 'error'; message: string };
 
@@ -26,11 +34,18 @@ function emit(ev: RunEvent): void {
   process.stdout.write(`${JSON.stringify(ev)}\n`);
 }
 
+function emitEntry(entry: TranscriptEntry): void {
+  emit({ kind: 'entry', entry });
+}
+
 async function main(): Promise<void> {
   const input = await Bun.stdin.text();
   let prompt: string;
+  let resume: string | undefined;
   try {
-    prompt = (JSON.parse(input) as { prompt: string }).prompt;
+    const parsed = JSON.parse(input) as { prompt: string; resume?: string };
+    prompt = parsed.prompt;
+    resume = parsed.resume;
   } catch {
     emit({ kind: 'error', message: 'worker: invalid input' });
     return;
@@ -45,78 +60,226 @@ async function main(): Promise<void> {
         allowedTools: ['Read', 'Edit', 'Write', 'Bash', 'Glob', 'Grep'],
         permissionMode: 'bypassPermissions',
         maxTurns: 25,
+        // Resume a prior session for follow-up messages (undefined → fresh run).
+        ...(resume ? { resume } : {}),
       },
     });
 
-    const edited = new Set<string>();
+    const tracker = new TranscriptTracker();
+    let sessionSent = false;
     let summary: string | undefined;
 
     for await (const message of iter) {
-      const ev = translate(message, edited);
-      if (ev) emit(ev);
+      // Capture the resumable session id from the first message that carries it.
+      if (!sessionSent && message && typeof message === 'object' && 'session_id' in message) {
+        const sid = (message as { session_id?: unknown }).session_id;
+        if (typeof sid === 'string' && sid) {
+          emit({ kind: 'session', sessionId: sid });
+          sessionSent = true;
+        }
+      }
+
+      // Legacy events (status/edit) keep the task-panel status line working.
+      const legacy = translateLegacy(message, tracker.editedFiles);
+      if (legacy) emit(legacy);
+
+      // Structured transcript entries for the chat UI.
+      tracker.handle(message);
+
       if (
         message &&
         typeof message === 'object' &&
         'type' in message &&
-        message.type === 'result'
+        (message as { type?: unknown }).type === 'result'
       ) {
         // biome-ignore lint/suspicious/noExplicitAny: SDK message
         const m = message as any;
         summary = m.result ?? m.summary;
+        const durationMs = typeof m.duration_ms === 'number' ? m.duration_ms : undefined;
+        if (summary) {
+          emitEntry({
+            id: randomUUID(),
+            role: 'result',
+            at: Date.now(),
+            text: String(summary),
+            ...(durationMs != null ? { durationMs } : {}),
+          });
+        }
       }
     }
 
     emit({
       kind: 'done',
-      summary: summary ?? (edited.size > 0 ? `Edited ${edited.size} file(s)` : 'No changes'),
+      summary:
+        summary ??
+        (tracker.editedFiles.size > 0
+          ? `Edited ${tracker.editedFiles.size} file(s)`
+          : 'No changes'),
     });
   } catch (err) {
     emit({ kind: 'error', message: err instanceof Error ? err.message : String(err) });
   }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: SDK message shape
-function translate(message: any, edited: Set<string>): RunEvent | null {
-  if (!message || typeof message !== 'object') return null;
-  const type = message.type;
+/**
+ * Walks SDK messages and emits structured transcript entries. Tracks tool-call
+ * start times so a result can be matched to its call (by tool_use id) and a
+ * duration computed, and the prior boundary so a thinking block's duration is
+ * the wall-clock time it represents.
+ */
+class TranscriptTracker {
+  readonly editedFiles = new Set<string>();
+  private toolStart = new Map<string, number>();
+  private lastBoundaryMs = Date.now();
 
-  if (type === 'assistant') {
-    const text = assistantText(message);
-    return text ? { kind: 'log', line: text } : null;
-  }
+  // biome-ignore lint/suspicious/noExplicitAny: SDK message shape
+  handle(message: any): void {
+    if (!message || typeof message !== 'object') return;
+    const type = message.type;
 
-  if (type === 'tool_use' || type === 'tool_result' || type === 'tool_progress') {
-    const name = message.name ?? message.tool_name;
-    if (name === 'Edit' || name === 'Write') {
-      const file = message.input?.file_path ?? message.input?.path;
-      if (file && !edited.has(file)) {
-        edited.add(file);
-        return { kind: 'edit', file, description: name === 'Write' ? 'wrote' : 'edited' };
+    if (type === 'assistant') {
+      const content = message.message?.content ?? message.content;
+      const blocks = Array.isArray(content)
+        ? content
+        : typeof content === 'string'
+          ? [{ type: 'text', text: content }]
+          : [];
+      for (const block of blocks) this.handleBlock(block);
+      return;
+    }
+
+    if (type === 'user') {
+      const content = message.message?.content ?? message.content;
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block?.type === 'tool_result') this.handleToolResult(block);
+        }
       }
     }
-    if (name === 'Bash' && message.input?.command) {
-      return { kind: 'log', line: `$ ${String(message.input.command).slice(0, 200)}` };
-    }
-    if (name) return { kind: 'status', status: 'editing' };
   }
 
+  // biome-ignore lint/suspicious/noExplicitAny: SDK content block shape
+  private handleBlock(block: any): void {
+    if (!block || typeof block !== 'object') return;
+    const now = Date.now();
+
+    if (block.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
+      emitEntry({ id: randomUUID(), role: 'assistant', at: now, text: block.text });
+      this.lastBoundaryMs = now;
+      return;
+    }
+
+    if (block.type === 'thinking' && typeof block.thinking === 'string' && block.thinking.trim()) {
+      emitEntry({
+        id: randomUUID(),
+        role: 'thinking',
+        at: now,
+        text: block.thinking,
+        durationMs: Math.max(0, now - this.lastBoundaryMs),
+      });
+      this.lastBoundaryMs = now;
+      return;
+    }
+
+    if (block.type === 'tool_use') {
+      const id = typeof block.id === 'string' ? block.id : randomUUID();
+      const name = String(block.name ?? 'tool');
+      this.toolStart.set(id, now);
+      emitEntry({
+        id,
+        role: 'tool',
+        at: now,
+        toolName: name,
+        toolInput: summarizeInput(name, block.input),
+        toolStatus: 'running',
+      });
+      // Track edits so the status line / summary can mention them.
+      if ((name === 'Edit' || name === 'Write') && block.input) {
+        const file = block.input.file_path ?? block.input.path;
+        if (file && !this.editedFiles.has(file)) this.editedFiles.add(file);
+      }
+      this.lastBoundaryMs = now;
+    }
+  }
+
+  // biome-ignore lint/suspicious/noExplicitAny: SDK tool_result block shape
+  private handleToolResult(block: any): void {
+    const id = block.tool_use_id;
+    if (typeof id !== 'string') return;
+    const start = this.toolStart.get(id);
+    const now = Date.now();
+    this.toolStart.delete(id);
+    emitEntry({
+      id, // same id → client updates the running tool entry in place
+      role: 'tool',
+      at: now,
+      toolStatus: block.is_error ? 'error' : 'ok',
+      toolOutput: flattenToolResult(block.content),
+      ...(start != null ? { durationMs: Math.max(0, now - start) } : {}),
+    });
+    this.lastBoundaryMs = now;
+  }
+}
+
+/** Legacy status/edit events (kept so the task-panel status line is unchanged). */
+// biome-ignore lint/suspicious/noExplicitAny: SDK message shape
+function translateLegacy(message: any, edited: Set<string>): RunEvent | null {
+  if (!message || typeof message !== 'object') return null;
+  if (message.type !== 'assistant') return null;
+  const content = message.message?.content ?? message.content;
+  if (!Array.isArray(content)) return null;
+  for (const block of content) {
+    if (block?.type === 'tool_use') {
+      const name = block.name;
+      if (name === 'Edit' || name === 'Write') {
+        const file = block.input?.file_path ?? block.input?.path;
+        if (file && edited.has(file)) {
+          return { kind: 'edit', file, description: name === 'Write' ? 'wrote' : 'edited' };
+        }
+      }
+      if (name) return { kind: 'status', status: 'editing' };
+    }
+  }
   return null;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: SDK message shape
-function assistantText(m: any): string | null {
-  const content = m?.message?.content ?? m?.content;
-  if (!content) return null;
-  if (typeof content === 'string') return content.slice(0, 500);
+const MAX_INPUT = 300;
+const MAX_OUTPUT = 600;
+
+function truncate(s: string, n: number): string {
+  return s.length > n ? `${s.slice(0, n)}…` : s;
+}
+
+/** A short, human-readable summary of a tool's input for the chat row. */
+// biome-ignore lint/suspicious/noExplicitAny: SDK tool input shape
+function summarizeInput(name: string, input: any): string {
+  if (input && typeof input === 'object') {
+    if (name === 'Bash' && typeof input.command === 'string') {
+      return truncate(`$ ${input.command}`, MAX_INPUT);
+    }
+    const path = input.file_path ?? input.path ?? input.pattern;
+    if (typeof path === 'string') return truncate(path, MAX_INPUT);
+  }
+  try {
+    return truncate(JSON.stringify(input ?? {}), MAX_INPUT);
+  } catch {
+    return '';
+  }
+}
+
+/** Tool results are a string or an array of `{type:'text',text}` blocks. */
+// biome-ignore lint/suspicious/noExplicitAny: SDK tool_result content shape
+function flattenToolResult(content: any): string {
+  if (typeof content === 'string') return truncate(content, MAX_OUTPUT);
   if (Array.isArray(content)) {
     const text = content
-      .filter((c) => c?.type === 'text')
-      .map((c) => c.text)
-      .join(' ')
+      .map((c) => (typeof c === 'string' ? c : c?.type === 'text' ? c.text : ''))
+      .filter(Boolean)
+      .join('\n')
       .trim();
-    return text ? text.slice(0, 500) : null;
+    return truncate(text, MAX_OUTPUT);
   }
-  return null;
+  return '';
 }
 
 void main();

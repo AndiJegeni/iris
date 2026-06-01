@@ -1,4 +1,4 @@
-import type { AttachedImage, SourceLocation } from '@localagents/shared';
+import type { AttachedImage, SourceLocation, TranscriptEntry } from '@localagents/shared';
 
 export type RunRequest = {
   prompt: string;
@@ -10,6 +10,11 @@ export type RunRequest = {
   images: AttachedImage[];
   /** Absolute path to the working directory the agent should operate in. */
   cwd: string;
+  /**
+   * When set, the runner resumes a prior agent session (for follow-up
+   * messages) instead of starting fresh. Carries the backend's session id.
+   */
+  resumeSessionId?: string;
   signal: AbortSignal;
 };
 
@@ -17,6 +22,10 @@ export type RunEvent =
   | { kind: 'status'; status: 'running' | 'editing' }
   | { kind: 'log'; line: string }
   | { kind: 'edit'; file: string; description?: string }
+  /** A structured transcript entry for the chat UI (append-or-update by id). */
+  | { kind: 'entry'; entry: TranscriptEntry }
+  /** The backend's resumable session id, captured once per run. */
+  | { kind: 'session'; sessionId: string }
   | { kind: 'done'; summary?: string }
   | { kind: 'error'; message: string };
 
