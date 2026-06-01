@@ -226,7 +226,7 @@ export function PickedPopover({
         background: t.surfaceBg,
         color: t.textPrimary,
         border: `1px solid ${t.surfaceBorder}`,
-        borderRadius: '14px',
+        borderRadius: '16px',
         boxShadow: t.surfaceShadow,
         padding: '14px 16px 12px',
         fontSize: '12px',
@@ -244,7 +244,7 @@ export function PickedPopover({
           style={{
             position: 'absolute',
             inset: 0,
-            borderRadius: '14px',
+            borderRadius: '16px',
             border: `2px dashed ${t.accent}`,
             background: theme === 'light' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.16)',
             display: 'flex',
