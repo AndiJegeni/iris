@@ -98,7 +98,7 @@ export function TaskPanel({ tasks, logs, onCancel }: TaskPanelProps) {
       {open ? (
         <div style={panelStyle}>
           <div style={panelHeader}>
-            <span style={{ fontWeight: 600, fontSize: '15px' }}>Background Tasks</span>
+            <span style={{ fontWeight: 400, fontSize: '15px' }}>Background Tasks</span>
             <button type="button" onClick={() => setOpen(false)} style={iconBtn} aria-label="Close">
               <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
                 <path
@@ -186,9 +186,6 @@ function TaskRow({ task, logs, expanded, onToggle, onCancel }: TaskRowProps) {
             background: DOT_COLOR[task.status],
             marginTop: '5px',
             flexShrink: 0,
-            ...(isRunning(task)
-              ? { animation: 'localagents-pulse 1.4s ease-in-out infinite' }
-              : {}),
           }}
         />
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -247,6 +244,7 @@ const countStyle = {
   fontWeight: 600,
   color: '#1d4ed8',
   fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+  letterSpacing: '-0.02em',
 };
 
 const panelStyle = {
@@ -264,6 +262,7 @@ const panelStyle = {
   flexDirection: 'column' as const,
   color: '#18181b',
   fontFamily: 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+  letterSpacing: '-0.02em',
   overflow: 'hidden',
 };
 
@@ -272,7 +271,6 @@ const panelHeader = {
   alignItems: 'center',
   justifyContent: 'space-between',
   padding: '16px 16px 10px',
-  borderBottom: '1px solid #f4f4f5',
 };
 
 const sectionHeader = {
@@ -287,7 +285,7 @@ const sectionHeader = {
 
 const cardStyle = {
   background: '#f4f4f5',
-  borderRadius: '10px',
+  borderRadius: '6px',
   padding: '11px 12px',
   marginBottom: '7px',
 };

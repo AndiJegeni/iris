@@ -43,6 +43,11 @@ export const MAX_IMAGES_PER_ANNOTATION = 6;
 export const Backend = z.enum(['claude', 'codex', 'echo']);
 export type Backend = z.infer<typeof Backend>;
 
+// Reasoning effort. Claude exposes low→max; GPT (codex) tops out at extra-high
+// and has no "max" tier — the UI filters per provider.
+export const ReasoningEffort = z.enum(['low', 'medium', 'high', 'extra', 'max', 'extra-high']);
+export type ReasoningEffort = z.infer<typeof ReasoningEffort>;
+
 export const WorktreeMode = z.enum(['same', 'new']);
 export type WorktreeMode = z.infer<typeof WorktreeMode>;
 
@@ -55,6 +60,8 @@ export const Annotation = z.object({
   confidence: SourceConfidence,
   worktreeMode: WorktreeMode,
   backend: Backend,
+  model: z.string().default(''),
+  reasoningEffort: ReasoningEffort.default('medium'),
   images: z.array(AttachedImage).max(MAX_IMAGES_PER_ANNOTATION).default([]),
 });
 export type Annotation = z.infer<typeof Annotation>;
