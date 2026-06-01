@@ -327,6 +327,7 @@ const countStyle = {
   fontSize: '13px',
   fontWeight: 600,
   fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+  letterSpacing: '-0.02em',
 };
 
 const panelStyle = (t: ThemeTokens) => ({
@@ -343,15 +344,15 @@ const panelStyle = (t: ThemeTokens) => ({
   flexDirection: 'column' as const,
   color: t.textPrimary,
   fontFamily: 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+  letterSpacing: '-0.02em',
   overflow: 'hidden',
 });
 
-const panelHeader = (t: ThemeTokens) => ({
+const panelHeader = (_t: ThemeTokens) => ({
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
   padding: '16px 16px 10px',
-  borderBottom: `1px solid ${t.surfaceBorder}`,
 });
 
 const sectionHeader = (t: ThemeTokens) => ({
@@ -366,7 +367,7 @@ const sectionHeader = (t: ThemeTokens) => ({
 
 const cardStyle = (t: ThemeTokens) => ({
   background: t.controlBg,
-  borderRadius: '10px',
+  borderRadius: '6px',
   padding: '11px 12px',
   marginBottom: '7px',
 });
