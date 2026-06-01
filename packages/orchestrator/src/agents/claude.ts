@@ -60,8 +60,16 @@ export function createClaudeRunner(env: { anthropicKey: string | null }): AgentR
       stderr: 'inherit',
     });
 
-    // Send the prompt, then close stdin.
-    proc.stdin.write(JSON.stringify({ prompt: buildPrompt(req) }));
+    // Send the prompt (+ optional resume session id for follow-ups), then close stdin.
+    // On a follow-up turn the prompt is the raw user message — the worktree
+    // context was already established by the original run's session.
+    const workerPrompt = req.resumeSessionId ? req.prompt : buildPrompt(req);
+    proc.stdin.write(
+      JSON.stringify({
+        prompt: workerPrompt,
+        ...(req.resumeSessionId ? { resume: req.resumeSessionId } : {}),
+      }),
+    );
     proc.stdin.end();
 
     const onAbort = () => {

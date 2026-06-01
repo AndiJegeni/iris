@@ -98,6 +98,42 @@ export const Task = z.object({
 });
 export type Task = z.infer<typeof Task>;
 
+// ---------- Transcript ----------
+
+/**
+ * One entry in a task's conversation transcript. Unlike the flat `logs`
+ * channel, these are structured so the chat UI can render user/assistant
+ * turns, thinking ("Thought for Ns"), and tool calls (with their inputs,
+ * status, and outputs) the way Cursor / Claude Code do.
+ *
+ * `id` is stable within a task: a `tool` entry is first emitted with
+ * `toolStatus: 'running'`, then *re-emitted with the same id* once its result
+ * arrives so the client can update it in place (running → ok/error).
+ */
+export const TranscriptRole = z.enum(['user', 'assistant', 'thinking', 'tool', 'result', 'error']);
+export type TranscriptRole = z.infer<typeof TranscriptRole>;
+
+export const ToolStatus = z.enum(['running', 'ok', 'error']);
+export type ToolStatus = z.infer<typeof ToolStatus>;
+
+export const TranscriptEntry = z.object({
+  id: z.string(),
+  role: TranscriptRole,
+  at: z.number(),
+  /** Body text for user/assistant/thinking/result/error roles. */
+  text: z.string().optional(),
+  // ----- tool role only -----
+  toolName: z.string().optional(),
+  /** Pretty-printed (and truncated) tool input. */
+  toolInput: z.string().optional(),
+  toolStatus: ToolStatus.optional(),
+  /** Truncated tool result/output, present once the call finishes. */
+  toolOutput: z.string().optional(),
+  /** Elapsed time for a thinking block, a tool call, or the whole run. */
+  durationMs: z.number().optional(),
+});
+export type TranscriptEntry = z.infer<typeof TranscriptEntry>;
+
 // ---------- WebSocket events ----------
 
 export const WsEvent = z.discriminatedUnion('type', [
@@ -105,6 +141,7 @@ export const WsEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('task:created'), task: Task }),
   z.object({ type: z.literal('task:updated'), task: Task }),
   z.object({ type: z.literal('task:log'), id: z.string(), line: z.string() }),
+  z.object({ type: z.literal('task:entry'), id: z.string(), entry: TranscriptEntry }),
   z.object({ type: z.literal('worktree:created'), worktree: Worktree }),
   z.object({ type: z.literal('worktree:updated'), worktree: Worktree }),
   z.object({ type: z.literal('worktree:removed'), slug: z.string() }),

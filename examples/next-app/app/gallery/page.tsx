@@ -3,8 +3,9 @@
 import { ElementOutline } from '@localagents/overlay/ui/element-outline';
 import { PickedPopover } from '@localagents/overlay/ui/picked-popover';
 import { Pill } from '@localagents/overlay/ui/pill';
+import { TaskChat } from '@localagents/overlay/ui/task-chat';
 import { TaskPanel } from '@localagents/overlay/ui/task-panel';
-import type { Task } from '@localagents/shared';
+import type { Task, TranscriptEntry } from '@localagents/shared';
 import { h, render } from 'preact';
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
@@ -339,6 +340,65 @@ export default function Gallery() {
     ],
     p4: ['$ bun run typecheck', 'error: cannot resolve @localagents/router', 'Task failed'],
   };
+
+  // --- TaskChat data (full structured transcript) ---
+  const chatEntries: TranscriptEntry[] = [
+    { id: 'u1', role: 'user', at: now, text: 'Make the CTA button larger and add a subtle shadow' },
+    {
+      id: 't1',
+      role: 'thinking',
+      at: now,
+      durationMs: 9000,
+      text: 'The CTA is styled by `.cta` in app/globals.css. I should bump its padding and add a soft box-shadow so it reads larger without breaking the card layout.',
+    },
+    {
+      id: 'b1',
+      role: 'tool',
+      at: now,
+      toolName: 'Bash',
+      toolInput: '$ rg "\\.cta" app/globals.css',
+      toolStatus: 'ok',
+      toolOutput: 'app/globals.css:42:.cta { padding: 8px 16px; border-radius: 8px; }',
+      durationMs: 320,
+    },
+    {
+      id: 'e1',
+      role: 'tool',
+      at: now,
+      toolName: 'Edit',
+      toolInput: 'app/globals.css',
+      toolStatus: 'ok',
+      toolOutput: 'Updated .cta: padding 12px 22px; box-shadow: 0 4px 14px rgba(0,0,0,0.12)',
+      durationMs: 110,
+    },
+    {
+      id: 'a1',
+      role: 'assistant',
+      at: now,
+      text: 'Bumped the CTA padding to 12px 22px and added a soft shadow. It now reads larger and lifts off the card.',
+    },
+    { id: 'r1', role: 'result', at: now, text: 'Edited app/globals.css', durationMs: 14200 },
+  ];
+  const panelTranscripts: Record<string, TranscriptEntry[]> = { p1: chatEntries };
+  const chatTask = makeTask({
+    id: 'chat',
+    status: 'done',
+    prompt: 'Make the CTA button larger and add a subtle shadow',
+    backend: 'claude',
+    createdAt: now - 15000,
+    updatedAt: now - 800,
+  });
+  const chatTabs = [
+    {
+      id: 'chat',
+      title: 'Make the CTA button larger and add a subtle shadow',
+      status: 'done' as const,
+    },
+    { id: 'p1', title: 'Reword the feature copy', status: 'running' as const },
+    { id: 'p2', title: 'Add a footer link', status: 'editing' as const },
+  ];
+  const chatSurface = theme === 'dark' ? '#161619' : '#ffffff';
+  const chatBorder = theme === 'dark' ? '#27272a' : '#e4e4e7';
 
   return (
     <main
@@ -748,9 +808,55 @@ export default function Gallery() {
           >
             <PreactMount
               component={TaskPanel}
-              props={{ tasks: panelTasks, logs: panelLogs, onCancel: () => {} }}
+              props={{
+                tasks: panelTasks,
+                logs: panelLogs,
+                transcripts: panelTranscripts,
+                theme,
+                onCancel: () => {},
+                onSendMessage: async () => {},
+                onOpenChat: () => {},
+              }}
               source="packages/overlay/src/ui/task-panel.tsx"
             />
+          </Frame>
+        </div>
+      </Section>
+
+      <Section title="TaskChat" columns={1}>
+        <div style={{ maxWidth: 480 }}>
+          <Frame
+            label="TaskChat / full transcript + composer"
+            height={560}
+            hint="open via 'View transcript' on a task; supports follow-up messages"
+          >
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                background: chatSurface,
+                border: `1px solid ${chatBorder}`,
+                borderRadius: 8,
+                overflow: 'hidden',
+              }}
+            >
+              <PreactMount
+                component={TaskChat}
+                props={{
+                  task: chatTask,
+                  tabs: chatTabs,
+                  entries: chatEntries,
+                  logsFallback: [],
+                  theme,
+                  busy: false,
+                  onBack: () => {},
+                  onSelectTab: () => {},
+                  onCloseTab: () => {},
+                  onSend: async () => {},
+                }}
+                source="packages/overlay/src/ui/task-chat.tsx"
+              />
+            </div>
           </Frame>
         </div>
       </Section>

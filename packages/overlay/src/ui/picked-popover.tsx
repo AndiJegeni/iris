@@ -474,7 +474,7 @@ export function PickedPopover({
         background: t.surfaceBg,
         color: t.textPrimary,
         border: `1px solid ${t.surfaceBorder}`,
-        borderRadius: '6px',
+        borderRadius: '16px',
         boxShadow: t.surfaceShadow,
         // Spacing tokens (overridable via CSS vars for the gallery playground).
         // top / x / bottom — bottom is tighter than top by design.
@@ -507,7 +507,7 @@ export function PickedPopover({
           style={{
             position: 'absolute',
             inset: 0,
-            borderRadius: '6px',
+            borderRadius: '16px',
             border: `2px dashed ${t.accent}`,
             background: theme === 'light' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.16)',
             display: 'flex',

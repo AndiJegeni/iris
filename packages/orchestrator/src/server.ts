@@ -59,9 +59,7 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
   app.options('*', (c) => c.body(null, 204));
 
   // Root: shell page with iframe + viewport switcher (M5).
-  app.get('/', (c) =>
-    c.html(shellHtml(mainPort), 200, { 'Cache-Control': 'no-store' }),
-  );
+  app.get('/', (c) => c.html(shellHtml(mainPort), 200, { 'Cache-Control': 'no-store' }));
 
   app.get('/health', (c) => c.json({ ok: true as const, repo: opts.repoRoot, version: VERSION }));
 
@@ -169,6 +167,26 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
     const id = c.req.param('id');
     const ok = queue.cancel(id);
     return c.json({ cancelled: ok });
+  });
+
+  // Full structured transcript for a task (chat history beyond the live buffer).
+  app.get('/tasks/:id/transcript', (c) => {
+    const id = c.req.param('id');
+    return c.json({ entries: queue.getTranscript(id) });
+  });
+
+  // Follow-up message: resume the task's session with a new prompt.
+  app.post('/tasks/:id/message', async (c) => {
+    const id = c.req.param('id');
+    const raw = (await c.req.json().catch(() => null)) as { text?: unknown } | null;
+    const text = typeof raw?.text === 'string' ? raw.text.trim() : '';
+    if (!text) return c.json({ error: 'message text required' }, 400);
+    const result = queue.continue(id, text);
+    if (!result.ok) {
+      const status = result.error === 'task not found' ? 404 : 409;
+      return c.json({ error: result.error }, status);
+    }
+    return c.json({ task: result.task });
   });
 
   const server = Bun.serve<WsClientData, never>({

@@ -22,7 +22,7 @@ export function Overlay() {
   const [picked, setPicked] = useState<PickState | null>(null);
   const controllerRef = useRef<SelectModeController | null>(null);
   const theme = usePrefersColorScheme();
-  const { state, send, cancel } = useTransport();
+  const { state, send, cancel, sendMessage, fetchTranscript } = useTransport();
 
   useEffect(() => {
     const controller = startSelectMode({
@@ -96,7 +96,15 @@ export function Overlay() {
           }}
         />
       ) : null}
-      <TaskPanel tasks={state.tasks} logs={state.logs} onCancel={(id) => void cancel(id)} />
+      <TaskPanel
+        tasks={state.tasks}
+        logs={state.logs}
+        transcripts={state.transcripts}
+        theme={theme}
+        onCancel={(id) => void cancel(id)}
+        onSendMessage={(id, text) => sendMessage(id, text)}
+        onOpenChat={(id) => void fetchTranscript(id)}
+      />
     </>
   );
 }

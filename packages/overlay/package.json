@@ -8,7 +8,8 @@
     "./ui/pill": "./src/ui/pill.tsx",
     "./ui/element-outline": "./src/ui/element-outline.tsx",
     "./ui/picked-popover": "./src/ui/picked-popover.tsx",
-    "./ui/task-panel": "./src/ui/task-panel.tsx"
+    "./ui/task-panel": "./src/ui/task-panel.tsx",
+    "./ui/task-chat": "./src/ui/task-chat.tsx"
   },
   "dependencies": {
     "@localagents/shared": "workspace:*",
