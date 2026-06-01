@@ -63,6 +63,7 @@ export function TaskPanel({ tasks, logs, onCancel }: TaskPanelProps) {
   const [open, setOpen] = useState(false);
   const [cleared, setCleared] = useState<Set<string>>(() => new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [clearHover, setClearHover] = useState(false);
   const [, setTick] = useState(0);
 
   const running = tasks.filter(isRunning).sort((a, b) => a.createdAt - b.createdAt);
@@ -98,7 +99,7 @@ export function TaskPanel({ tasks, logs, onCancel }: TaskPanelProps) {
       {open ? (
         <div style={panelStyle}>
           <div style={panelHeader}>
-            <span style={{ fontWeight: 600, fontSize: '15px' }}>Background Tasks</span>
+            <span style={{ fontWeight: 500, fontSize: '13px', opacity: 0.7 }}>Background Tasks</span>
             <button type="button" onClick={() => setOpen(false)} style={iconBtn} aria-label="Close">
               <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
                 <path
@@ -136,7 +137,9 @@ export function TaskPanel({ tasks, logs, onCancel }: TaskPanelProps) {
                   <span>Finished</span>
                   <button
                     type="button"
-                    style={clearBtn}
+                    style={{ ...clearBtn, ...(clearHover ? { color: '#373734', opacity: 1 } : {}) }}
+                    onMouseEnter={() => setClearHover(true)}
+                    onMouseLeave={() => setClearHover(false)}
                     onClick={() => setCleared(new Set(tasks.map((t) => t.id)))}
                   >
                     Clear
@@ -178,19 +181,18 @@ function TaskRow({ task, logs, expanded, onToggle, onCancel }: TaskRowProps) {
   return (
     <div style={cardStyle}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '9px' }}>
-        <span
-          style={{
-            width: '8px',
-            height: '8px',
-            borderRadius: '999px',
-            background: DOT_COLOR[task.status],
-            marginTop: '5px',
-            flexShrink: 0,
-            ...(isRunning(task)
-              ? { animation: 'localagents-pulse 1.4s ease-in-out infinite' }
-              : {}),
-          }}
-        />
+        {task.status === 'failed' ? (
+          <span
+            style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '999px',
+              background: DOT_COLOR.failed,
+              marginTop: '5px',
+              flexShrink: 0,
+            }}
+          />
+        ) : null}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 500, fontSize: '14px', color: '#18181b' }}>{task.prompt}</div>
           <div style={{ color: '#71717a', fontSize: '12px', marginTop: '2px' }}>
@@ -257,7 +259,7 @@ const panelStyle = {
   width: `${DRAWER_WIDTH}px`,
   background: '#ffffff',
   border: '1px solid rgba(0,0,0,0.08)',
-  borderRadius: '16px',
+  borderRadius: '6px',
   boxShadow: '0 16px 48px rgba(0,0,0,0.22), 0 2px 8px rgba(0,0,0,0.1)',
   pointerEvents: 'auto' as const,
   display: 'flex',
@@ -271,7 +273,7 @@ const panelHeader = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  padding: '16px 16px 10px',
+  padding: '12px 16px',
   borderBottom: '1px solid #f4f4f5',
 };
 
@@ -280,14 +282,14 @@ const sectionHeader = {
   alignItems: 'center',
   justifyContent: 'space-between',
   color: '#71717a',
-  fontSize: '12px',
+  fontSize: '13px',
   fontWeight: 500,
   padding: '8px 2px 6px',
 };
 
 const cardStyle = {
-  background: '#f4f4f5',
-  borderRadius: '10px',
+  background: 'rgba(244, 244, 245, 0.7)',
+  borderRadius: '6px',
   padding: '11px 12px',
   marginBottom: '7px',
 };
@@ -308,8 +310,8 @@ const stopBtn = {
 const clearBtn = {
   background: 'transparent',
   border: 'none',
-  color: '#2563eb',
-  fontSize: '12px',
+  color: '#71717a',
+  fontSize: '13px',
   cursor: 'pointer',
   padding: 0,
   fontFamily: 'inherit',
