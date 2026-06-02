@@ -175,9 +175,9 @@ function makeTask(partial: Partial<Task>): Task {
 type ThemeName = 'dark' | 'light';
 
 // Gallery chrome + frame-canvas tokens, exposed as CSS variables on <main>.
-// Note: the overlay components themselves have fixed colors (they're the product
-// and must read on any host page) — the theme only swaps the gallery scaffolding
-// and each frame's canvas, so you can preview a component on white vs dark.
+// The overlay components are theme-aware (they take a `theme` prop, wired below),
+// so this toggle swaps both the gallery scaffolding and the components themselves —
+// letting you preview each one in light vs dark side by side.
 const THEMES = {
   dark: {
     '--ga-page-bg': '#0a0a0a',
@@ -504,7 +504,7 @@ export default function Gallery() {
           <Frame key={v.label} label={`Pill / ${v.label}`} height={140}>
             <PreactMount
               component={Pill}
-              props={{ active: v.active, onArm: () => {}, onDisarm: () => {} }}
+              props={{ active: v.active, theme, onArm: () => {}, onDisarm: () => {} }}
               source="packages/overlay/src/ui/pill.tsx"
             />
           </Frame>
