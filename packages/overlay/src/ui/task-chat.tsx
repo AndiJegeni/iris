@@ -1,6 +1,7 @@
 /** @jsxImportSource preact */
-import type { Task, TranscriptEntry } from '@localagents/shared';
+import type { ReasoningEffort, Task, TranscriptEntry } from '@localagents/shared';
 import { useEffect, useRef, useState } from 'preact/hooks';
+import { DEFAULT_MODEL, EFFORTS, MODELS, ModelReasoningPicker } from './picked-popover';
 import { type OverlayTheme, type ThemeTokens, tokens } from './theme';
 
 /** One open chat in the tab strip. */
@@ -22,19 +23,6 @@ type TaskChatProps = {
   onSend: (text: string) => void | Promise<void>;
   onCancel?: () => void;
 };
-
-const STATUS_DOT: Record<Task['status'], string> = {
-  queued: '#a1a1aa',
-  running: '#3b82f6',
-  editing: '#8b5cf6',
-  done: '#16a34a',
-  failed: '#dc2626',
-  cancelled: '#a1a1aa',
-};
-
-function isRunning(status: Task['status']): boolean {
-  return status === 'queued' || status === 'running' || status === 'editing';
-}
 
 function formatDuration(ms?: number): string {
   if (ms == null) return '';
@@ -68,6 +56,18 @@ export function TaskChat({
   const t = tokens(theme);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  // Model + reasoning for the follow-up — defaults to the task's model.
+  const [model, setModel] = useState<string>(
+    MODELS.some((m) => m.value === task.model) ? (task.model as string) : DEFAULT_MODEL,
+  );
+  const [effort, setEffort] = useState<ReasoningEffort>('high');
+  const selectedModel = MODELS.find((m) => m.value === model) ?? MODELS[0];
+  const effortOptions = EFFORTS[selectedModel.provider];
+  const changeModel = (value: string) => {
+    setModel(value);
+    const next = MODELS.find((m) => m.value === value);
+    if (next && !EFFORTS[next.provider].some((e) => e.value === effort)) setEffort('high');
+  };
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -78,7 +78,16 @@ export function TaskChat({
     if (el) el.scrollTop = el.scrollHeight;
   }, [entries.length, logsFallback.length, busy]);
 
+  // Grow the composer with its content up to 3 lines, then scroll.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_H)}px`;
+  }, [draft]);
+
   const locked = busy || sending;
+  const canSend = !!draft.trim() && !locked;
 
   const submit = async () => {
     const text = draft.trim();
@@ -116,47 +125,68 @@ export function TaskChat({
         {busy ? <WorkingRow t={t} /> : null}
       </div>
 
-      <div style={composerWrap}>
-        <button
-          type="button"
-          style={plusBtn(t)}
-          onClick={() => inputRef.current?.focus()}
-          aria-label="Add"
-        >
-          <PlusIcon />
-        </button>
-        <div style={inputPill(t)}>
-          <textarea
-            ref={inputRef}
-            value={draft}
-            onInput={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                void submit();
-              }
-            }}
-            rows={1}
-            placeholder={busy ? 'Agent is working…' : 'How can I help you today?'}
-            disabled={busy}
-            style={composerInput(t)}
+      {/* Composer — mirrors the picked-popover card: input on top, a footer with
+          the model · effort picker on the left and attach · send on the right. */}
+      <div style={composerCard(t)}>
+        <style>
+          {'.la-pp-dim{opacity:0.6;transition:opacity 80ms}.la-pp-dim:hover{opacity:1}' +
+            '.la-pp-menu-row{background:transparent;transition:background 80ms}' +
+            '.la-pp-menu-row:hover{background:rgba(127,127,127,0.12)}'}
+        </style>
+        <textarea
+          ref={inputRef}
+          value={draft}
+          onInput={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              void submit();
+            }
+          }}
+          rows={1}
+          placeholder={busy ? 'Agent is working…' : 'Reply or ask a follow-up'}
+          disabled={busy}
+          style={composerInput(t)}
+        />
+        <div style={composerFooter}>
+          <ModelReasoningPicker
+            models={MODELS.map((m) => ({ value: m.value, label: m.label }))}
+            model={model}
+            onModelSelect={changeModel}
+            effortOptions={effortOptions}
+            effort={effort}
+            onEffortSelect={(v) => setEffort(v as ReasoningEffort)}
+            modelLabel={selectedModel.label}
+            effortLabel={effortOptions.find((e) => e.value === effort)?.label ?? effort}
+            t={t}
           />
+          <div style={composerActions}>
+            <button
+              type="button"
+              className="la-pp-dim"
+              style={attachBtn(t)}
+              onClick={() => inputRef.current?.focus()}
+              aria-label="Add"
+            >
+              <PlusIcon />
+            </button>
+            {onCancel && busy ? (
+              <button type="button" style={sendBtn(t)} onClick={onCancel} aria-label="Stop">
+                <StopIcon />
+              </button>
+            ) : (
+              <button
+                type="button"
+                style={{ ...sendBtn(t), opacity: canSend ? 1 : 0.3 }}
+                disabled={!canSend}
+                onClick={() => void submit()}
+                aria-label="Send"
+              >
+                <SendIcon />
+              </button>
+            )}
+          </div>
         </div>
-        {onCancel && busy ? (
-          <button type="button" style={stopCircle(t)} onClick={onCancel} aria-label="Stop">
-            <StopIcon />
-          </button>
-        ) : (
-          <button
-            type="button"
-            style={{ ...sendBtn(t), opacity: !draft.trim() || locked ? 0.5 : 1 }}
-            disabled={!draft.trim() || locked}
-            onClick={() => void submit()}
-            aria-label="Send"
-          >
-            <SendIcon />
-          </button>
-        )}
       </div>
     </div>
   );
@@ -180,7 +210,10 @@ function ChatTabBar({
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
 }) {
-  const barBg = theme === 'light' ? 'rgba(0, 0, 0, 0.025)' : 'rgba(255, 255, 255, 0.03)';
+  // Flipped: the bar is the plain surface (white in light) and the *selected*
+  // tab carries the subtle gray.
+  const barBg = t.surfaceBg;
+  const selectedBg = theme === 'light' ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.07)';
   return (
     <div style={{ ...tabBar(t), background: barBg }}>
       <button type="button" style={tabBackBtn(t)} onClick={onBack} aria-label="Back to tasks">
@@ -190,24 +223,16 @@ function ChatTabBar({
         {tabs.map((tab) => {
           const active = tab.id === activeId;
           return (
-            <div key={tab.id} style={active ? activeTab(t) : inactiveTab(t)} title={tab.title}>
+            <div
+              key={tab.id}
+              style={active ? { ...activeTab(t), background: selectedBg } : inactiveTab(t)}
+              title={tab.title}
+            >
               <button
                 type="button"
                 style={tabSelectBtn}
                 onClick={active ? undefined : () => onSelectTab(tab.id)}
               >
-                <span
-                  style={{
-                    width: '7px',
-                    height: '7px',
-                    borderRadius: '999px',
-                    flexShrink: 0,
-                    background: STATUS_DOT[tab.status],
-                    ...(isRunning(tab.status)
-                      ? { animation: 'localagents-pulse 1.4s ease-in-out infinite' }
-                      : {}),
-                  }}
-                />
                 <span style={tabTitle}>{tab.title}</span>
               </button>
               <button
@@ -402,7 +427,7 @@ function CheckIcon() {
 }
 function SendIcon() {
   return (
-    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true">
+    <svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true">
       <path
         d="M8 13 V3.5 M3.8 7.7 L8 3.5 L12.2 7.7"
         stroke="currentColor"
@@ -676,83 +701,80 @@ const errorRow = {
   wordBreak: 'break-word' as const,
 };
 
-const composerWrap = {
+// 12px font × 1.5 line-height × 3 lines — composer grows to here, then scrolls.
+const COMPOSER_MAX_H = 54;
+
+const composerCard = (t: ThemeTokens) => ({
   display: 'flex',
-  alignItems: 'center',
-  gap: '8px',
+  flexDirection: 'column' as const,
   margin: '10px 12px 12px',
+  padding: '12px 12px 8px',
+  background: t.surfaceBg,
+  border: `1px solid ${t.controlBorder}`,
+  borderRadius: '12px',
   flexShrink: 0,
-};
-
-const plusBtn = (t: ThemeTokens) => ({
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  width: '34px',
-  height: '34px',
-  flexShrink: 0,
-  background: t.controlBg,
-  border: 'none',
-  borderRadius: '999px',
-  color: t.textMuted,
-  cursor: 'pointer',
-  padding: 0,
-});
-
-const inputPill = (t: ThemeTokens) => ({
-  flex: 1,
-  minWidth: 0,
-  display: 'flex',
-  alignItems: 'center',
-  background: t.fieldBg,
-  borderRadius: '18px',
-  padding: '8px 14px',
 });
 
 const composerInput = (t: ThemeTokens) => ({
-  flex: 1,
   width: '100%',
-  minWidth: 0,
-  maxHeight: '120px',
+  minHeight: '24px',
+  maxHeight: `${COMPOSER_MAX_H}px`,
   background: 'transparent',
   border: 'none',
   color: t.textPrimary,
   padding: 0,
   margin: 0,
   fontFamily: 'inherit',
-  fontSize: '13px',
+  fontSize: '12px',
   lineHeight: 1.5,
   resize: 'none' as const,
+  overflowY: 'auto' as const,
   outline: 'none',
   boxSizing: 'border-box' as const,
 });
 
-const sendBtn = (t: ThemeTokens) => ({
+const composerFooter = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  marginTop: '8px',
+  gap: '8px',
+};
+
+const composerActions = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '6px',
+  flexShrink: 0,
+};
+
+const attachBtn = (t: ThemeTokens) => ({
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  width: '34px',
-  height: '34px',
+  width: '23px',
+  height: '23px',
   flexShrink: 0,
-  background: t.accent,
+  background: 'transparent',
   border: 'none',
-  borderRadius: '999px',
-  color: t.accentText,
+  borderRadius: '4px',
+  color: t.textPrimary,
   cursor: 'pointer',
   padding: 0,
 });
 
-const stopCircle = (t: ThemeTokens) => ({
+// Solid send square (mirrors the picked-popover send button).
+const sendBtn = (t: ThemeTokens) => ({
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  width: '34px',
-  height: '34px',
+  width: '23px',
+  height: '23px',
   flexShrink: 0,
-  background: t.controlBg,
+  background: t.submitBg,
   border: 'none',
-  borderRadius: '999px',
-  color: t.textMuted,
+  borderRadius: '5px',
+  color: t.submitText,
   cursor: 'pointer',
   padding: 0,
 });

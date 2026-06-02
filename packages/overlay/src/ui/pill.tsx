@@ -5,6 +5,8 @@ type PillProps = {
   active: boolean;
   onArm: () => void;
   onDisarm: () => void;
+  /** Open the settings panel (gear button). No-op when omitted. */
+  onSettings?: () => void;
 };
 
 // #373734 at 10% opacity — used for the pill outline and the active divider.
@@ -23,7 +25,7 @@ const baseSurface = {
   color: ICON,
 };
 
-export function Pill({ active, onArm, onDisarm }: PillProps) {
+export function Pill({ active, onArm, onDisarm, onSettings }: PillProps) {
   if (!active) {
     return (
       <button
@@ -32,8 +34,9 @@ export function Pill({ active, onArm, onDisarm }: PillProps) {
         aria-label="localagents"
         style={{
           ...baseSurface,
-          width: '40px',
-          height: '40px',
+          // Matches the active pill's height (14px icon + 6px padding + border).
+          width: '28px',
+          height: '28px',
           padding: 0,
           borderRadius: '999px',
           display: 'inline-flex',
@@ -51,36 +54,41 @@ export function Pill({ active, onArm, onDisarm }: PillProps) {
     <div
       style={{
         ...baseSurface,
-        padding: '8px 10px',
+        // 8 · chat · 6 · settings · 6 · divider · 6 · close · 6, with 6 top/bottom.
+        padding: '6px 6px 6px 8px',
         borderRadius: '999px',
         display: 'inline-flex',
         alignItems: 'center',
+        gap: '6px',
       }}
     >
-      <button type="button" aria-label="chat" onClick={onArm} style={iconButton}>
+      {/* Buttons hug the 14px icon so the glyphs honor the 12/4/4/4 spacing; the
+          circular 7.5% ink hover halo is drawn via box-shadow + bg so it doesn't
+          push the icons apart. */}
+      <style>
+        {'.la-pill-btn{background:transparent;transition:background 90ms,box-shadow 90ms}' +
+          '.la-pill-btn:hover{background:rgba(55,55,52,0.075);box-shadow:0 0 0 4px rgba(55,55,52,0.075)}'}
+      </style>
+      <button type="button" aria-label="chat" onClick={onArm} className="la-pill-btn" style={iconButton}>
         <ChatIcon />
       </button>
       <button
         type="button"
         aria-label="settings"
-        onClick={() => {}}
-        style={{ ...iconButton, marginLeft: '6px' }}
+        onClick={() => onSettings?.()}
+        className="la-pill-btn"
+        // +2px beyond the 6px gap so the chat/settings hover halos don't overlap.
+        style={{ ...iconButton, marginLeft: '2px' }}
       >
         <SettingsIcon />
       </button>
-      <span
-        style={{
-          width: '1px',
-          alignSelf: 'stretch',
-          background: STROKE,
-          marginLeft: '8px',
-        }}
-      />
+      <span style={{ width: '1px', height: '14px', background: STROKE, flexShrink: 0 }} />
       <button
         type="button"
         aria-label="close"
         onClick={onDisarm}
-        style={{ ...iconButton, marginLeft: '8px' }}
+        className="la-pill-btn"
+        style={iconButton}
       >
         <CloseIcon />
       </button>
@@ -92,14 +100,18 @@ const iconButton = {
   display: 'inline-flex' as const,
   alignItems: 'center' as const,
   justifyContent: 'center' as const,
+  width: '14px',
+  height: '14px',
+  borderRadius: '999px',
   padding: 0,
-  background: 'transparent',
+  // No inline background — the .la-pill-btn class owns it so the :hover fill wins
+  // (an inline `transparent` would override hover and leave a hollow halo).
   border: 'none',
   color: ICON,
   cursor: 'pointer',
 };
 
-const ICON_SIZE = 18;
+const ICON_SIZE = 14;
 
 /**
  * Icons inlined from packages/overlay/src/assets/icons (star-06, message-circle-01,

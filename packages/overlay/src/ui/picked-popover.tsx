@@ -8,7 +8,7 @@ import type {
   SourceConfidence,
   WorktreeMode,
 } from '@localagents/shared';
-import { MAX_IMAGES_PER_ANNOTATION } from '@localagents/shared';
+import { MAX_IMAGES_PER_ANNOTATION, modelLabel } from '@localagents/shared';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Resolution } from '../source-map';
 import { type OverlayTheme, type ThemeTokens, tokens } from './theme';
@@ -18,6 +18,7 @@ const INK = '#373734'; // all text + icons
 const STROKE = 'rgba(55, 55, 52, 0.1)'; // #373734 @ 10% — borders / dividers
 const PLACEHOLDER = 'rgba(55, 55, 52, 0.5)'; // #373734 @ 50% — empty input text
 const SURFACE = '#ffffff';
+const ACCENT_BLUE = '#1a73e8'; // "new worktree" toggle when active
 
 const ACCEPTED_IMAGE_TYPES: ImageMediaType[] = [
   'image/png',
@@ -63,29 +64,31 @@ function annotationConfidence(c: Resolution['confidence']): SourceConfidence {
   return c;
 }
 
-type Provider = 'claude' | 'gpt';
+export type Provider = 'claude' | 'gpt';
 
-type ModelOption = { value: string; label: string; provider: Provider; backend: Backend };
+export type ModelOption = { value: string; label: string; provider: Provider; backend: Backend };
 
 // Claude legacy models are intentionally omitted.
-const FALLBACK_MODEL: ModelOption = {
+// Labels come from the shared MODEL_LABELS map (via modelLabel) so the picker
+// and the task panel always agree on display names.
+export const FALLBACK_MODEL: ModelOption = {
   value: 'opus-4.8',
-  label: 'Opus 4.8',
+  label: modelLabel('opus-4.8'),
   provider: 'claude',
   backend: 'claude',
 };
-const MODELS: ModelOption[] = [
+export const MODELS: ModelOption[] = [
   FALLBACK_MODEL,
-  { value: 'opus-4.8-1m', label: 'Opus 4.8 (1M context)', provider: 'claude', backend: 'claude' },
-  { value: 'sonnet-4.6', label: 'Sonnet 4.6', provider: 'claude', backend: 'claude' },
-  { value: 'haiku-4.5', label: 'Haiku 4.5', provider: 'claude', backend: 'claude' },
-  { value: 'gpt-5.4', label: 'GPT-5.4', provider: 'gpt', backend: 'codex' },
-  { value: 'gpt-5.5', label: 'GPT-5.5', provider: 'gpt', backend: 'codex' },
+  { value: 'opus-4.8-1m', label: modelLabel('opus-4.8-1m'), provider: 'claude', backend: 'claude' },
+  { value: 'sonnet-4.6', label: modelLabel('sonnet-4.6'), provider: 'claude', backend: 'claude' },
+  { value: 'haiku-4.5', label: modelLabel('haiku-4.5'), provider: 'claude', backend: 'claude' },
+  { value: 'gpt-5.4', label: modelLabel('gpt-5.4'), provider: 'gpt', backend: 'codex' },
+  { value: 'gpt-5.5', label: modelLabel('gpt-5.5'), provider: 'gpt', backend: 'codex' },
 ];
 
 // Reasoning effort differs by provider — GPT has no "Extra"/"Max", it tops out
 // at "Extra High".
-const EFFORTS: Record<Provider, { value: ReasoningEffort; label: string }[]> = {
+export const EFFORTS: Record<Provider, { value: ReasoningEffort; label: string }[]> = {
   claude: [
     { value: 'low', label: 'Low' },
     { value: 'medium', label: 'Medium' },
@@ -101,57 +104,17 @@ const EFFORTS: Record<Provider, { value: ReasoningEffort; label: string }[]> = {
   ],
 };
 
-const DEFAULT_MODEL = 'opus-4.8-1m';
+export const DEFAULT_MODEL = 'opus-4.8-1m';
 
-/** Heuristic: long or refactor-y prompts → new worktree by default. */
-function defaultWorktreeMode(prompt: string): WorktreeMode {
-  if (prompt.length > 200) return 'new';
-  if (/\brefactor\b|\brewrite\b|\bredesign\b/i.test(prompt)) return 'new';
-  return 'same';
+/** A fresh worktree is the default; the user can toggle it off. */
+function defaultWorktreeMode(_prompt: string): WorktreeMode {
+  return 'new';
 }
 
-/** Small keyboard-shortcut chip (e.g. ⇧ ⌘ I) shown beside a menu section header. */
-function Kbd({ children, t }: { children: string; t: ThemeTokens }) {
+function MenuHeader({ label, t }: { label: string; t: ThemeTokens }) {
   return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minWidth: '18px',
-        height: '18px',
-        padding: '0 4px',
-        border: `1px solid ${t.controlBorder}`,
-        borderRadius: '5px',
-        fontSize: '11px',
-        color: t.textFaint,
-        background: 'rgba(55, 55, 52, 0.03)',
-        boxSizing: 'border-box',
-      }}
-    >
-      {children}
-    </span>
-  );
-}
-
-function MenuHeader({ label, keys, t }: { label: string; keys: string[]; t: ThemeTokens }) {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '6px 8px 4px',
-      }}
-    >
-      <span style={{ fontSize: '12px', color: t.textFaint }}>{label}</span>
-      <span style={{ display: 'inline-flex', gap: '4px' }}>
-        {keys.map((k) => (
-          <Kbd key={k} t={t}>
-            {k}
-          </Kbd>
-        ))}
-      </span>
+    <div style={{ padding: '6px 8px 4px' }}>
+      <span style={{ fontSize: '12px', color: t.textFaint, opacity: 0.5 }}>{label}</span>
     </div>
   );
 }
@@ -212,41 +175,62 @@ function MenuRow({
   );
 }
 
-/** A single-section dropdown: a plain text trigger (no chevron) that opens a
- *  custom menu with a header + selectable rows. Used separately for the model
- *  and the reasoning effort. */
-function Picker({
-  triggerLabel,
-  header,
-  keys,
-  options,
-  value,
-  numbered,
-  tone,
-  onSelect,
+/** Shared panel chrome for the menu + its nested model submenu. Overflow is
+ *  visible (not scrolled) so the nested model submenu can escape the panel
+ *  edge — the lists are short enough that scrolling is never needed. */
+const menuPanel = (t: ThemeTokens) =>
+  ({
+    minWidth: '232px',
+    background: t.surfaceBg,
+    border: `1px solid ${t.surfaceBorder}`,
+    borderRadius: '12px',
+    boxShadow: '0 12px 32px rgba(0, 0, 0, 0.18)',
+    padding: '6px',
+  }) as const;
+
+/** Combined model + reasoning control. The trigger shows "<model> <effort>";
+ *  clicking opens the Reasoning list, and a model row at the bottom expands a
+ *  nested Model submenu. One control, two menus. */
+export function ModelReasoningPicker({
+  models,
+  model,
+  onModelSelect,
+  effortOptions,
+  effort,
+  onEffortSelect,
+  modelLabel,
+  effortLabel,
   t,
 }: {
-  triggerLabel: string;
-  header: string;
-  keys: string[];
-  options: { value: string; label: string }[];
-  value: string;
-  numbered?: boolean;
-  tone: 'primary' | 'muted';
-  onSelect: (v: string) => void;
+  models: { value: string; label: string }[];
+  model: string;
+  onModelSelect: (v: string) => void;
+  effortOptions: { value: string; label: string }[];
+  effort: string;
+  onEffortSelect: (v: string) => void;
+  modelLabel: string;
+  effortLabel: string;
   t: ThemeTokens;
 }) {
   const [open, setOpen] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
   const [up, setUp] = useState(false);
+  const [subLeft, setSubLeft] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setModelOpen(false);
+      }
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape') {
+        setModelOpen(false);
+        setOpen(false);
+      }
     };
     document.addEventListener('mousedown', onDoc);
     document.addEventListener('keydown', onKey);
@@ -262,29 +246,41 @@ function Picker({
       const r = wrapRef.current.getBoundingClientRect();
       setUp(r.bottom + 320 > window.innerHeight);
     }
+    setModelOpen(false);
     setOpen((o) => !o);
+  };
+
+  const close = () => {
+    setModelOpen(false);
+    setOpen(false);
   };
 
   return (
     <div ref={wrapRef} style={{ position: 'relative', display: 'inline-flex', minWidth: 0 }}>
       <button
         type="button"
+        // Dims to 60% and brightens on hover, except while the menu is open.
+        className={open ? undefined : 'la-pp-dim'}
         onClick={toggle}
-        aria-label={header}
+        aria-label="Model and reasoning"
         style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '5px',
           maxWidth: '100%',
           background: 'transparent',
           border: 'none',
           padding: 0,
           cursor: 'pointer',
-          color: tone === 'muted' ? t.textFaint : t.textPrimary,
+          color: t.textPrimary,
           fontFamily: 'inherit',
           fontSize: '12px',
           letterSpacing: 'inherit',
           whiteSpace: 'nowrap',
         }}
       >
-        {triggerLabel}
+        <span>{modelLabel}</span>
+        <span>{effortLabel}</span>
       </button>
       {open ? (
         <div
@@ -292,31 +288,89 @@ function Picker({
             position: 'absolute',
             left: 0,
             ...(up ? { bottom: '100%', marginBottom: '6px' } : { top: '100%', marginTop: '6px' }),
-            minWidth: '232px',
-            maxHeight: '320px',
-            overflowY: 'auto',
-            background: t.surfaceBg,
-            border: `1px solid ${t.surfaceBorder}`,
-            borderRadius: '12px',
-            boxShadow: '0 12px 32px rgba(0, 0, 0, 0.18)',
-            padding: '6px',
             zIndex: 10,
+            ...menuPanel(t),
           }}
         >
-          <MenuHeader label={header} keys={keys} t={t} />
-          {options.map((o, i) => (
+          <MenuHeader label="Reasoning" t={t} />
+          {effortOptions.map((o) => (
             <MenuRow
               key={o.value}
               label={o.label}
-              selected={o.value === value}
-              {...(numbered ? { number: i + 1 } : {})}
+              selected={o.value === effort}
               onClick={() => {
-                onSelect(o.value);
-                setOpen(false);
+                onEffortSelect(o.value);
+                close();
               }}
               t={t}
             />
           ))}
+          {/* Divider, then the current model as an expandable row. */}
+          <div style={{ height: '1px', background: t.controlBorder, margin: '6px 2px' }} />
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              className="la-pp-menu-row la-pp-model-row"
+              onClick={(e) => {
+                // Open the submenu to the right, flipping left when it would clip.
+                if (!modelOpen) {
+                  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  setSubLeft(r.right + 248 > window.innerWidth);
+                }
+                setModelOpen((v) => !v);
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                width: '100%',
+                gap: '12px',
+                padding: '6px 8px',
+                border: 'none',
+                borderRadius: '6px',
+                ...(modelOpen ? { background: 'rgba(55, 55, 52, 0.06)' } : null),
+                color: t.textPrimary,
+                fontSize: '13px',
+                fontFamily: 'inherit',
+                letterSpacing: 'inherit',
+                cursor: 'pointer',
+                textAlign: 'left',
+              }}
+            >
+              <span style={{ whiteSpace: 'nowrap' }}>{modelLabel}</span>
+              <span style={{ display: 'inline-flex', color: t.textFaint, flexShrink: 0 }}>
+                <Icon.ChevronRight />
+              </span>
+            </button>
+            {modelOpen ? (
+              <div
+                style={{
+                  position: 'absolute',
+                  // Float beside the model row like a native submenu (flips side).
+                  ...(subLeft
+                    ? { right: 'calc(100% + 8px)' }
+                    : { left: 'calc(100% + 8px)' }),
+                  bottom: 0,
+                  zIndex: 11,
+                  ...menuPanel(t),
+                }}
+              >
+                <MenuHeader label="Model" t={t} />
+                {models.map((m) => (
+                  <MenuRow
+                    key={m.value}
+                    label={m.label}
+                    selected={m.value === model}
+                    onClick={() => {
+                      onModelSelect(m.value);
+                      close();
+                    }}
+                    t={t}
+                  />
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
       ) : null}
     </div>
@@ -352,7 +406,7 @@ export function PickedPopover({
   const [prompt, setPrompt] = useState('');
   const [model, setModel] = useState<string>(DEFAULT_MODEL);
   const [effort, setEffort] = useState<ReasoningEffort>('high');
-  const [worktreeMode, setWorktreeMode] = useState<WorktreeMode>('same');
+  const [worktreeMode, setWorktreeMode] = useState<WorktreeMode>('new');
 
   const selectedModel = MODELS.find((m) => m.value === model) ?? FALLBACK_MODEL;
   const provider = selectedModel.provider;
@@ -411,6 +465,14 @@ export function PickedPopover({
   useEffect(() => {
     textareaRef.current?.focus();
   }, []);
+
+  // Grow the textarea with its content up to 3 lines, then scroll.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, TEXTAREA_MAX_H)}px`;
+  }, [prompt]);
 
   const submit = async () => {
     if (!prompt.trim() || sending) return;
@@ -474,11 +536,11 @@ export function PickedPopover({
         background: t.surfaceBg,
         color: t.textPrimary,
         border: `1px solid ${t.surfaceBorder}`,
-        borderRadius: '16px',
+        borderRadius: '8px',
         boxShadow: t.surfaceShadow,
         // Spacing tokens (overridable via CSS vars for the gallery playground).
-        // top / x / bottom — bottom is tighter than top by design.
-        padding: 'var(--la-pp-pad-t, 10px) var(--la-pp-pad-x, 10px) var(--la-pp-pad-b, 8px)',
+        // top / x / bottom — places the input 12px from the top and left edges.
+        padding: 'var(--la-pp-pad-t, 12px) var(--la-pp-pad-x, 12px) var(--la-pp-pad-b, 8px)',
         fontSize: '12px',
         fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif',
         lineHeight: 1.5,
@@ -498,8 +560,15 @@ export function PickedPopover({
           '@keyframes la-pp-in{from{opacity:0;transform:scale(0.96)}to{opacity:1;transform:scale(1)}}' +
           '.la-pp-menu-row{background:transparent;transition:background 80ms}' +
           '.la-pp-menu-row:hover{background:rgba(55,55,52,0.06)}' +
-          '.la-pp-send:not(:disabled){opacity:0.7;transition:opacity 80ms}' +
-          '.la-pp-send:not(:disabled):hover{opacity:1}'}
+          // Muted footer controls sit at 60% and brighten to full on hover.
+          '.la-pp-dim{opacity:0.6;transition:opacity 80ms}' +
+          '.la-pp-dim:hover{opacity:1}' +
+          '.la-pp-send{transition:opacity 80ms}' +
+          // Thin scrollbar for the input once it grows past 3 lines.
+          '.la-pp-ta{scrollbar-width:thin;scrollbar-color:rgba(55,55,52,0.25) transparent}' +
+          '.la-pp-ta::-webkit-scrollbar{width:4px}' +
+          '.la-pp-ta::-webkit-scrollbar-thumb{background:rgba(55,55,52,0.25);border-radius:4px}' +
+          '.la-pp-ta::-webkit-scrollbar-track{background:transparent}'}
       </style>
 
       {dragOver ? (
@@ -507,7 +576,7 @@ export function PickedPopover({
           style={{
             position: 'absolute',
             inset: 0,
-            borderRadius: '16px',
+            borderRadius: '8px',
             border: `2px dashed ${t.accent}`,
             background: theme === 'light' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.16)',
             display: 'flex',
@@ -523,54 +592,6 @@ export function PickedPopover({
           Drop images to attach
         </div>
       ) : null}
-
-      {/* Close — floats at the card's top-right corner. */}
-      <button
-        type="button"
-        onClick={onClose}
-        style={{ ...iconBtn(t), position: 'absolute', top: '6px', right: '8px', flexShrink: 0 }}
-        title="Close"
-      >
-        <Icon.Close />
-      </button>
-
-      {/* Controls: branch + worktree toggle */}
-      <div
-        style={{ display: 'flex', alignItems: 'center', marginBottom: 'var(--la-pp-gap, 8px)' }}
-      >
-        <div style={branchPill(t)}>
-          <Icon.GitBranch />
-          <span style={{ fontWeight: 400, color: t.textPrimary, fontSize: '12px' }}>main</span>
-          <span
-            style={{
-              width: '1px',
-              alignSelf: 'stretch',
-              margin: '-2px 2px',
-              background: t.controlBorder,
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => {
-              setUserTouchedMode(true);
-              setWorktreeMode((m) => (m === 'same' ? 'new' : 'same'));
-            }}
-            style={checkboxRow}
-            title="Run the agent in a fresh git worktree (parallel) instead of the current one"
-          >
-            <span
-              style={{
-                ...checkbox(t),
-                ...(worktree ? { background: t.accent, borderColor: t.accent } : null),
-                color: t.accentText,
-              }}
-            >
-              {worktree ? <Icon.Check /> : null}
-            </span>
-            <span style={{ color: t.textPrimary }}>worktree</span>
-          </button>
-        </div>
-      </div>
 
       {/* Attached image thumbnails — shown above the prompt input. */}
       {images.length > 0 ? (
@@ -639,50 +660,65 @@ export function PickedPopover({
         }}
       />
 
-      {/* Footer: model on the left, action icons on the right */}
+      {/* Footer: model on the left, action icons on the right. Breaks out to the
+          card edges (cancels the card padding) so it can set its own padding:
+          12 left · 8 right · 8 bottom. */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           marginTop: 'var(--la-pp-gap, 8px)',
+          marginLeft: 'calc(-1 * var(--la-pp-pad-x, 12px))',
+          marginRight: 'calc(-1 * var(--la-pp-pad-x, 12px))',
+          paddingLeft: '12px',
+          paddingRight: '8px',
           gap: '8px',
         }}
       >
-        {/* Left cluster: two independent menus — model, then reasoning effort. */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-          <Picker
-            triggerLabel={selectedModel.label}
-            header="Models"
-            keys={['⇧', '⌘', 'I']}
-            options={MODELS.map((m) => ({ value: m.value, label: m.label }))}
-            value={model}
-            numbered
-            tone="primary"
-            onSelect={changeModel}
-            t={t}
-          />
-          <Picker
-            triggerLabel={effortOptions.find((e) => e.value === effort)?.label ?? effort}
-            header="Effort"
-            keys={['⇧', '⌘', 'E']}
-            options={effortOptions}
-            value={effort}
-            tone="muted"
-            onSelect={(v) => setEffort(v as ReasoningEffort)}
+        {/* Left cluster: worktree toggle, then model · effort menus. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+          <button
+            type="button"
+            // Dim only when inactive (gray); the active blue state stays full.
+            className={worktree ? undefined : 'la-pp-dim'}
+            onClick={() => {
+              setUserTouchedMode(true);
+              setWorktreeMode((m) => (m === 'same' ? 'new' : 'same'));
+            }}
+            style={worktreeToggle}
+            title="Run the agent in a fresh git worktree (parallel) instead of the current one"
+          >
+            {/* Check only takes space when present, so the label shifts on toggle. */}
+            {worktree ? (
+              <span style={{ display: 'inline-flex', color: ACCENT_BLUE }}>
+                <Icon.Check />
+              </span>
+            ) : null}
+            <span style={{ color: worktree ? ACCENT_BLUE : t.textFaint }}>new worktree</span>
+          </button>
+          <ModelReasoningPicker
+            models={MODELS.map((m) => ({ value: m.value, label: m.label }))}
+            model={model}
+            onModelSelect={changeModel}
+            effortOptions={effortOptions}
+            effort={effort}
+            onEffortSelect={(v) => setEffort(v as ReasoningEffort)}
+            modelLabel={selectedModel.label}
+            effortLabel={effortOptions.find((e) => e.value === effort)?.label ?? effort}
             t={t}
           />
         </div>
         {/* Right cluster: attach · send */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={atImageLimit}
             style={{
               ...iconBtn(t),
-              // Attach is a secondary action — dimmed to 50%.
-              opacity: atImageLimit ? 0.4 : 0.5,
+              // Attach (#373734) sits at 60%; dimmer when at the image limit.
+              opacity: atImageLimit ? 0.3 : 0.6,
               cursor: atImageLimit ? 'not-allowed' : 'pointer',
             }}
             title={
@@ -701,8 +737,8 @@ export function PickedPopover({
             disabled={!canSubmit}
             style={{
               ...sendBtn(t),
-              // Enabled: 70% via the .la-pp-send rule, 100% on hover. Disabled: 40%.
-              ...(canSubmit ? null : { opacity: 0.4 }),
+              // Send (#373734): full when active, 30% when disabled.
+              opacity: canSubmit ? 1 : 0.3,
               cursor: canSubmit ? 'pointer' : 'not-allowed',
             }}
             title="Send (⌘↵)"
@@ -800,7 +836,7 @@ const Icon = {
     </svg>
   ),
   Plus: () => (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <path
         d="M7.99967 3.3335V12.6668M3.33301 8.00016H12.6663"
         stroke="currentColor"
@@ -811,7 +847,7 @@ const Icon = {
     </svg>
   ),
   Return: () => (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <path
         d="M13.3337 2.6665V3.59984C13.3337 5.84005 13.3337 6.96015 12.8977 7.8158C12.5142 8.56845 11.9023 9.18037 11.1496 9.56386C10.294 9.99984 9.17387 9.99984 6.93366 9.99984H2.66699M6.00033 13.3332L2.66699 9.99984L6.00033 6.6665"
         stroke="currentColor"
@@ -832,9 +868,20 @@ const Icon = {
       />
     </svg>
   ),
+  ChevronRight: () => (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M6 4L10 8L6 12"
+        stroke="currentColor"
+        stroke-width="1.33333"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
+  ),
 };
 
-const POPOVER_WIDTH = 360;
+const POPOVER_WIDTH = 380;
 // Height guess for flip-above logic; covers the bar + card stack.
 const POPOVER_HEIGHT_GUESS = 260;
 const GAP = 8;
@@ -859,8 +906,9 @@ const iconBtn = (t: ThemeTokens) => ({
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  width: '28px',
-  height: '28px',
+  // Matches the send button's box so the footer row stays a single height.
+  width: '23px',
+  height: '23px',
   background: 'transparent',
   border: 'none',
   borderRadius: '6px',
@@ -869,21 +917,10 @@ const iconBtn = (t: ThemeTokens) => ({
   padding: 0,
 });
 
-const branchPill = (t: ThemeTokens) => ({
+const worktreeToggle = {
   display: 'inline-flex',
   alignItems: 'center',
-  gap: '6px',
-  padding: '2px 8px',
-  border: `1px solid ${t.controlBorder}`,
-  borderRadius: '4px',
-  fontSize: '12px',
-  color: t.textMuted,
-});
-
-const checkboxRow = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: '6px',
+  gap: '5px',
   background: 'transparent',
   border: 'none',
   padding: 0,
@@ -891,18 +928,9 @@ const checkboxRow = {
   cursor: 'pointer',
   fontSize: '12px',
   fontFamily: 'inherit',
+  letterSpacing: 'inherit',
+  whiteSpace: 'nowrap' as const,
 };
-
-const checkbox = (t: ThemeTokens) => ({
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  width: '12px',
-  height: '12px',
-  borderRadius: '4px',
-  border: `1px solid ${t.controlBorder}`,
-  boxSizing: 'border-box' as const,
-});
 
 const thumbRemove = (t: ThemeTokens) => ({
   position: 'absolute' as const,
@@ -923,16 +951,24 @@ const thumbRemove = (t: ThemeTokens) => ({
   padding: 0,
 });
 
+// 12px font × 1.5 line-height × 3 lines — the input grows to here, then scrolls.
+const TEXTAREA_MAX_H = 54;
+
 const textarea = (t: ThemeTokens) => ({
-  width: '100%',
+  // Extends 4px past the content box on the right (8px from the card edge) so the
+  // scrollbar lines up with the send button's right edge; left stays at 12px.
+  width: 'calc(100% + 4px)',
+  minHeight: '30px',
+  maxHeight: `${TEXTAREA_MAX_H}px`,
   background: 'transparent',
   border: 'none',
   color: t.textPrimary,
-  padding: '2px 0',
+  padding: 0,
   fontFamily: 'inherit',
-  fontSize: '14px',
+  fontSize: '12px',
   lineHeight: 1.5,
   resize: 'none' as const,
+  overflowY: 'auto' as const,
   outline: 'none',
   boxSizing: 'border-box' as const,
 });
@@ -941,12 +977,12 @@ const sendBtn = (t: ThemeTokens) => ({
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  width: '32px',
-  height: '32px',
-  marginLeft: '4px',
+  // Icon is 13px; ~5px padding all around → 23px box, with a soft 5px radius.
+  width: '23px',
+  height: '23px',
   background: t.submitBg,
   border: 'none',
-  borderRadius: '8px',
+  borderRadius: '5px',
   color: t.submitText,
   fontFamily: 'inherit',
 });

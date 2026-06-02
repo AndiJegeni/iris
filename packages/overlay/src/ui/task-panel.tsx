@@ -1,5 +1,5 @@
 /** @jsxImportSource preact */
-import type { Task, TranscriptEntry } from '@localagents/shared';
+import { modelLabel, type Task, type TranscriptEntry } from '@localagents/shared';
 import { useEffect, useState } from 'preact/hooks';
 import { TaskChat } from './task-chat';
 import { type OverlayTheme, type ThemeTokens, tokens } from './theme';
@@ -34,18 +34,24 @@ function elapsed(t: Task): string {
   return `${m}m ${s}s`;
 }
 
+/** Model display name for a task — the model's label, else the backend name. */
+function modelName(t: Task): string {
+  return t.model?.trim() ? modelLabel(t.model) : capitalize(t.backend);
+}
+
 function statusLine(t: Task): string {
+  const model = modelName(t);
   switch (t.status) {
     case 'queued':
       return 'Queued';
     case 'running':
-      return `Running ${t.backend}`;
+      return model;
     case 'editing':
-      return t.message ?? `Editing · ${t.backend}`;
+      return t.message ?? model;
     case 'done':
-      return `${capitalize(t.backend)} · completed`;
+      return `${model} · Completed`;
     case 'failed':
-      return `${capitalize(t.backend)} · failed`;
+      return `${model} · Failed`;
     case 'cancelled':
       return 'Cancelled';
   }
@@ -129,16 +135,23 @@ export function TaskPanel({
 
   return (
     <>
+      <style>
+        {'.la-tp-dim{opacity:0.5;transition:opacity 80ms}.la-tp-dim:hover{opacity:1}'}
+      </style>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         style={{
           ...buttonStyle(t),
+          // In light mode, match the message-box modal: white fill, hairline ink border.
+          ...(theme === 'light'
+            ? { background: '#ffffff', border: '1px solid rgba(55, 55, 52, 0.1)' }
+            : null),
           right: open ? `${width + DRAWER_MARGIN + 10}px` : '14px',
         }}
         title="Background tasks"
       >
-        <DoubleChevron color={t.accent} />
+        <BackgroundTasksIcon color={t.accent} />
         {running.length > 0 ? (
           <span style={{ ...countStyle, color: t.accent }}>{running.length}</span>
         ) : null}
@@ -163,14 +176,16 @@ export function TaskPanel({
           ) : (
             <>
               <div style={panelHeader(t)}>
-                <span style={{ fontWeight: 600, fontSize: '15px' }}>Background Tasks</span>
+                <span style={{ fontWeight: 500, fontSize: '12px', opacity: 0.5 }}>
+                  Background Tasks
+                </span>
                 <button
                   type="button"
                   onClick={() => setOpen(false)}
                   style={iconBtn(t)}
                   aria-label="Close"
                 >
-                  <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
                     <path
                       d="M4 4 L12 12 M12 4 L4 12"
                       stroke="currentColor"
@@ -236,7 +251,7 @@ export function TaskPanel({
                 ) : null}
 
                 {running.length === 0 && finished.length === 0 ? (
-                  <div style={{ color: t.textFaint, fontSize: '13px', padding: '12px 0' }}>
+                  <div style={{ color: t.textFaint, fontSize: '12px', padding: '12px 0' }}>
                     No tasks yet.
                   </div>
                 ) : null}
@@ -261,31 +276,34 @@ function TaskRow({ task, t, hasTranscript, onOpenChat, onCancel }: TaskRowProps)
   return (
     <div style={cardStyle(t)}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '9px' }}>
-        <span
-          style={{
-            width: '8px',
-            height: '8px',
-            borderRadius: '999px',
-            background: DOT_COLOR[task.status],
-            marginTop: '5px',
-            flexShrink: 0,
-          }}
-        />
+        {/* Only the failed state shows a status dot. */}
+        {task.status === 'failed' ? (
+          <span
+            style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '999px',
+              background: DOT_COLOR[task.status],
+              marginTop: '5px',
+              flexShrink: 0,
+            }}
+          />
+        ) : null}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 500, fontSize: '14px', color: t.textPrimary }}>
+          <div style={{ fontWeight: 500, fontSize: '12px', color: t.textPrimary }}>
             {task.prompt}
           </div>
           <div style={{ color: t.textMuted, fontSize: '12px', marginTop: '2px' }}>
             {statusLine(task)} <span style={{ color: t.textFaint }}>· {elapsed(task)}</span>
           </div>
           {hasTranscript ? (
-            <button type="button" style={transcriptLink(t)} onClick={onOpenChat}>
-              View transcript
+            <button type="button" style={viewChatLink(t)} onClick={onOpenChat}>
+              View chat
             </button>
           ) : null}
         </div>
         {onCancel ? (
-          <button type="button" style={stopBtn(t)} onClick={onCancel}>
+          <button type="button" className="la-tp-dim" style={stopBtn(t)} onClick={onCancel}>
             Stop
           </button>
         ) : null}
@@ -294,12 +312,15 @@ function TaskRow({ task, t, hasTranscript, onOpenChat, onCancel }: TaskRowProps)
   );
 }
 
-function DoubleChevron({ color }: { color: string }) {
+// Two overlapping circles — from assets/icons/background.svg.
+function BackgroundTasksIcon({ color }: { color: string }) {
   return (
-    <svg viewBox="0 0 20 20" width="17" height="17" style={{ display: 'block' }} aria-hidden="true">
-      <g stroke={color} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M3 5 L8 10 L3 15" />
-        <path d="M10 5 L15 10 L10 15" />
+    <svg viewBox="0 0 24 24" width="18" height="18" style={{ display: 'block' }} aria-hidden="true">
+      {/* kebab-case attrs — Preact doesn't map camelCase SVG props, so strokeWidth
+          was being dropped. 1.8 in a 24 viewBox ≈ the modal icons' visual weight. */}
+      <g stroke={color} stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12.6749 16.2962C15.0082 13.9629 15.0082 10.1797 12.6749 7.84634C10.3415 5.51296 6.55833 5.51296 4.22495 7.84634C1.89157 10.1797 1.89157 13.9629 4.22495 16.2962C6.55833 18.6296 10.3415 18.6296 12.6749 16.2962Z" />
+        <path d="M19.9176 16.2962C22.251 13.9629 22.251 10.1797 19.9176 7.84634C17.5843 5.51296 13.8011 5.51296 11.4677 7.84634C9.13435 10.1797 9.13435 13.9629 11.4677 16.2962C13.8011 18.6296 17.5843 18.6296 19.9176 16.2962Z" />
       </g>
     </svg>
   );
@@ -314,7 +335,7 @@ const buttonStyle = (t: ThemeTokens) => ({
   padding: '0 10px',
   display: 'inline-flex',
   alignItems: 'center',
-  gap: '7px',
+  gap: '4px',
   background: t.controlBg,
   border: `1px solid ${t.controlBorder}`,
   borderRadius: '999px',
@@ -344,6 +365,7 @@ const panelStyle = (t: ThemeTokens) => ({
   flexDirection: 'column' as const,
   color: t.textPrimary,
   fontFamily: 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+  fontSize: '12px',
   letterSpacing: '-0.02em',
   overflow: 'hidden',
 });
@@ -352,57 +374,65 @@ const panelHeader = (_t: ThemeTokens) => ({
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  padding: '16px 16px 10px',
+  // Left padding matches the section labels (container 16 + sectionHeader 6).
+  padding: '16px 16px 10px 22px',
 });
 
+// Matches the "Background Tasks" header (medium weight, 50% ink). Labels are
+// nudged 4px right / Clear 4px left via the padding.
 const sectionHeader = (t: ThemeTokens) => ({
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  color: t.textMuted,
+  color: t.textPrimary,
+  opacity: 0.5,
   fontSize: '12px',
   fontWeight: 500,
-  padding: '8px 2px 6px',
+  padding: '8px 6px 6px',
 });
 
-const cardStyle = (t: ThemeTokens) => ({
-  background: t.controlBg,
+const cardStyle = (_t: ThemeTokens) => ({
+  background: 'rgba(55, 55, 52, 0.03)',
   borderRadius: '6px',
   padding: '11px 12px',
   marginBottom: '7px',
 });
 
+// Text-only button: 50% ink, no fill/border, brightens to 100% on hover
+// (handled by the .la-tp-dim rule). Slightly rounded for the focus ring.
 const stopBtn = (t: ThemeTokens) => ({
-  background: t.surfaceBg,
-  border: `1px solid ${t.controlBorder}`,
-  borderRadius: '7px',
-  padding: '4px 11px',
+  background: 'transparent',
+  border: 'none',
+  borderRadius: '4px',
+  padding: '4px 6px',
   fontSize: '12px',
   fontWeight: 500,
-  color: t.textMuted,
+  color: t.textPrimary,
   cursor: 'pointer',
   flexShrink: 0,
   fontFamily: 'inherit',
 });
 
-const clearBtn = (t: ThemeTokens) => ({
+const clearBtn = (_t: ThemeTokens) => ({
   background: 'transparent',
   border: 'none',
-  color: t.link,
+  // Inherits the section header's 50%-ink color.
+  color: 'inherit',
   fontSize: '12px',
   cursor: 'pointer',
   padding: 0,
   fontFamily: 'inherit',
 });
 
-const transcriptLink = (t: ThemeTokens) => ({
+const viewChatLink = (t: ThemeTokens) => ({
   background: 'transparent',
   border: 'none',
   color: t.link,
   fontSize: '12px',
   cursor: 'pointer',
   padding: 0,
-  marginTop: '4px',
+  marginTop: '8px',
+  // Sits left-aligned under the status line.
   display: 'block',
   fontFamily: 'inherit',
 });
