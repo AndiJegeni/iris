@@ -61,6 +61,8 @@ export class TaskQueue {
       id: randomUUID(),
       worktreeSlug,
       backend: annotation.backend,
+      // Carry the selected model value through for display (UI maps it to a label).
+      ...(annotation.model ? { model: annotation.model } : {}),
       prompt: annotation.prompt,
       source: annotation.source,
       status: 'queued',

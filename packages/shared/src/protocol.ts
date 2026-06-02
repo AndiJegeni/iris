@@ -43,6 +43,22 @@ export const MAX_IMAGES_PER_ANNOTATION = 6;
 export const Backend = z.enum(['claude', 'codex', 'echo']);
 export type Backend = z.infer<typeof Backend>;
 
+/** Known model value → human display label. Single source of truth shared by
+ *  the picker UI and the task panel so they never drift. */
+export const MODEL_LABELS: Record<string, string> = {
+  'opus-4.8': 'Opus 4.8',
+  'opus-4.8-1m': 'Opus 4.8 (1M context)',
+  'sonnet-4.6': 'Sonnet 4.6',
+  'haiku-4.5': 'Haiku 4.5',
+  'gpt-5.4': 'GPT-5.4',
+  'gpt-5.5': 'GPT-5.5',
+};
+
+/** Display label for a model value, falling back to the raw value. */
+export function modelLabel(value: string): string {
+  return MODEL_LABELS[value] ?? value;
+}
+
 // Reasoning effort. Claude exposes low→max; GPT (codex) tops out at extra-high
 // and has no "max" tier — the UI filters per provider.
 export const ReasoningEffort = z.enum(['low', 'medium', 'high', 'extra', 'max', 'extra-high']);
@@ -89,6 +105,8 @@ export const Task = z.object({
   id: z.string(),
   worktreeSlug: z.string(),
   backend: Backend,
+  /** Display name of the model used (e.g. "Opus 4.8"); falls back to backend. */
+  model: z.string().optional(),
   prompt: z.string(),
   source: SourceLocation.nullable(),
   status: TaskStatus,

@@ -3,6 +3,7 @@
 import { ElementOutline } from '@localagents/overlay/ui/element-outline';
 import { PickedPopover } from '@localagents/overlay/ui/picked-popover';
 import { Pill } from '@localagents/overlay/ui/pill';
+import { SettingsPanel } from '@localagents/overlay/ui/settings-panel';
 import { TaskChat } from '@localagents/overlay/ui/task-chat';
 import { TaskPanel } from '@localagents/overlay/ui/task-panel';
 import type { Task, TranscriptEntry } from '@localagents/shared';
@@ -301,6 +302,7 @@ export default function Gallery() {
       id: 'p1',
       status: 'running',
       prompt: 'Make the CTA button larger',
+      model: 'opus-4.8',
       message: 'patching globals.css',
       createdAt: now - 8000,
       updatedAt: now,
@@ -310,6 +312,7 @@ export default function Gallery() {
       status: 'editing',
       prompt: 'Reword the feature copy',
       backend: 'codex',
+      model: 'gpt-5.5',
       message: 'rewriting paragraphs',
       createdAt: now - 24000,
       updatedAt: now - 500,
@@ -319,6 +322,7 @@ export default function Gallery() {
       status: 'done',
       prompt: 'Add a footer link',
       backend: 'echo',
+      model: 'haiku-4.5',
       createdAt: now - 90000,
       updatedAt: now - 60000,
     }),
@@ -326,6 +330,7 @@ export default function Gallery() {
       id: 'p4',
       status: 'failed',
       prompt: 'Refactor the routing layer',
+      model: 'sonnet-4.6',
       message: 'Error: cannot resolve @localagents/router',
       createdAt: now - 130000,
       updatedAt: now - 110000,
@@ -818,6 +823,32 @@ export default function Gallery() {
                 onOpenChat: () => {},
               }}
               source="packages/overlay/src/ui/task-panel.tsx"
+            />
+          </Frame>
+        </div>
+      </Section>
+
+      <Section title="SettingsPanel" columns={1}>
+        {/* Constrain width so the 320px panel (anchored bottom-right of the frame)
+            stays in view. The panel docks above where the pill would sit. */}
+        <div style={{ maxWidth: 480 }}>
+          <Frame
+            label="SettingsPanel / settings + API keys views"
+            height={480}
+            hint="toggle theme/checkbox; 'Manage API keys' › opens the keys sub-view"
+          >
+            <PreactMount
+              component={SettingsPanel}
+              props={{
+                theme,
+                blockInteractions: true,
+                apiKeys: { anthropic: '', openai: '' },
+                onClose: () => {},
+                onToggleTheme: () => setTheme((tn) => (tn === 'dark' ? 'light' : 'dark')),
+                onToggleBlockInteractions: () => {},
+                onSaveKey: () => {},
+              }}
+              source="packages/overlay/src/ui/settings-panel.tsx"
             />
           </Frame>
         </div>
