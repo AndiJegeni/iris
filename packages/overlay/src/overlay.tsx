@@ -80,6 +80,7 @@ export function Overlay() {
       `}</style>
       <Pill
         active={armed}
+        theme={theme}
         onArm={() => controllerRef.current?.arm()}
         onDisarm={() => controllerRef.current?.disarm()}
       />

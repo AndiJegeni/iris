@@ -391,8 +391,8 @@ const sectionHeader = (t: ThemeTokens) => ({
   padding: '8px 6px 6px',
 });
 
-const cardStyle = (_t: ThemeTokens) => ({
-  background: 'rgba(55, 55, 52, 0.03)',
+const cardStyle = (t: ThemeTokens) => ({
+  background: t.cardBg,
   borderRadius: '6px',
   padding: '11px 12px',
   marginBottom: '7px',
