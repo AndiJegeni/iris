@@ -142,11 +142,14 @@ export function Pill({
         tabIndex={active ? -1 : 0}
         className="la-pill-launcher la-pill-layer"
         style={{
+          // top:0 + bottom:0 (not an explicit height) so the layer fills the
+          // container's inner box — with box-sizing:border-box the 1px border
+          // would otherwise leave the glyph ~1px low (asymmetric padding).
           position: 'absolute',
           top: 0,
+          bottom: 0,
           right: 0,
           width: `${CIRCLE}px`,
-          height: `${CIRCLE}px`,
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -167,10 +170,13 @@ export function Pill({
         aria-hidden={active ? undefined : true}
         className="la-pill-layer"
         style={{
+          // top:0 + bottom:0 (not an explicit height) so the toolbar fills the
+          // container's inner box symmetrically — the 1px border was making the
+          // top padding read ~1px taller than the bottom.
           position: 'absolute',
           top: 0,
+          bottom: 0,
           right: 0,
-          height: `${CIRCLE}px`,
           width: `${TOOLBAR_W}px`,
           display: 'inline-flex',
           alignItems: 'center',
