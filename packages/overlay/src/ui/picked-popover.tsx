@@ -114,7 +114,7 @@ function defaultWorktreeMode(_prompt: string): WorktreeMode {
 function MenuHeader({ label, t }: { label: string; t: ThemeTokens }) {
   return (
     <div style={{ padding: '6px 8px 4px' }}>
-      <span style={{ fontSize: '12px', color: t.textFaint, opacity: 0.5 }}>{label}</span>
+      <span style={{ fontSize: '13px', color: t.textFaint, opacity: 0.5 }}>{label}</span>
     </div>
   );
 }
@@ -168,7 +168,7 @@ function MenuRow({
       >
         {selected ? <Icon.Check /> : null}
         {number != null ? (
-          <span style={{ fontSize: '12px', fontVariantNumeric: 'tabular-nums' }}>{number}</span>
+          <span style={{ fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>{number}</span>
         ) : null}
       </span>
     </button>
@@ -276,7 +276,7 @@ export function ModelReasoningPicker({
           // read as one secondary row rather than one bright, one dim.
           color: t.textMuted,
           fontFamily: 'inherit',
-          fontSize: '12px',
+          fontSize: '13px',
           letterSpacing: 'inherit',
           whiteSpace: 'nowrap',
         }}
@@ -439,6 +439,7 @@ export function PickedPopover({
   const [dragOver, setDragOver] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const anchor = computeAnchor(element);
@@ -479,6 +480,55 @@ export function PickedPopover({
   useEffect(() => {
     textareaRef.current?.focus();
   }, []);
+
+  // Read the latest prompt from a ref inside the outside-click handler so the
+  // listener doesn't close over a stale value (and doesn't need re-registering
+  // on every keystroke).
+  const promptRef = useRef(prompt);
+  promptRef.current = prompt;
+
+  // Play a fresh left-right shake on the composer. Uses the Web Animations API
+  // (not a CSS class) so it RE-TRIGGERS on every call — click another component,
+  // then another, and each one shakes — and so it never fights the open
+  // animation's transform. Skipped if the API is unavailable (very old browsers).
+  const shake = () => {
+    const el = rootRef.current;
+    if (!el?.animate) return;
+    el.animate(
+      [
+        { transform: 'translateX(0)' },
+        { transform: 'translateX(-7px)' },
+        { transform: 'translateX(6px)' },
+        { transform: 'translateX(-5px)' },
+        { transform: 'translateX(4px)' },
+        { transform: 'translateX(-2px)' },
+        { transform: 'translateX(0)' },
+      ],
+      { duration: 420, easing: 'cubic-bezier(0.36, 0.07, 0.19, 0.97)' },
+    );
+  };
+
+  // Clicking outside the popover while typing means "you can't pick another
+  // component yet — finish or cancel this first": shake the composer instead of
+  // dropping the text. An empty composer just closes. We test composedPath()
+  // rather than contains() because the overlay is in a shadow root — at the
+  // document level the event target retargets to the shadow host, so contains()
+  // would treat every inside-click as outside.
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      const root = rootRef.current;
+      if (!root) return;
+      const path = e.composedPath?.() ?? [];
+      if (path.includes(root)) return; // click landed inside the popover
+      if (promptRef.current.trim()) {
+        shake();
+      } else {
+        onClose();
+      }
+    };
+    document.addEventListener('mousedown', onDown, true);
+    return () => document.removeEventListener('mousedown', onDown, true);
+  }, [onClose]);
 
   // Grow the textarea with its content up to 3 lines, then scroll.
   useEffect(() => {
@@ -529,6 +579,7 @@ export function PickedPopover({
 
   return (
     <div
+      ref={rootRef}
       onDragOver={(e) => {
         e.preventDefault();
         if (!dragOver) setDragOver(true);
@@ -550,18 +601,20 @@ export function PickedPopover({
         background: t.surfaceBg,
         color: t.textPrimary,
         border: `1px solid ${t.surfaceBorder}`,
-        borderRadius: '8px',
+        borderRadius: '12px',
         boxShadow: t.surfaceShadow,
         // Spacing tokens (overridable via CSS vars for the gallery playground).
         // top / x / bottom — places the input 12px from the top and left edges.
         padding: 'var(--la-pp-pad-t, 12px) var(--la-pp-pad-x, 12px) var(--la-pp-pad-b, 8px)',
-        fontSize: '12px',
+        fontSize: '13px',
         fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif',
         lineHeight: 1.5,
         letterSpacing: '-0.02em',
         pointerEvents: 'auto',
         backdropFilter: 'blur(10px)',
         // Grows from the anchored (top-left) corner, near the picked element.
+        // The shake (error nudge) is run imperatively via the Web Animations API
+        // in shake(), so it doesn't collide with this open animation.
         transformOrigin: 'top left',
         animation: 'la-pp-in 190ms cubic-bezier(0.2, 0.9, 0.3, 1)',
         willChange: 'transform, opacity',
@@ -590,7 +643,7 @@ export function PickedPopover({
           style={{
             position: 'absolute',
             inset: 0,
-            borderRadius: '8px',
+            borderRadius: '12px',
             border: `2px dashed ${t.accent}`,
             background: theme === 'light' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.16)',
             display: 'flex',
@@ -757,7 +810,7 @@ export function PickedPopover({
             }}
             title="Send (⌘↵)"
           >
-            <Icon.Return />
+            <Icon.ArrowUp />
           </button>
         </div>
       </div>
@@ -771,7 +824,7 @@ export function PickedPopover({
             border: `1px solid ${errorBorder}`,
             color: errorText,
             borderRadius: '8px',
-            fontSize: '12px',
+            fontSize: '13px',
           }}
         >
           {error}
@@ -850,7 +903,7 @@ const Icon = {
     </svg>
   ),
   Plus: () => (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <path
         d="M7.99967 3.3335V12.6668M3.33301 8.00016H12.6663"
         stroke="currentColor"
@@ -860,10 +913,12 @@ const Icon = {
       />
     </svg>
   ),
-  Return: () => (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+  ArrowUp: () => (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      {/* Spans 2.5–13.5 with a wide head so it reads at the same visual size as
+          the Plus glyph (which only feels bigger because it's a full cross). */}
       <path
-        d="M13.3337 2.6665V3.59984C13.3337 5.84005 13.3337 6.96015 12.8977 7.8158C12.5142 8.56845 11.9023 9.18037 11.1496 9.56386C10.294 9.99984 9.17387 9.99984 6.93366 9.99984H2.66699M6.00033 13.3332L2.66699 9.99984L6.00033 6.6665"
+        d="M8 13.5V2.5M3 7.5L8 2.5L13 7.5"
         stroke="currentColor"
         stroke-width="1.33333"
         stroke-linecap="round"
@@ -940,7 +995,7 @@ const worktreeToggle = {
   padding: 0,
   margin: 0,
   cursor: 'pointer',
-  fontSize: '12px',
+  fontSize: '13px',
   fontFamily: 'inherit',
   letterSpacing: 'inherit',
   whiteSpace: 'nowrap' as const,
@@ -965,21 +1020,24 @@ const thumbRemove = (t: ThemeTokens) => ({
   padding: 0,
 });
 
-// 12px font × 1.5 line-height × 3 lines — the input grows to here, then scrolls.
-const TEXTAREA_MAX_H = 54;
+// 13px font × 1.5 line-height. The input starts at 1 line and the auto-grow
+// effect steps it 1 → 2 → 3 lines; past 3 it hits this cap and scrolls.
+const TEXTAREA_LINE_H = 20; // ≈ 13 × 1.5, one line
+const TEXTAREA_MAX_H = 59; // ≈ 3 lines
 
 const textarea = (t: ThemeTokens) => ({
   // Extends 4px past the content box on the right (8px from the card edge) so the
   // scrollbar lines up with the send button's right edge; left stays at 12px.
   width: 'calc(100% + 4px)',
-  minHeight: '30px',
+  minHeight: `${TEXTAREA_LINE_H}px`,
   maxHeight: `${TEXTAREA_MAX_H}px`,
   background: 'transparent',
   border: 'none',
   color: t.textPrimary,
   padding: 0,
   fontFamily: 'inherit',
-  fontSize: '12px',
+  // 13px — the composer's uniform text size (matches Agentation's 0.8125rem input).
+  fontSize: '13px',
   lineHeight: 1.5,
   resize: 'none' as const,
   overflowY: 'auto' as const,
@@ -996,7 +1054,7 @@ const sendBtn = (t: ThemeTokens) => ({
   height: '23px',
   background: t.submitBg,
   border: 'none',
-  borderRadius: '5px',
+  borderRadius: '999px',
   color: t.submitText,
   fontFamily: 'inherit',
 });
