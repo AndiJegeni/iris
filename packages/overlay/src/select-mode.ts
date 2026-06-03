@@ -44,6 +44,7 @@ export function startSelectMode(handlers: SelectModeHandlers): SelectModeControl
     if (selecting !== lastSelecting) {
       lastSelecting = selecting;
       if (!selecting) lastHovered = null;
+      setCrosshairCursor(selecting);
       handlers.onSelectingChange(selecting);
     }
     if (armed !== lastArmed) {
@@ -71,6 +72,11 @@ export function startSelectMode(handlers: SelectModeHandlers): SelectModeControl
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
+      // While paused, a popover is open: Escape belongs to it (the overlay closes
+      // the popover and resumes), so select mode stays armed to keep picking.
+      // Only disarm when actively selecting with nothing open. This mirrors
+      // Agentation — sending or cancelling a message keeps you in select mode.
+      if (paused) return;
       armed = false;
       altActive = false;
       emit();
@@ -133,9 +139,31 @@ export function startSelectMode(handlers: SelectModeHandlers): SelectModeControl
     window.removeEventListener('mousemove', onMouseMove);
     window.removeEventListener('click', onClickCapture, { capture: true });
     window.removeEventListener('blur', onBlur);
+    setCrosshairCursor(false);
   };
 
   return { arm, disarm, pause, resume, dispose };
+}
+
+// Force a crosshair cursor across the whole host page while selecting (matches
+// Agentation's "click the icon → cursor turns into a +" feel). Injected as a
+// global `!important` rule so it overrides every element's own cursor. It lives
+// in the host document's <head>, so it does NOT pierce the overlay's shadow root
+// — the pill/popover keep their normal pointer cursors.
+let crosshairStyle: HTMLStyleElement | null = null;
+function setCrosshairCursor(on: boolean): void {
+  if (typeof document === 'undefined') return;
+  if (on) {
+    if (crosshairStyle) return;
+    const style = document.createElement('style');
+    style.setAttribute('data-localagents-cursor', '');
+    style.textContent = '*, *::before, *::after { cursor: crosshair !important; }';
+    document.head.appendChild(style);
+    crosshairStyle = style;
+  } else {
+    crosshairStyle?.remove();
+    crosshairStyle = null;
+  }
 }
 
 /**

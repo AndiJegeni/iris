@@ -1,8 +1,13 @@
 /** @jsxImportSource preact */
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { type SelectModeController, startSelectMode } from './select-mode';
-import { type Resolution, resolveSource } from './source-map';
-import { ElementOutline } from './ui/element-outline';
+import {
+  type Resolution,
+  collectComponentPath,
+  getFiberFromDom,
+  resolveSource,
+} from './source-map';
+import { ElementOutline, type OutlineLabel } from './ui/element-outline';
 import { PickedPopover } from './ui/picked-popover';
 import { Pill } from './ui/pill';
 import { TaskPanel } from './ui/task-panel';
@@ -14,12 +19,58 @@ type PickState = {
   resolution: Resolution;
 };
 
+type PillPos = { left: number; top: number };
+type DragState = {
+  startX: number;
+  startY: number;
+  origLeft: number;
+  origTop: number;
+  w: number;
+  h: number;
+  moved: boolean;
+};
+
+// Pixels the pointer must travel before a press becomes a drag (vs. a click).
+const DRAG_THRESHOLD = 4;
+// Keep the pill this far from the viewport edges while dragging.
+const MARGIN = 8;
+const PILL_POS_KEY = 'localagents:pill-pos';
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi));
+
+/** Restore the dragged pill position, clamped into the current viewport. */
+function loadPillPos(): PillPos | null {
+  try {
+    const raw = localStorage.getItem(PILL_POS_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as PillPos;
+    if (typeof p?.left !== 'number' || typeof p?.top !== 'number') return null;
+    return {
+      left: clamp(p.left, MARGIN, window.innerWidth - MARGIN),
+      top: clamp(p.top, MARGIN, window.innerHeight - MARGIN),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function savePillPos(p: PillPos): void {
+  try {
+    localStorage.setItem(PILL_POS_KEY, JSON.stringify(p));
+  } catch {
+    // ignore (private mode / disabled storage)
+  }
+}
+
 export function Overlay() {
   // `armed` is the sticky pill state; `selecting` is armed-or-Alt and drives hover outlines.
   const [armed, setArmed] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [hovered, setHovered] = useState<Element | null>(null);
+  const [hoverLabel, setHoverLabel] = useState<OutlineLabel | null>(null);
   const [picked, setPicked] = useState<PickState | null>(null);
+  const [pillPos, setPillPos] = useState<PillPos | null>(loadPillPos);
+  const dragRef = useRef<DragState | null>(null);
   const controllerRef = useRef<SelectModeController | null>(null);
   const theme = usePrefersColorScheme();
   const { state, send, cancel, sendMessage, fetchTranscript } = useTransport();
@@ -28,10 +79,16 @@ export function Overlay() {
     const controller = startSelectMode({
       onSelectingChange: (s) => {
         setSelecting(s);
-        if (!s) setHovered(null);
+        if (!s) {
+          setHovered(null);
+          setHoverLabel(null);
+        }
       },
       onArmedChange: setArmed,
-      onHover: (el) => setHovered(el),
+      onHover: (el) => {
+        setHovered(el);
+        setHoverLabel(el ? describeHover(el) : null);
+      },
       onPick: (el) => {
         const resolution = resolveSource(el);
         setHovered(null);
@@ -66,8 +123,65 @@ export function Overlay() {
     };
   }, [picked, closePopover]);
 
+  // Drag the pill from anywhere on its surface. A click that never crosses the
+  // DRAG_THRESHOLD still arms/toggles; once it does, we move the pill (top/left)
+  // and swallow the trailing click so the buttons underneath don't fire.
+  const onPillDragStart = useCallback((e: MouseEvent) => {
+    if (e.button !== 0) return;
+    const root = e.currentTarget as HTMLElement;
+    const rect = root.getBoundingClientRect();
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      origLeft: rect.left,
+      origTop: rect.top,
+      w: rect.width,
+      h: rect.height,
+      moved: false,
+    };
+    const onMove = (me: MouseEvent) => {
+      const d = dragRef.current;
+      if (!d) return;
+      const dx = me.clientX - d.startX;
+      const dy = me.clientY - d.startY;
+      if (!d.moved && Math.abs(dx) + Math.abs(dy) < DRAG_THRESHOLD) return;
+      d.moved = true;
+      me.preventDefault();
+      const left = clamp(d.origLeft + dx, MARGIN, window.innerWidth - d.w - MARGIN);
+      const top = clamp(d.origTop + dy, MARGIN, window.innerHeight - d.h - MARGIN);
+      setPillPos({ left, top });
+    };
+    const onUp = () => {
+      const d = dragRef.current;
+      dragRef.current = null;
+      window.removeEventListener('mousemove', onMove, true);
+      window.removeEventListener('mouseup', onUp, true);
+      if (!d?.moved) return;
+      // Eat the click that fires right after a drag so it doesn't toggle the pill.
+      const swallow = (ce: MouseEvent) => {
+        ce.stopPropagation();
+        ce.preventDefault();
+        window.removeEventListener('click', swallow, true);
+      };
+      window.addEventListener('click', swallow, true);
+      window.setTimeout(() => window.removeEventListener('click', swallow, true), 60);
+      setPillPos((p) => {
+        if (p) savePillPos(p);
+        return p;
+      });
+    };
+    window.addEventListener('mousemove', onMove, true);
+    window.addEventListener('mouseup', onUp, true);
+  }, []);
+
+  const pillPositionStyle = pillPos
+    ? { top: `${pillPos.top}px`, left: `${pillPos.left}px`, right: 'auto', bottom: 'auto' }
+    : undefined;
+
   const hoverOutline =
-    selecting && hovered && !picked ? <ElementOutline element={hovered} /> : null;
+    selecting && hovered && !picked ? (
+      <ElementOutline element={hovered} label={hoverLabel ?? undefined} />
+    ) : null;
   const pickedOutline = picked ? <ElementOutline element={picked.element} /> : null;
 
   return (
@@ -82,6 +196,8 @@ export function Overlay() {
         active={armed}
         onArm={() => controllerRef.current?.arm()}
         onDisarm={() => controllerRef.current?.disarm()}
+        positionStyle={pillPositionStyle}
+        onDragStart={onPillDragStart}
       />
       {hoverOutline}
       {pickedOutline}
@@ -107,6 +223,31 @@ export function Overlay() {
       />
     </>
   );
+}
+
+// Tags whose short text content is worth quoting in the leaf descriptor.
+const TEXTY_TAGS = /^(h1|h2|h3|h4|h5|h6|button|a|label|p|li|summary)$/;
+
+/**
+ * Build the hover chip's label live from the React/Preact fiber. Uses only the
+ * cheap fiber walk (collectComponentPath) — NOT the dispatcher probe in
+ * resolveSource — since this runs on every hovered-element change. The component
+ * path comes back innermost-first, so we reverse it to read outermost→innermost
+ * like Agentation's breadcrumb (`<Gallery> <Section>`).
+ */
+function describeHover(el: Element): OutlineLabel {
+  const fiber = getFiberFromDom(el);
+  const path = fiber ? collectComponentPath(fiber) : [];
+  return { path: [...path].reverse(), leaf: describeLeaf(el) };
+}
+
+function describeLeaf(el: Element): string {
+  const tag = el.tagName.toLowerCase();
+  if (TEXTY_TAGS.test(tag)) {
+    const text = (el.textContent ?? '').replace(/\s+/g, ' ').trim();
+    if (text) return `${tag} "${text.length > 24 ? `${text.slice(0, 24)}…` : text}"`;
+  }
+  return tag;
 }
 
 /** Track the host page's color scheme so the overlay matches dark/light sites. */
