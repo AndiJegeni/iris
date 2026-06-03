@@ -147,7 +147,7 @@ function MenuRow({
         border: 'none',
         borderRadius: '6px',
         // Selected rows keep an inline highlight; others rely on the :hover rule.
-        ...(selected ? { background: 'rgba(55, 55, 52, 0.06)' } : null),
+        ...(selected ? { background: t.controlBg } : null),
         color: t.textPrimary,
         fontSize: '13px',
         fontFamily: 'inherit',
@@ -272,7 +272,9 @@ export function ModelReasoningPicker({
           border: 'none',
           padding: 0,
           cursor: 'pointer',
-          color: t.textPrimary,
+          // Muted to match the idle "new worktree" label — both footer controls
+          // read as one secondary row rather than one bright, one dim.
+          color: t.textMuted,
           fontFamily: 'inherit',
           fontSize: '13px',
           letterSpacing: 'inherit',
@@ -328,7 +330,7 @@ export function ModelReasoningPicker({
                 padding: '6px 8px',
                 border: 'none',
                 borderRadius: '6px',
-                ...(modelOpen ? { background: 'rgba(55, 55, 52, 0.06)' } : null),
+                ...(modelOpen ? { background: t.controlBg } : null),
                 color: t.textPrimary,
                 fontSize: '13px',
                 fontFamily: 'inherit',
@@ -384,25 +386,37 @@ export function PickedPopover({
   onSubmit,
   theme = 'dark',
 }: PickedPopoverProps) {
-  // The message box is a fixed light "ink on paper" surface regardless of host
-  // theme — override the theme tokens with the #373734 palette in one place so
-  // every `t.*` color usage below picks it up.
-  const t: ThemeTokens = {
-    ...tokens(theme),
-    surfaceBg: SURFACE,
-    surfaceBorder: STROKE,
-    textPrimary: INK,
-    textMuted: INK,
-    textFaint: INK,
-    controlBorder: STROKE,
-    chipBg: STROKE,
-    chipText: INK,
-    link: INK,
-    accent: INK,
-    accentText: '#ffffff',
-    submitBg: INK,
-    submitText: '#ffffff',
-  };
+  // In light mode the message box is a fixed "ink on paper" surface — override the
+  // theme tokens with the #373734 palette in one place so every `t.*` color usage
+  // below picks it up. In dark mode it simply follows the overlay's dark tokens so
+  // it stays legible over a dark host page.
+  const isLight = theme === 'light';
+  const t: ThemeTokens = isLight
+    ? {
+        ...tokens(theme),
+        surfaceBg: SURFACE,
+        surfaceBorder: STROKE,
+        textPrimary: INK,
+        textMuted: INK,
+        textFaint: INK,
+        controlBorder: STROKE,
+        chipBg: STROKE,
+        chipText: INK,
+        link: INK,
+        accent: INK,
+        accentText: '#ffffff',
+        submitBg: INK,
+        submitText: '#ffffff',
+      }
+    : tokens(theme);
+  // A few surfaces the popover paints outside the token set — themed by hand so the
+  // dark variant doesn't fall back to the light ink palette.
+  const placeholderColor = isLight ? PLACEHOLDER : 'rgba(245, 245, 245, 0.4)';
+  const scrollThumb = isLight ? 'rgba(55, 55, 52, 0.25)' : 'rgba(255, 255, 255, 0.22)';
+  const worktreeBlue = isLight ? ACCENT_BLUE : '#60a5fa';
+  const errorBg = isLight ? 'rgba(239, 68, 68, 0.1)' : 'rgba(248, 113, 113, 0.12)';
+  const errorBorder = isLight ? 'rgba(239, 68, 68, 0.3)' : 'rgba(248, 113, 113, 0.35)';
+  const errorText = isLight ? '#dc2626' : '#f87171';
   const [prompt, setPrompt] = useState('');
   const [model, setModel] = useState<string>(DEFAULT_MODEL);
   const [effort, setEffort] = useState<ReasoningEffort>('high');
@@ -612,15 +626,15 @@ export function PickedPopover({
         {'.la-pp-ta::placeholder{color:var(--la-ph);opacity:1}' +
           '@keyframes la-pp-in{from{opacity:0;transform:scale(0.96)}to{opacity:1;transform:scale(1)}}' +
           '.la-pp-menu-row{background:transparent;transition:background 80ms}' +
-          '.la-pp-menu-row:hover{background:rgba(55,55,52,0.06)}' +
+          `.la-pp-menu-row:hover{background:${t.controlBg}}` +
           // Muted footer controls sit at 60% and brighten to full on hover.
           '.la-pp-dim{opacity:0.6;transition:opacity 80ms}' +
           '.la-pp-dim:hover{opacity:1}' +
           '.la-pp-send{transition:opacity 80ms}' +
           // Thin scrollbar for the input once it grows past 3 lines.
-          '.la-pp-ta{scrollbar-width:thin;scrollbar-color:rgba(55,55,52,0.25) transparent}' +
+          `.la-pp-ta{scrollbar-width:thin;scrollbar-color:${scrollThumb} transparent}` +
           '.la-pp-ta::-webkit-scrollbar{width:4px}' +
-          '.la-pp-ta::-webkit-scrollbar-thumb{background:rgba(55,55,52,0.25);border-radius:4px}' +
+          `.la-pp-ta::-webkit-scrollbar-thumb{background:${scrollThumb};border-radius:4px}` +
           '.la-pp-ta::-webkit-scrollbar-track{background:transparent}'}
       </style>
 
@@ -697,7 +711,7 @@ export function PickedPopover({
         placeholder="Describe a task or ask a question"
         rows={1}
         // biome-ignore lint/suspicious/noExplicitAny: CSS custom property for ::placeholder color
-        style={{ ...textarea(t), '--la-ph': PLACEHOLDER } as any}
+        style={{ ...textarea(t), '--la-ph': placeholderColor } as any}
       />
 
       <input
@@ -744,11 +758,11 @@ export function PickedPopover({
           >
             {/* Check only takes space when present, so the label shifts on toggle. */}
             {worktree ? (
-              <span style={{ display: 'inline-flex', color: ACCENT_BLUE }}>
+              <span style={{ display: 'inline-flex', color: worktreeBlue }}>
                 <Icon.Check />
               </span>
             ) : null}
-            <span style={{ color: worktree ? ACCENT_BLUE : t.textFaint }}>new worktree</span>
+            <span style={{ color: worktree ? worktreeBlue : t.textMuted }}>new worktree</span>
           </button>
           <ModelReasoningPicker
             models={MODELS.map((m) => ({ value: m.value, label: m.label }))}
@@ -806,9 +820,9 @@ export function PickedPopover({
           style={{
             marginTop: 'var(--la-pp-gap, 8px)',
             padding: '8px 10px',
-            background: 'rgba(239, 68, 68, 0.1)',
-            border: '1px solid rgba(239, 68, 68, 0.3)',
-            color: '#dc2626',
+            background: errorBg,
+            border: `1px solid ${errorBorder}`,
+            color: errorText,
             borderRadius: '8px',
             fontSize: '13px',
           }}

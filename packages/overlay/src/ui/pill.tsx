@@ -1,4 +1,5 @@
 /** @jsxImportSource preact */
+import type { OverlayTheme } from './theme';
 
 type PillProps = {
   /** Persistent armed state — drives circle (off) vs. toolbar (on). */
@@ -7,18 +8,20 @@ type PillProps = {
   onDisarm: () => void;
   /** Open the settings panel (gear button). No-op when omitted. */
   onSettings?: () => void;
+  theme?: OverlayTheme;
   /** Inline position override (top/left) applied once the pill is dragged. */
   positionStyle?: Record<string, string> | undefined;
   /** Mousedown on the pill surface — begins a drag (see overlay.tsx). */
   onDragStart?: ((e: MouseEvent) => void) | undefined;
 };
 
-// #373734 at 10% opacity — used for the pill outline and the active divider.
-const STROKE = 'rgba(55, 55, 52, 0.1)';
-const ICON = '#373734';
+// The pill floats over an arbitrary host page, so it carries its own surface in
+// each theme: a light "ink on paper" chip, or a dark chip with a soft rim.
+// `stroke` is the outline + active divider; `hover` is the icon-button halo.
+type PillPalette = { surface: string; stroke: string; icon: string; shadow: string; hover: string };
 
 // Matched to Agentation's launcher + toolbar (measured live off the example
-// page). Its collapsed launcher is a 44px circle with a prominent 24px glyph —
+// page). Its collapsed launcher is a 44px circle with a prominent star glyph —
 // bigger than its own toolbar icons, so the parked state reads strong. The
 // active toolbar uses smaller 20px glyphs in 28px buttons (4px padding). Both
 // states land on a 44px height so arming doesn't change the pill's size.
@@ -27,16 +30,21 @@ const STAR_SIZE = 20; // collapsed-launcher glyph (smaller than the 44px circle 
 const ICON_BTN = 28; // active toolbar button (20px glyph + 4px padding)
 const CIRCLE = 44; // collapsed launcher diameter
 
-const baseSurface = {
-  position: 'fixed' as const,
-  bottom: '16px',
-  right: '16px',
-  background: '#ffffff',
-  border: `1px solid ${STROKE}`,
-  boxShadow: '0 2px 16px rgba(0, 0, 0, 0.12)',
-  pointerEvents: 'auto' as const,
-  userSelect: 'none' as const,
-  color: ICON,
+const PILL: Record<OverlayTheme, PillPalette> = {
+  light: {
+    surface: '#ffffff',
+    stroke: 'rgba(55, 55, 52, 0.1)', // #373734 @ 10%
+    icon: '#373734',
+    shadow: '0 2px 16px rgba(0, 0, 0, 0.12)',
+    hover: 'rgba(55, 55, 52, 0.075)',
+  },
+  dark: {
+    surface: 'rgba(18, 18, 18, 0.95)', // neutral gray, darker — old zinc read blue
+    stroke: 'rgba(255, 255, 255, 0.07)',
+    icon: '#e5e5e5',
+    shadow: '0 2px 16px rgba(0, 0, 0, 0.4)',
+    hover: 'rgba(255, 255, 255, 0.1)',
+  },
 };
 
 export function Pill({
@@ -44,9 +52,37 @@ export function Pill({
   onArm,
   onDisarm,
   onSettings,
+  theme = 'dark',
   positionStyle,
   onDragStart,
 }: PillProps) {
+  const p = PILL[theme];
+  const baseSurface = {
+    position: 'fixed' as const,
+    bottom: '16px',
+    right: '16px',
+    background: p.surface,
+    border: `1px solid ${p.stroke}`,
+    boxShadow: p.shadow,
+    pointerEvents: 'auto' as const,
+    userSelect: 'none' as const,
+    color: p.icon,
+  };
+  const iconButton = {
+    display: 'inline-flex' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    width: `${ICON_BTN}px`,
+    height: `${ICON_BTN}px`,
+    borderRadius: '999px',
+    padding: 0,
+    // No inline background — the .la-pill-btn class owns it so the :hover fill wins
+    // (an inline `transparent` would override hover and leave a hollow halo).
+    border: 'none',
+    color: p.icon,
+    cursor: 'pointer',
+  };
+
   if (!active) {
     return (
       <button
@@ -94,7 +130,7 @@ export function Pill({
           push the icons apart. */}
       <style>
         {'.la-pill-btn{background:transparent;transition:background 90ms,box-shadow 90ms}' +
-          '.la-pill-btn:hover{background:rgba(55,55,52,0.075);box-shadow:0 0 0 4px rgba(55,55,52,0.075)}'}
+          `.la-pill-btn:hover{background:${p.hover};box-shadow:0 0 0 4px ${p.hover}}`}
       </style>
       <button
         type="button"
@@ -115,7 +151,7 @@ export function Pill({
       >
         <SettingsIcon />
       </button>
-      <span style={{ width: '1px', height: '20px', background: STROKE, flexShrink: 0 }} />
+      <span style={{ width: '1px', height: '20px', background: p.stroke, flexShrink: 0 }} />
       <button
         type="button"
         aria-label="close"
@@ -129,25 +165,11 @@ export function Pill({
   );
 }
 
-const iconButton = {
-  display: 'inline-flex' as const,
-  alignItems: 'center' as const,
-  justifyContent: 'center' as const,
-  width: `${ICON_BTN}px`,
-  height: `${ICON_BTN}px`,
-  borderRadius: '999px',
-  padding: 0,
-  // No inline background — the .la-pill-btn class owns it so the :hover fill wins
-  // (an inline `transparent` would override hover and leave a hollow halo).
-  border: 'none',
-  color: ICON,
-  cursor: 'pointer',
-};
 
 /**
  * Icons inlined from packages/overlay/src/assets/icons (star-06, message-circle-01,
- * settings-02, x-close) with stroke = currentColor so they take the #373734 ink
- * color. Inlined rather than imported to stay bundler-agnostic across the daemon's
+ * settings-02, x-close) with stroke = currentColor so they take the pill's ink
+ * color (per theme). Inlined rather than imported to stay bundler-agnostic across the daemon's
  * Bun build and the example's Next/SWC build — same convention as picked-popover.
  */
 function StarIcon() {

@@ -48,7 +48,7 @@ export function SettingsPanel({
     <div style={panelStyle(t)}>
       <style>
         {'.la-sp-row{background:transparent;transition:background 80ms}' +
-          '.la-sp-row:hover{background:rgba(55,55,52,0.06)}' +
+          `.la-sp-row:hover{background:${t.controlBg}}` +
           '.la-sp-icon{opacity:0.6;transition:opacity 80ms}' +
           '.la-sp-icon:hover{opacity:1}'}
       </style>
