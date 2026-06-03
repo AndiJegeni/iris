@@ -120,32 +120,23 @@ export function Overlay() {
     controllerRef.current?.resume();
   }, []);
 
-  useEffect(() => {
-    if (!picked) return;
-    const onKey = (e: KeyboardEvent) => {
-      // Don't swallow Esc inside textareas/inputs unless they're empty —
-      // but we WANT Esc to close the popover. Keep simple for v0.
-      if (e.key === 'Escape') closePopover();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [picked, closePopover]);
+  // Esc-to-close is handled inside PickedPopover so it runs through the exit
+  // animation before unmounting (rather than dropping the popover instantly).
 
-  // Escape closes the chat composer / settings panel (whichever is open).
+  // Escape closes the settings panel. The chat composer is a PickedPopover, which
+  // handles its own Esc internally so it runs through the exit animation before
+  // unmounting (see closePopover comment above) — so it's deliberately not here.
   useEffect(() => {
-    if (!chatOpen && !showSettings) return;
+    if (!showSettings) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      setChatOpen(false);
       setShowSettings(false);
     };
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('keydown', onKey);
     };
-  }, [chatOpen, showSettings]);
+  }, [showSettings]);
 
   // Pause select-mode (hover crosshair + picking) while a panel is open so no
   // outline lingers behind the composer/settings; resume when both close.

@@ -9,7 +9,7 @@ import type {
   WorktreeMode,
 } from '@localagents/shared';
 import { MAX_IMAGES_PER_ANNOTATION, modelLabel } from '@localagents/shared';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import type { Resolution } from '../source-map';
 import { type OverlayTheme, type ThemeTokens, tokens } from './theme';
 
@@ -19,6 +19,16 @@ const STROKE = 'rgba(55, 55, 52, 0.1)'; // #373734 @ 10% — borders / dividers
 const PLACEHOLDER = 'rgba(55, 55, 52, 0.5)'; // #373734 @ 50% — empty input text
 const SURFACE = '#ffffff';
 const ACCENT_BLUE = '#1a73e8'; // "new worktree" toggle when active
+
+// Open/close motion. Keyframe animations (not transitions) so the enter always
+// plays on mount without depending on a follow-up rAF tick to flip state — a
+// mount/unmount popover has no persistent element to transition. The smooth feel
+// comes from the easing + the translateY/scale/opacity combo, borrowed from
+// Agentation: a snappy start that settles softly. Close runs a touch quicker so
+// dismissals feel responsive, with `forwards` holding the faded-out end state.
+const EASE = 'cubic-bezier(0.32, 0.72, 0, 1)';
+const OPEN_MS = 220;
+const CLOSE_MS = 150;
 
 const ACCEPTED_IMAGE_TYPES: ImageMediaType[] = [
   'image/png',
@@ -460,6 +470,34 @@ export function PickedPopover({
   // above the pill (no element to point at).
   const anchor = element ? computeAnchor(element) : null;
 
+  // Exit animation: a close request doesn't unmount immediately — it flips
+  // `closing` (which swaps the open keyframes for the reverse `la-pp-out`), lets
+  // it play, then calls the parent's onClose to actually unmount. Guards against
+  // double-firing (Esc + outside-click) and clears the timer on unmount.
+  const [closing, setClosing] = useState(false);
+  const closeTimerRef = useRef<number | null>(null);
+  const requestClose = useCallback(() => {
+    if (closeTimerRef.current != null) return;
+    setClosing(true);
+    closeTimerRef.current = window.setTimeout(() => onClose(), CLOSE_MS);
+  }, [onClose]);
+  useEffect(
+    () => () => {
+      if (closeTimerRef.current != null) window.clearTimeout(closeTimerRef.current);
+    },
+    [],
+  );
+
+  // Esc closes the popover with the same exit animation. Handled here (rather than
+  // in the parent Overlay) so it shares the requestClose → animate → unmount path.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') requestClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [requestClose]);
+
   const addFiles = async (files: FileList | File[]) => {
     const encoded = await Promise.all(Array.from(files).map(fileToImage));
     const valid = encoded.filter((x): x is AttachedImage => x !== null);
@@ -539,12 +577,12 @@ export function PickedPopover({
       if (promptRef.current.trim()) {
         shake();
       } else {
-        onClose();
+        requestClose();
       }
     };
     document.addEventListener('mousedown', onDown, true);
     return () => document.removeEventListener('mousedown', onDown, true);
-  }, [onClose]);
+  }, [requestClose]);
 
   // Grow the textarea with its content up to 3 lines, then scroll.
   useEffect(() => {
@@ -573,7 +611,7 @@ export function PickedPopover({
     };
     try {
       await onSubmit(annotation);
-      onClose();
+      requestClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -631,18 +669,22 @@ export function PickedPopover({
         letterSpacing: '-0.02em',
         pointerEvents: 'auto',
         backdropFilter: 'blur(10px)',
-        // Grows from the anchored corner (transformOrigin set above per mode).
-        // The shake (error nudge) is run imperatively via the Web Animations API
-        // in shake(), so it doesn't collide with this open animation.
-        animation: 'la-pp-in 190ms cubic-bezier(0.2, 0.9, 0.3, 1)',
+        // Grows from the anchored corner (transformOrigin set per-mode above).
+        // The shake (error nudge) runs imperatively via the Web Animations API in
+        // shake(); it only fires once the popover is fully open, so it never
+        // collides with this open/close animation's transform.
+        animation: closing
+          ? `la-pp-out ${CLOSE_MS}ms ${EASE} forwards`
+          : `la-pp-in ${OPEN_MS}ms ${EASE}`,
         willChange: 'transform, opacity',
       }}
     >
-      {/* Scoped placeholder color + the open animation (Twitter-compose-modal
-          style: a subtle scale-up + fade, settling with an ease-out curve). */}
+      {/* Scoped placeholder color + control hover states + the open/close
+          keyframes (a soft scale-up + rise that eases in, and its reverse). */}
       <style>
         {'.la-pp-ta::placeholder{color:var(--la-ph);opacity:1}' +
-          '@keyframes la-pp-in{from{opacity:0;transform:scale(0.96)}to{opacity:1;transform:scale(1)}}' +
+          '@keyframes la-pp-in{from{opacity:0;transform:translateY(6px) scale(0.96)}to{opacity:1;transform:none}}' +
+          '@keyframes la-pp-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(6px) scale(0.96)}}' +
           '.la-pp-menu-row{background:transparent;transition:background 80ms}' +
           `.la-pp-menu-row:hover{background:${t.controlBg}}` +
           // Muted footer controls (idle "new worktree" + model menu) sit at 40%
