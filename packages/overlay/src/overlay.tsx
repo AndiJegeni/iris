@@ -10,6 +10,7 @@ import {
 import { ElementOutline, type OutlineLabel } from './ui/element-outline';
 import { PickedPopover } from './ui/picked-popover';
 import { Pill } from './ui/pill';
+import { SettingsPanel } from './ui/settings-panel';
 import { TaskPanel } from './ui/task-panel';
 import type { OverlayTheme } from './ui/theme';
 import { useTransport } from './use-transport';
@@ -69,11 +70,20 @@ export function Overlay() {
   const [hovered, setHovered] = useState<Element | null>(null);
   const [hoverLabel, setHoverLabel] = useState<OutlineLabel | null>(null);
   const [picked, setPicked] = useState<PickState | null>(null);
+  // Pill toolbar panels: the gear opens Settings, the chat icon opens the
+  // element-less composer (a PickedPopover with no anchored element). The two
+  // are mutually exclusive — opening one closes the other.
+  const [showSettings, setShowSettings] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [pillPos, setPillPos] = useState<PillPos | null>(loadPillPos);
   const dragRef = useRef<DragState | null>(null);
   const controllerRef = useRef<SelectModeController | null>(null);
-  const theme = usePrefersColorScheme();
-  const { state, send, cancel, sendMessage, fetchTranscript } = useTransport();
+  // Theme follows the host page's color scheme, but the Settings panel can
+  // override it (null = follow the system preference).
+  const systemTheme = usePrefersColorScheme();
+  const [themeOverride, setThemeOverride] = useState<OverlayTheme | null>(null);
+  const theme = themeOverride ?? systemTheme;
+  const { state, send, cancel, retry, sendMessage, fetchTranscript } = useTransport();
 
   useEffect(() => {
     const controller = startSelectMode({
@@ -122,6 +132,29 @@ export function Overlay() {
       window.removeEventListener('keydown', onKey);
     };
   }, [picked, closePopover]);
+
+  // Escape closes the chat composer / settings panel (whichever is open).
+  useEffect(() => {
+    if (!chatOpen && !showSettings) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setChatOpen(false);
+      setShowSettings(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [chatOpen, showSettings]);
+
+  // Pause select-mode (hover crosshair + picking) while a panel is open so no
+  // outline lingers behind the composer/settings; resume when both close.
+  useEffect(() => {
+    const c = controllerRef.current;
+    if (!c) return;
+    if (chatOpen || showSettings) c.pause();
+    else c.resume();
+  }, [chatOpen, showSettings]);
 
   // Drag the pill from anywhere on its surface. A click that never crosses the
   // DRAG_THRESHOLD still arms/toggles; once it does, we move the pill (top/left)
@@ -197,6 +230,14 @@ export function Overlay() {
         theme={theme}
         onArm={() => controllerRef.current?.arm()}
         onDisarm={() => controllerRef.current?.disarm()}
+        onChat={() => {
+          setShowSettings(false);
+          setChatOpen((o) => !o);
+        }}
+        onSettings={() => {
+          setChatOpen(false);
+          setShowSettings((s) => !s);
+        }}
         positionStyle={pillPositionStyle}
         onDragStart={onPillDragStart}
       />
@@ -213,6 +254,19 @@ export function Overlay() {
           }}
         />
       ) : null}
+      {/* Chat composer: the element-less mode of PickedPopover (no `element` →
+          anchors bottom-right, submits a general annotation). Opened by the
+          pill's chat button. The Background Tasks drawer below is separate and
+          self-manages via its own launcher. */}
+      {chatOpen ? (
+        <PickedPopover
+          theme={theme}
+          onClose={() => setChatOpen(false)}
+          onSubmit={async (annotation) => {
+            await send(annotation);
+          }}
+        />
+      ) : null}
       <TaskPanel
         tasks={state.tasks}
         logs={state.logs}
@@ -221,7 +275,15 @@ export function Overlay() {
         onCancel={(id) => void cancel(id)}
         onSendMessage={(id, text) => sendMessage(id, text)}
         onOpenChat={(id) => void fetchTranscript(id)}
+        onRetry={(id) => void retry(id)}
       />
+      {showSettings ? (
+        <SettingsPanel
+          theme={theme}
+          onClose={() => setShowSettings(false)}
+          onToggleTheme={() => setThemeOverride(theme === 'dark' ? 'light' : 'dark')}
+        />
+      ) : null}
     </>
   );
 }

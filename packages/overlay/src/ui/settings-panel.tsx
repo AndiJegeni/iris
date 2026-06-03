@@ -34,7 +34,6 @@ const PROVIDERS: { id: string; label: string; placeholder: string }[] = [
  */
 export function SettingsPanel({
   theme = 'dark',
-  onClose,
   onToggleTheme,
   blockInteractions = false,
   onToggleBlockInteractions,
@@ -57,7 +56,6 @@ export function SettingsPanel({
         <SettingsView
           t={t}
           theme={theme}
-          onClose={onClose}
           onToggleTheme={onToggleTheme}
           blockInteractions={blockInteractions}
           onToggleBlockInteractions={onToggleBlockInteractions}
@@ -78,7 +76,6 @@ export function SettingsPanel({
 function SettingsView({
   t,
   theme,
-  onClose,
   onToggleTheme,
   blockInteractions,
   onToggleBlockInteractions,
@@ -86,7 +83,6 @@ function SettingsView({
 }: {
   t: ThemeTokens;
   theme: OverlayTheme;
-  onClose: () => void;
   onToggleTheme: (() => void) | undefined;
   blockInteractions: boolean;
   onToggleBlockInteractions: ((next: boolean) => void) | undefined;
@@ -97,7 +93,7 @@ function SettingsView({
       <div style={panelHeader(t)}>
         <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: '6px' }}>
           <span style={{ fontWeight: 500, fontSize: '13px', color: t.textPrimary }}>
-            localagents
+            lens
           </span>
           <span style={{ fontSize: '11px', color: t.textFaint }}>{VERSION}</span>
         </span>
@@ -112,19 +108,10 @@ function SettingsView({
           >
             {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
           </button>
-          <button
-            type="button"
-            className="la-sp-icon"
-            style={iconBtn(t)}
-            onClick={onClose}
-            aria-label="Close"
-          >
-            <CloseIcon />
-          </button>
         </div>
       </div>
 
-      <div style={{ padding: '4px 10px 12px' }}>
+      <div style={{ padding: '2px 8px 8px' }}>
         <button
           type="button"
           className="la-sp-row"
@@ -169,7 +156,10 @@ function KeysView({
 
   return (
     <>
-      <div style={panelHeader(t)}>
+      {/* Override the shared header's left padding (12px) → 10px so the back
+          chevron's glyph (centered in a 28px button, +6px) lines up with the
+          provider input boxes' left edge (container padding 16px). */}
+      <div style={{ ...panelHeader(t), paddingLeft: '10px' }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
           <button
             type="button"
@@ -197,6 +187,7 @@ function KeysView({
                   fontWeight: 500,
                   color: t.textPrimary,
                   marginBottom: '5px',
+                  marginLeft: '2px',
                 }}
               >
                 {p.label}
@@ -292,20 +283,6 @@ function MoonIcon() {
   );
 }
 
-function CloseIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M12 4L4 12M4 4L12 12"
-        stroke="currentColor"
-        stroke-width="1.33333"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-    </svg>
-  );
-}
-
 function ChevronRight() {
   return (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -372,7 +349,7 @@ const panelHeader = (_t: ThemeTokens) => ({
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  padding: '12px 12px 8px 16px',
+  padding: '9px 9px 5px 12px',
 });
 
 const rowStyle = (_t: ThemeTokens) => ({
@@ -394,7 +371,9 @@ const rowStyle = (_t: ThemeTokens) => ({
 const dividerStyle = (t: ThemeTokens) => ({
   height: '1px',
   background: t.controlBorder,
-  margin: '4px 8px',
+  // Inset further (was 8px) and thinner-feeling so the rule reads as a subtle
+  // hairline between the two rows rather than a full-width separator.
+  margin: '3px 40px',
 });
 
 const iconBtn = (t: ThemeTokens) => ({

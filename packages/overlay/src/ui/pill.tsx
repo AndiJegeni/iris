@@ -6,6 +6,8 @@ type PillProps = {
   active: boolean;
   onArm: () => void;
   onDisarm: () => void;
+  /** Toggle the chat / tasks panel (chat button). No-op when omitted. */
+  onChat?: () => void;
   /** Open the settings panel (gear button). No-op when omitted. */
   onSettings?: () => void;
   theme?: OverlayTheme;
@@ -30,6 +32,10 @@ const STAR_SIZE = 20; // collapsed-launcher glyph (smaller than the 44px circle 
 const ICON_BTN = 28; // active toolbar button (20px glyph + 4px padding)
 const CIRCLE = 44; // collapsed launcher diameter
 
+// Theme accent blue (mirrors theme.ts `accent`) for the keyboard focus ring on
+// the pill's icon buttons — replaces the host browser's default yellow outline.
+const ACCENT = '#3b82f6';
+
 const PILL: Record<OverlayTheme, PillPalette> = {
   light: {
     surface: '#ffffff',
@@ -51,6 +57,7 @@ export function Pill({
   active,
   onArm,
   onDisarm,
+  onChat,
   onSettings,
   theme = 'dark',
   positionStyle,
@@ -89,7 +96,8 @@ export function Pill({
         type="button"
         onClick={onArm}
         onMouseDown={onDragStart}
-        aria-label="localagents"
+        aria-label="lens"
+        className="la-pill-launcher"
         style={{
           ...baseSurface,
           ...positionStyle,
@@ -102,8 +110,13 @@ export function Pill({
           alignItems: 'center',
           justifyContent: 'center',
           cursor: 'pointer',
+          outline: 'none',
         }}
       >
+        {/* Same blue keyboard-focus ring as the active toolbar buttons. */}
+        <style>
+          {`.la-pill-launcher:focus-visible{outline:none;box-shadow:${p.shadow},0 0 0 2px ${ACCENT}}`}
+        </style>
         <StarIcon />
       </button>
     );
@@ -129,13 +142,16 @@ export function Pill({
           circular 7.5% ink hover halo is drawn via box-shadow + bg so it doesn't
           push the icons apart. */}
       <style>
-        {'.la-pill-btn{background:transparent;transition:background 90ms,box-shadow 90ms}' +
-          `.la-pill-btn:hover{background:${p.hover};box-shadow:0 0 0 4px ${p.hover}}`}
+        {'.la-pill-btn{background:transparent;outline:none;transition:background 90ms,box-shadow 90ms}' +
+          `.la-pill-btn:hover{background:${p.hover};box-shadow:0 0 0 4px ${p.hover}}` +
+          // Clean blue focus ring (theme accent) instead of the host browser's
+          // default yellow/black outline. Keyboard-only via :focus-visible.
+          `.la-pill-btn:focus-visible{outline:none;box-shadow:0 0 0 2px ${ACCENT}}`}
       </style>
       <button
         type="button"
         aria-label="chat"
-        onClick={onArm}
+        onClick={() => onChat?.()}
         className="la-pill-btn"
         style={iconButton}
       >
@@ -157,7 +173,8 @@ export function Pill({
         aria-label="close"
         onClick={onDisarm}
         className="la-pill-btn"
-        style={iconButton}
+        // Nudged 2px right of the divider gap for a touch more breathing room.
+        style={{ ...iconButton, marginLeft: '2px' }}
       >
         <CloseIcon />
       </button>

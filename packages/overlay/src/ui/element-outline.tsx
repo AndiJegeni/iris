@@ -45,7 +45,8 @@ export function ElementOutline({ element, label }: ElementOutlineProps) {
 
   // Sit the chip just above the element's top-left, dropping below the top edge
   // when there isn't room above it in the viewport. Clamp to the left margin.
-  const CHIP_GAP = 4;
+  // ~2px more breathing room between the chip and the blue outline border.
+  const CHIP_GAP = 8;
   const CHIP_H = label?.path.length ? 34 : 20;
   const above = rect.top >= CHIP_H + CHIP_GAP;
   const chipTop = above ? rect.top - CHIP_H - CHIP_GAP : rect.top + CHIP_GAP;
@@ -64,7 +65,6 @@ export function ElementOutline({ element, label }: ElementOutlineProps) {
           background: 'rgba(59, 130, 246, 0.08)',
           borderRadius: '2px',
           pointerEvents: 'none',
-          boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.6)',
         }}
       />
       {label ? (
