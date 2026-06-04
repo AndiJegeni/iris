@@ -20,11 +20,15 @@ type PickState = {
   resolution: Resolution;
 };
 
-type PillPos = { left: number; top: number };
+// Anchored by distance from the viewport's RIGHT edge (not left) so the
+// circle→toolbar morph always grows leftward from a fixed right edge — matching
+// the parked, never-dragged pill. Pinning `left` instead would let the toolbar
+// expand rightward (opening left-to-right) once the pill had been dragged.
+type PillPos = { right: number; top: number };
 type DragState = {
   startX: number;
   startY: number;
-  origLeft: number;
+  origRight: number;
   origTop: number;
   w: number;
   h: number;
@@ -36,6 +40,14 @@ const DRAG_THRESHOLD = 4;
 // Keep the pill this far from the viewport edges while dragging.
 const MARGIN = 8;
 const PILL_POS_KEY = 'localagents:pill-pos';
+// Pill circle diameter (mirrors CIRCLE in pill.tsx) and the gap a panel leaves
+// above the pill. The settings + chat panels open just above wherever the pill
+// currently sits, so these keep them tethered to it.
+const PILL_SIZE = 40;
+const PANEL_GAP = 8;
+// Widest panel (the chat composer) — used to keep a panel on-screen when the
+// pill has been dragged toward the left edge.
+const PANEL_MAX_W = 380;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi));
 
@@ -45,9 +57,9 @@ function loadPillPos(): PillPos | null {
     const raw = localStorage.getItem(PILL_POS_KEY);
     if (!raw) return null;
     const p = JSON.parse(raw) as PillPos;
-    if (typeof p?.left !== 'number' || typeof p?.top !== 'number') return null;
+    if (typeof p?.right !== 'number' || typeof p?.top !== 'number') return null;
     return {
-      left: clamp(p.left, MARGIN, window.innerWidth - MARGIN),
+      right: clamp(p.right, MARGIN, window.innerWidth - MARGIN),
       top: clamp(p.top, MARGIN, window.innerHeight - MARGIN),
     };
   } catch {
@@ -157,7 +169,7 @@ export function Overlay() {
     dragRef.current = {
       startX: e.clientX,
       startY: e.clientY,
-      origLeft: rect.left,
+      origRight: window.innerWidth - rect.right,
       origTop: rect.top,
       w: rect.width,
       h: rect.height,
@@ -171,9 +183,10 @@ export function Overlay() {
       if (!d.moved && Math.abs(dx) + Math.abs(dy) < DRAG_THRESHOLD) return;
       d.moved = true;
       me.preventDefault();
-      const left = clamp(d.origLeft + dx, MARGIN, window.innerWidth - d.w - MARGIN);
+      // Dragging right (positive dx) shrinks the distance from the right edge.
+      const right = clamp(d.origRight - dx, MARGIN, window.innerWidth - d.w - MARGIN);
       const top = clamp(d.origTop + dy, MARGIN, window.innerHeight - d.h - MARGIN);
-      setPillPos({ left, top });
+      setPillPos({ right, top });
     };
     const onUp = () => {
       const d = dragRef.current;
@@ -199,8 +212,25 @@ export function Overlay() {
   }, []);
 
   const pillPositionStyle = pillPos
-    ? { top: `${pillPos.top}px`, left: `${pillPos.left}px`, right: 'auto', bottom: 'auto' }
+    ? { top: `${pillPos.top}px`, right: `${pillPos.right}px`, left: 'auto', bottom: 'auto' }
     : undefined;
+
+  // Settings + chat panels open just above the pill, right-aligned to it, and
+  // track its dragged position (default: bottom-right). `right`/`bottom` mirror
+  // the pill's own anchor; clamp `right` so a panel stays on-screen when the pill
+  // is dragged toward the left edge.
+  const pillRight = pillPos ? pillPos.right : 16;
+  const pillTopFromBottom = pillPos ? window.innerHeight - pillPos.top : 16 + PILL_SIZE;
+  const panelRight = Math.min(
+    pillRight,
+    Math.max(MARGIN, window.innerWidth - PANEL_MAX_W - MARGIN),
+  );
+  const panelAnchorStyle = {
+    right: `${panelRight}px`,
+    bottom: `${pillTopFromBottom + PANEL_GAP}px`,
+    left: 'auto',
+    top: 'auto',
+  };
 
   const hoverOutline =
     selecting && hovered && !picked ? (
@@ -246,12 +276,13 @@ export function Overlay() {
         />
       ) : null}
       {/* Chat composer: the element-less mode of PickedPopover (no `element` →
-          anchors bottom-right, submits a general annotation). Opened by the
+          floats just above the pill, submits a general annotation). Opened by the
           pill's chat button. The Background Tasks drawer below is separate and
           self-manages via its own launcher. */}
       {chatOpen ? (
         <PickedPopover
           theme={theme}
+          anchorStyle={panelAnchorStyle}
           onClose={() => setChatOpen(false)}
           onSubmit={async (annotation) => {
             await send(annotation);
@@ -271,6 +302,7 @@ export function Overlay() {
       {showSettings ? (
         <SettingsPanel
           theme={theme}
+          anchorStyle={panelAnchorStyle}
           onClose={() => setShowSettings(false)}
           onToggleTheme={() => setThemeOverride(theme === 'dark' ? 'light' : 'dark')}
         />

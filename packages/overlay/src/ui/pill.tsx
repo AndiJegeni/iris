@@ -81,6 +81,11 @@ export function Pill({
     pointerEvents: 'auto' as const,
     userSelect: 'none' as const,
     color: p.icon,
+    // Paint above the settings/chat panels, which open just 8px overhead and cast
+    // a large downward drop-shadow. Without this the panel's shadow falls onto the
+    // pill and darkens it — pill and panels are the same material and must read as
+    // the same color. The pill's box is opaque, so sitting on top covers the shadow.
+    zIndex: 1,
   };
   const iconButton = {
     display: 'inline-flex' as const,
