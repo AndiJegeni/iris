@@ -18,7 +18,6 @@ const INK = '#373734'; // all text + icons
 const STROKE = 'rgba(55, 55, 52, 0.1)'; // #373734 @ 10% — borders / dividers
 const PLACEHOLDER = 'rgba(55, 55, 52, 0.5)'; // #373734 @ 50% — empty input text
 const SURFACE = '#ffffff';
-const ACCENT_BLUE = '#1a73e8'; // "new worktree" toggle when active
 
 // Open/close motion. Keyframe animations (not transitions) so the enter always
 // plays on mount without depending on a follow-up rAF tick to flip state — a
@@ -285,8 +284,9 @@ export function ModelReasoningPicker({
     <div ref={wrapRef} style={{ position: 'relative', display: 'inline-flex', minWidth: 0 }}>
       <button
         type="button"
-        // Dims to 60% and brightens on hover, except while the menu is open.
-        className={open ? undefined : 'la-pp-dim'}
+        // Closed: resting color from .la-pp-soft (placeholder color, darkens on
+        // hover). Open: pin to full ink inline (outranks the class).
+        className={open ? undefined : 'la-pp-soft'}
         onClick={toggle}
         aria-label="Model and reasoning"
         style={{
@@ -298,9 +298,7 @@ export function ModelReasoningPicker({
           border: 'none',
           padding: 0,
           cursor: 'pointer',
-          // Muted to match the idle "new worktree" label — both footer controls
-          // read as one secondary row rather than one bright, one dim.
-          color: t.textMuted,
+          ...(open ? { color: t.textPrimary } : null),
           fontFamily: 'inherit',
           fontSize: '13px',
           letterSpacing: 'inherit',
@@ -440,7 +438,9 @@ export function PickedPopover({
   // dark variant doesn't fall back to the light ink palette.
   const placeholderColor = isLight ? PLACEHOLDER : 'rgba(245, 245, 245, 0.4)';
   const scrollThumb = isLight ? 'rgba(55, 55, 52, 0.25)' : 'rgba(255, 255, 255, 0.22)';
-  const worktreeBlue = isLight ? ACCENT_BLUE : '#60a5fa';
+  // Worktree pill: #EBEBEB @ 50% fill, #373734 @ 55% text (light); hover lifts
+  // the text to full ink.
+  const pillFill = isLight ? 'rgba(235, 235, 235, 0.5)' : t.chipBg;
   const errorBg = isLight ? 'rgba(239, 68, 68, 0.1)' : 'rgba(248, 113, 113, 0.12)';
   const errorBorder = isLight ? 'rgba(239, 68, 68, 0.3)' : 'rgba(248, 113, 113, 0.35)';
   const errorText = isLight ? '#dc2626' : '#f87171';
@@ -665,11 +665,11 @@ export function PickedPopover({
         background: t.surfaceBg,
         color: t.textPrimary,
         border: `1px solid ${t.surfaceBorder}`,
-        borderRadius: '14px',
+        borderRadius: '8px',
         boxShadow: t.surfaceShadow,
         // Spacing tokens (overridable via CSS vars for the gallery playground).
         // top / x / bottom — places the input 12px from the top and left edges.
-        padding: 'var(--la-pp-pad-t, 12px) var(--la-pp-pad-x, 12px) var(--la-pp-pad-b, 8px)',
+        padding: 'var(--la-pp-pad-t, 10px) var(--la-pp-pad-x, 12px) var(--la-pp-pad-b, 6px)',
         fontSize: '13px',
         fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif',
         lineHeight: 1.5,
@@ -694,11 +694,13 @@ export function PickedPopover({
           '@keyframes la-pp-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(6px) scale(0.96)}}' +
           '.la-pp-menu-row{background:transparent;transition:background 80ms}' +
           `.la-pp-menu-row:hover{background:${t.controlBg}}` +
-          // Muted footer controls (idle "new worktree" + model menu) sit at 40%
-          // and brighten to full on hover. The active worktree toggle has no
-          // .la-pp-dim, so it stays at full opacity.
-          '.la-pp-dim{opacity:0.4;transition:opacity 80ms}' +
-          '.la-pp-dim:hover{opacity:1}' +
+          // Worktree pill: smooth fill transition on toggle.
+          '.la-pp-wt{transition:background 80ms,border-color 80ms}' +
+          // Secondary footer text (worktree pill + model menu): resting color
+          // matches the composer placeholder, darkening to full ink on hover.
+          // Color lives here (not inline) so :hover can win.
+          `.la-pp-soft{color:${placeholderColor};transition:color 80ms}` +
+          `.la-pp-soft:hover{color:${t.textPrimary}}` +
           '.la-pp-send{transition:opacity 80ms}' +
           // Thin scrollbar for the input once it grows past 3 lines.
           `.la-pp-ta{scrollbar-width:thin;scrollbar-color:${scrollThumb} transparent}` +
@@ -712,7 +714,7 @@ export function PickedPopover({
           style={{
             position: 'absolute',
             inset: 0,
-            borderRadius: '14px',
+            borderRadius: '8px',
             border: `2px dashed ${t.accent}`,
             background: theme === 'light' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.16)',
             display: 'flex',
@@ -797,18 +799,18 @@ export function PickedPopover({
       />
 
       {/* Footer: model on the left, action icons on the right. Breaks out to the
-          card edges (cancels the card padding) so it can set its own padding:
-          12 left · 8 right · 8 bottom. */}
+          card edges (cancels the card padding) so the whole cluster (pill · model
+          · attach · send) sits 6px from the modal's left/right edges. */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          marginTop: 'var(--la-pp-gap, 8px)',
+          marginTop: 'var(--la-pp-gap, 12px)',
           marginLeft: 'calc(-1 * var(--la-pp-pad-x, 12px))',
           marginRight: 'calc(-1 * var(--la-pp-pad-x, 12px))',
-          paddingLeft: '12px',
-          paddingRight: '8px',
+          paddingLeft: '6px',
+          paddingRight: '6px',
           gap: '8px',
         }}
       >
@@ -816,22 +818,23 @@ export function PickedPopover({
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
           <button
             type="button"
-            // Dim only when inactive (gray); the active blue state stays full.
-            className={worktree ? undefined : 'la-pp-dim'}
+            className="la-pp-wt la-pp-soft"
             onClick={() => {
               setUserTouchedMode(true);
               setWorktreeMode((m) => (m === 'same' ? 'new' : 'same'));
             }}
-            style={worktreeToggle}
+            style={worktreePill(t, worktree, pillFill)}
             title="Run the agent in a fresh git worktree (parallel) instead of the current one"
           >
-            {/* Check only takes space when present, so the label shifts on toggle. */}
+            {/* Check only takes space when present, so the label shifts on toggle.
+                Text/check color + size match the composer placeholder.
+                line-height:0 keeps the svg optically centered against the text. */}
             {worktree ? (
-              <span style={{ display: 'inline-flex', color: worktreeBlue }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0 }}>
                 <Icon.Check />
               </span>
             ) : null}
-            <span style={{ color: worktree ? worktreeBlue : t.textMuted }}>new worktree</span>
+            <span>Worktree</span>
           </button>
           <ModelReasoningPicker
             models={MODELS.map((m) => ({ value: m.value, label: m.label }))}
@@ -1055,20 +1058,26 @@ const iconBtn = (t: ThemeTokens) => ({
   padding: 0,
 });
 
-const worktreeToggle = {
+// Worktree toggle, styled as a pill. Active = filled pill with a check (like the
+// screenshot); idle = outlined pill (1px border keeps the text in the same spot),
+// no check. Text color comes from the .la-pp-soft class (so :hover can darken it
+// — inline color would outrank the stylesheet).
+const worktreePill = (t: ThemeTokens, active: boolean, fill: string) => ({
   display: 'inline-flex',
   alignItems: 'center',
-  gap: '5px',
-  background: 'transparent',
-  border: 'none',
-  padding: 0,
+  gap: '3px',
+  background: active ? fill : 'transparent',
+  border: `1px solid ${active ? 'transparent' : t.controlBorder}`,
+  borderRadius: '999px',
+  padding: '2px 8px',
   margin: 0,
   cursor: 'pointer',
   fontSize: '13px',
   fontFamily: 'inherit',
   letterSpacing: 'inherit',
+  lineHeight: 1.2,
   whiteSpace: 'nowrap' as const,
-};
+});
 
 const thumbRemove = (t: ThemeTokens) => ({
   position: 'absolute' as const,
