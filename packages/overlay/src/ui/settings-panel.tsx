@@ -4,6 +4,8 @@ import { type OverlayTheme, type ThemeTokens, tokens } from './theme';
 
 type SettingsPanelProps = {
   theme?: OverlayTheme;
+  /** Position override (right/bottom/left/top) so the panel tracks the pill. */
+  anchorStyle?: Record<string, string>;
   onClose: () => void;
   /** Flip the overlay between light and dark. */
   onToggleTheme?: () => void;
@@ -34,6 +36,7 @@ const PROVIDERS: { id: string; label: string; placeholder: string }[] = [
  */
 export function SettingsPanel({
   theme = 'dark',
+  anchorStyle,
   onToggleTheme,
   blockInteractions = false,
   onToggleBlockInteractions,
@@ -44,7 +47,7 @@ export function SettingsPanel({
   const [view, setView] = useState<'settings' | 'keys'>('settings');
 
   return (
-    <div style={panelStyle(t)}>
+    <div style={{ ...panelStyle(t), ...anchorStyle }}>
       <style>
         {'.la-sp-row{background:transparent;transition:background 80ms}' +
           `.la-sp-row:hover{background:${t.controlBg}}` +

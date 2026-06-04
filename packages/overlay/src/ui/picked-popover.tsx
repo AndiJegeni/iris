@@ -67,6 +67,8 @@ type PickedPopoverProps = {
   onClose: () => void;
   onSubmit: (annotation: Annotation) => Promise<void>;
   theme?: OverlayTheme;
+  /** Element-less (chat) mode: position override so it tracks the pill. */
+  anchorStyle?: Record<string, string>;
 };
 
 /** Resolution confidence → the narrower confidence the annotation schema accepts. */
@@ -409,6 +411,7 @@ export function PickedPopover({
   onClose,
   onSubmit,
   theme = 'dark',
+  anchorStyle,
 }: PickedPopoverProps) {
   // In light mode the message box is a fixed "ink on paper" surface — override the
   // theme tokens with the #373734 palette in one place so every `t.*` color usage
@@ -650,10 +653,14 @@ export function PickedPopover({
       style={{
         position: 'fixed',
         // Element mode pins to the picked element's top-left; chat mode floats
-        // bottom-right, above the pill.
+        // just above the pill (anchorStyle tracks its dragged position; falls
+        // back to bottom-right).
         ...(anchor
           ? { top: `${anchor.top}px`, left: `${anchor.left}px`, transformOrigin: 'top left' }
-          : { bottom: '70px', right: '16px', transformOrigin: 'bottom right' }),
+          : {
+              ...(anchorStyle ?? { bottom: '70px', right: '16px' }),
+              transformOrigin: 'bottom right',
+            }),
         width: `${POPOVER_WIDTH}px`,
         background: t.surfaceBg,
         color: t.textPrimary,
