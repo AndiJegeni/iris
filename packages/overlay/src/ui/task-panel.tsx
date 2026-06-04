@@ -15,6 +15,12 @@ type TaskPanelProps = {
   onSendMessage?: (id: string, text: string) => void | Promise<void>;
   /** Called when a task's chat is opened (e.g. to load its full transcript). */
   onOpenChat?: (id: string) => void;
+  /** Re-run a failed task (re-submits its original prompt as a fresh task). */
+  onRetry?: (id: string) => void | Promise<void>;
+  /** Controlled open state (e.g. driven by the pill's chat button). Optional. */
+  open?: boolean;
+  /** Fired when the panel wants to open/close — pairs with `open` for control. */
+  onOpenChange?: (open: boolean) => void;
 };
 
 const DRAWER_WIDTH = 400;
@@ -84,9 +90,19 @@ export function TaskPanel({
   onCancel,
   onSendMessage,
   onOpenChat,
+  onRetry,
+  open: openProp,
+  onOpenChange,
 }: TaskPanelProps) {
   const t = tokens(theme);
-  const [open, setOpen] = useState(false);
+  // Controlled when `open` is provided (pill chat button), else self-managed.
+  const [openSelf, setOpenSelf] = useState(false);
+  const open = openProp ?? openSelf;
+  const setOpen = (next: boolean | ((o: boolean) => boolean)) => {
+    const value = typeof next === 'function' ? next(open) : next;
+    setOpenSelf(value);
+    onOpenChange?.(value);
+  };
   const [cleared, setCleared] = useState<Set<string>>(() => new Set());
   const [chatTaskId, setChatTaskId] = useState<string | null>(null);
   const [, setTick] = useState(0);
@@ -109,7 +125,9 @@ export function TaskPanel({
     if (chatTaskId && !chatTask) setChatTaskId(null);
   }, [chatTaskId, chatTask]);
 
-  if (tasks.length === 0) return null;
+  // With no tasks the floating launcher button is pointless — but when the pill
+  // drives us open (controlled), still render so the panel (empty state) shows.
+  if (tasks.length === 0 && !open) return null;
 
   const width = chatTask ? CHAT_WIDTH : DRAWER_WIDTH;
 
@@ -158,7 +176,7 @@ export function TaskPanel({
       </button>
 
       {open ? (
-        <div style={{ ...panelStyle(t), width: `${width}px` }}>
+        <div style={{ ...panelStyle(t, theme), width: `${width}px` }}>
           {chatTask ? (
             <TaskChat
               task={chatTask}
@@ -245,6 +263,7 @@ export function TaskPanel({
                           (transcripts?.[task.id]?.length ?? 0) > 0
                         }
                         onOpenChat={() => openChat(task.id)}
+                        {...(onRetry ? { onRetry: () => onRetry(task.id) } : {})}
                       />
                     ))}
                   </>
@@ -270,14 +289,17 @@ type TaskRowProps = {
   hasTranscript: boolean;
   onOpenChat: () => void;
   onCancel?: () => void;
+  /** Re-run this task; only rendered for failed rows. */
+  onRetry?: () => void;
 };
 
-function TaskRow({ task, t, hasTranscript, onOpenChat, onCancel }: TaskRowProps) {
+function TaskRow({ task, t, hasTranscript, onOpenChat, onCancel, onRetry }: TaskRowProps) {
+  const failed = task.status === 'failed';
   return (
     <div style={cardStyle(t)}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '9px' }}>
         {/* Only the failed state shows a status dot. */}
-        {task.status === 'failed' ? (
+        {failed ? (
           <span
             style={{
               width: '8px',
@@ -296,11 +318,19 @@ function TaskRow({ task, t, hasTranscript, onOpenChat, onCancel }: TaskRowProps)
           <div style={{ color: t.textMuted, fontSize: '12px', marginTop: '2px' }}>
             {statusLine(task)} <span style={{ color: t.textFaint }}>· {elapsed(task)}</span>
           </div>
-          {hasTranscript ? (
-            <button type="button" style={viewChatLink(t)} onClick={onOpenChat}>
-              View chat
-            </button>
-          ) : null}
+          {/* Failed rows show Retry alongside View chat — a clear way to re-run. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {hasTranscript ? (
+              <button type="button" style={viewChatLink(t)} onClick={onOpenChat}>
+                View chat
+              </button>
+            ) : null}
+            {failed && onRetry ? (
+              <button type="button" style={retryBtn(t)} onClick={onRetry}>
+                Retry
+              </button>
+            ) : null}
+          </div>
         </div>
         {onCancel ? (
           <button type="button" className="la-tp-dim" style={stopBtn(t)} onClick={onCancel}>
@@ -351,12 +381,15 @@ const countStyle = {
   letterSpacing: '-0.02em',
 };
 
-const panelStyle = (t: ThemeTokens) => ({
+const panelStyle = (t: ThemeTokens, theme: OverlayTheme) => ({
   position: 'fixed' as const,
   top: `${DRAWER_MARGIN}px`,
   right: `${DRAWER_MARGIN}px`,
   bottom: `${DRAWER_MARGIN}px`,
-  background: t.surfaceBg,
+  // Fully opaque (no see-through to the page): the surface token is ~98% alpha,
+  // so paint a solid theme-appropriate fill. Dark → solid dark, light → solid
+  // white. Shadow + rounding below are unchanged.
+  background: theme === 'light' ? '#ffffff' : '#0f0f0f',
   border: `1px solid ${t.surfaceBorder}`,
   borderRadius: '16px',
   boxShadow: t.surfaceShadow,
@@ -433,6 +466,22 @@ const viewChatLink = (t: ThemeTokens) => ({
   padding: 0,
   marginTop: '8px',
   // Sits left-aligned under the status line.
+  display: 'block',
+  fontFamily: 'inherit',
+});
+
+// Failed-row "Retry" — a clearly-visible pill that re-runs the original prompt.
+// Tinted with the accent so it reads as the primary recovery action.
+const retryBtn = (t: ThemeTokens) => ({
+  background: t.accent,
+  border: 'none',
+  borderRadius: '6px',
+  color: t.accentText,
+  fontSize: '12px',
+  fontWeight: 500,
+  cursor: 'pointer',
+  padding: '4px 10px',
+  marginTop: '8px',
   display: 'block',
   fontFamily: 'inherit',
 });

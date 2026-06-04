@@ -18,6 +18,7 @@ export function useTransport() {
     state,
     send: t.sendAnnotation.bind(t),
     cancel: t.cancelTask.bind(t),
+    retry: t.retryTask.bind(t),
     sendMessage: t.sendMessage.bind(t),
     fetchTranscript: t.fetchTranscript.bind(t),
   };

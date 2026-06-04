@@ -9,7 +9,7 @@ import type {
   WorktreeMode,
 } from '@localagents/shared';
 import { MAX_IMAGES_PER_ANNOTATION, modelLabel } from '@localagents/shared';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import type { Resolution } from '../source-map';
 import { type OverlayTheme, type ThemeTokens, tokens } from './theme';
 
@@ -19,6 +19,16 @@ const STROKE = 'rgba(55, 55, 52, 0.1)'; // #373734 @ 10% — borders / dividers
 const PLACEHOLDER = 'rgba(55, 55, 52, 0.5)'; // #373734 @ 50% — empty input text
 const SURFACE = '#ffffff';
 const ACCENT_BLUE = '#1a73e8'; // "new worktree" toggle when active
+
+// Open/close motion. Keyframe animations (not transitions) so the enter always
+// plays on mount without depending on a follow-up rAF tick to flip state — a
+// mount/unmount popover has no persistent element to transition. The smooth feel
+// comes from the easing + the translateY/scale/opacity combo, borrowed from
+// Agentation: a snappy start that settles softly. Close runs a touch quicker so
+// dismissals feel responsive, with `forwards` holding the faded-out end state.
+const EASE = 'cubic-bezier(0.32, 0.72, 0, 1)';
+const OPEN_MS = 220;
+const CLOSE_MS = 150;
 
 const ACCEPTED_IMAGE_TYPES: ImageMediaType[] = [
   'image/png',
@@ -50,8 +60,10 @@ function fileToImage(file: File): Promise<AttachedImage | null> {
 }
 
 type PickedPopoverProps = {
-  element: Element;
-  resolution: Resolution;
+  /** The picked element, or omitted for the element-less "chat" composer. */
+  element?: Element;
+  /** Source resolution for the picked element; omitted in chat mode. */
+  resolution?: Resolution;
   onClose: () => void;
   onSubmit: (annotation: Annotation) => Promise<void>;
   theme?: OverlayTheme;
@@ -181,11 +193,15 @@ function MenuRow({
 const menuPanel = (t: ThemeTokens) =>
   ({
     minWidth: '232px',
+    // Match the composer surface so the dropdown reads as the same design
+    // language: same fill / hairline border / drop shadow / rounding (14px) /
+    // backdrop blur as the message-input modal above.
     background: t.surfaceBg,
     border: `1px solid ${t.surfaceBorder}`,
-    borderRadius: '12px',
-    boxShadow: '0 12px 32px rgba(0, 0, 0, 0.18)',
-    padding: '6px',
+    borderRadius: '14px',
+    boxShadow: t.surfaceShadow,
+    backdropFilter: 'blur(10px)',
+    padding: '8px',
   }) as const;
 
 /** Combined model + reasoning control. The trigger shows "<model> <effort>";
@@ -221,10 +237,18 @@ export function ModelReasoningPicker({
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setModelOpen(false);
-      }
+      const root = wrapRef.current;
+      if (!root) return;
+      // The overlay lives in a shadow root, so at the document level e.target
+      // retargets to the shadow host — contains(e.target) is false even for
+      // clicks landing inside the menu, which would slam it shut before the
+      // option's onClick (fired on the trailing click) can run. Test the real
+      // path instead so inside-clicks (reasoning options, the model row, the
+      // model submenu) keep the menu alive.
+      const path = e.composedPath?.() ?? [];
+      if (path.includes(root)) return;
+      setOpen(false);
+      setModelOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -442,7 +466,37 @@ export function PickedPopover({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const anchor = computeAnchor(element);
+  // Element mode anchors to the picked element; chat mode floats bottom-right
+  // above the pill (no element to point at).
+  const anchor = element ? computeAnchor(element) : null;
+
+  // Exit animation: a close request doesn't unmount immediately — it flips
+  // `closing` (which swaps the open keyframes for the reverse `la-pp-out`), lets
+  // it play, then calls the parent's onClose to actually unmount. Guards against
+  // double-firing (Esc + outside-click) and clears the timer on unmount.
+  const [closing, setClosing] = useState(false);
+  const closeTimerRef = useRef<number | null>(null);
+  const requestClose = useCallback(() => {
+    if (closeTimerRef.current != null) return;
+    setClosing(true);
+    closeTimerRef.current = window.setTimeout(() => onClose(), CLOSE_MS);
+  }, [onClose]);
+  useEffect(
+    () => () => {
+      if (closeTimerRef.current != null) window.clearTimeout(closeTimerRef.current);
+    },
+    [],
+  );
+
+  // Esc closes the popover with the same exit animation. Handled here (rather than
+  // in the parent Overlay) so it shares the requestClose → animate → unmount path.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') requestClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [requestClose]);
 
   const addFiles = async (files: FileList | File[]) => {
     const encoded = await Promise.all(Array.from(files).map(fileToImage));
@@ -523,12 +577,12 @@ export function PickedPopover({
       if (promptRef.current.trim()) {
         shake();
       } else {
-        onClose();
+        requestClose();
       }
     };
     document.addEventListener('mousedown', onDown, true);
     return () => document.removeEventListener('mousedown', onDown, true);
-  }, [onClose]);
+  }, [requestClose]);
 
   // Grow the textarea with its content up to 3 lines, then scroll.
   useEffect(() => {
@@ -544,11 +598,11 @@ export function PickedPopover({
     setError(null);
     const annotation: Annotation = {
       prompt: prompt.trim(),
-      source: resolution.source,
-      selector: resolution.selector,
-      componentPath: resolution.componentPath,
-      nearbyText: resolution.text,
-      confidence: annotationConfidence(resolution.confidence),
+      source: resolution?.source ?? null,
+      selector: resolution?.selector ?? null,
+      componentPath: resolution?.componentPath ?? [],
+      nearbyText: resolution?.text ?? null,
+      confidence: resolution ? annotationConfidence(resolution.confidence) : 'low',
       worktreeMode,
       backend: selectedModel.backend,
       model: selectedModel.value,
@@ -557,7 +611,7 @@ export function PickedPopover({
     };
     try {
       await onSubmit(annotation);
-      onClose();
+      requestClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -595,13 +649,16 @@ export function PickedPopover({
       }}
       style={{
         position: 'fixed',
-        top: `${anchor.top}px`,
-        left: `${anchor.left}px`,
+        // Element mode pins to the picked element's top-left; chat mode floats
+        // bottom-right, above the pill.
+        ...(anchor
+          ? { top: `${anchor.top}px`, left: `${anchor.left}px`, transformOrigin: 'top left' }
+          : { bottom: '70px', right: '16px', transformOrigin: 'bottom right' }),
         width: `${POPOVER_WIDTH}px`,
         background: t.surfaceBg,
         color: t.textPrimary,
         border: `1px solid ${t.surfaceBorder}`,
-        borderRadius: '12px',
+        borderRadius: '14px',
         boxShadow: t.surfaceShadow,
         // Spacing tokens (overridable via CSS vars for the gallery playground).
         // top / x / bottom — places the input 12px from the top and left edges.
@@ -612,23 +669,28 @@ export function PickedPopover({
         letterSpacing: '-0.02em',
         pointerEvents: 'auto',
         backdropFilter: 'blur(10px)',
-        // Grows from the anchored (top-left) corner, near the picked element.
-        // The shake (error nudge) is run imperatively via the Web Animations API
-        // in shake(), so it doesn't collide with this open animation.
-        transformOrigin: 'top left',
-        animation: 'la-pp-in 190ms cubic-bezier(0.2, 0.9, 0.3, 1)',
+        // Grows from the anchored corner (transformOrigin set per-mode above).
+        // The shake (error nudge) runs imperatively via the Web Animations API in
+        // shake(); it only fires once the popover is fully open, so it never
+        // collides with this open/close animation's transform.
+        animation: closing
+          ? `la-pp-out ${CLOSE_MS}ms ${EASE} forwards`
+          : `la-pp-in ${OPEN_MS}ms ${EASE}`,
         willChange: 'transform, opacity',
       }}
     >
-      {/* Scoped placeholder color + the open animation (Twitter-compose-modal
-          style: a subtle scale-up + fade, settling with an ease-out curve). */}
+      {/* Scoped placeholder color + control hover states + the open/close
+          keyframes (a soft scale-up + rise that eases in, and its reverse). */}
       <style>
         {'.la-pp-ta::placeholder{color:var(--la-ph);opacity:1}' +
-          '@keyframes la-pp-in{from{opacity:0;transform:scale(0.96)}to{opacity:1;transform:scale(1)}}' +
+          '@keyframes la-pp-in{from{opacity:0;transform:translateY(6px) scale(0.96)}to{opacity:1;transform:none}}' +
+          '@keyframes la-pp-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(6px) scale(0.96)}}' +
           '.la-pp-menu-row{background:transparent;transition:background 80ms}' +
           `.la-pp-menu-row:hover{background:${t.controlBg}}` +
-          // Muted footer controls sit at 60% and brighten to full on hover.
-          '.la-pp-dim{opacity:0.6;transition:opacity 80ms}' +
+          // Muted footer controls (idle "new worktree" + model menu) sit at 40%
+          // and brighten to full on hover. The active worktree toggle has no
+          // .la-pp-dim, so it stays at full opacity.
+          '.la-pp-dim{opacity:0.4;transition:opacity 80ms}' +
           '.la-pp-dim:hover{opacity:1}' +
           '.la-pp-send{transition:opacity 80ms}' +
           // Thin scrollbar for the input once it grows past 3 lines.
@@ -643,7 +705,7 @@ export function PickedPopover({
           style={{
             position: 'absolute',
             inset: 0,
-            borderRadius: '12px',
+            borderRadius: '14px',
             border: `2px dashed ${t.accent}`,
             background: theme === 'light' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.16)',
             display: 'flex',
@@ -903,7 +965,7 @@ const Icon = {
     </svg>
   ),
   Plus: () => (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <path
         d="M7.99967 3.3335V12.6668M3.33301 8.00016H12.6663"
         stroke="currentColor"
@@ -914,13 +976,13 @@ const Icon = {
     </svg>
   ),
   ArrowUp: () => (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      {/* Spans 2.5–13.5 with a wide head so it reads at the same visual size as
-          the Plus glyph (which only feels bigger because it's a full cross). */}
+    // viewBox 24 + stroke 2 → glyph spans 58% of the box at a 0.083 stroke ratio,
+    // identical to the Plus (9.33/16 span, 1.333/16 stroke), so they render the same size.
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
-        d="M8 13.5V2.5M3 7.5L8 2.5L13 7.5"
+        d="M12 19V5M19 12L12 5L5 12"
         stroke="currentColor"
-        stroke-width="1.33333"
+        stroke-width="2"
         stroke-linecap="round"
         stroke-linejoin="round"
       />
@@ -1052,6 +1114,9 @@ const sendBtn = (t: ThemeTokens) => ({
   // Icon is 13px; ~5px padding all around → 23px box, with a soft 5px radius.
   width: '23px',
   height: '23px',
+  // Must be 0 — the UA default button padding (1px 6px) otherwise squeezes the
+  // 16px icon down to ~11px wide, making it look smaller than the Plus.
+  padding: 0,
   background: t.submitBg,
   border: 'none',
   borderRadius: '999px',

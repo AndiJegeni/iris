@@ -163,6 +163,32 @@ class Transport {
     await fetch(`${this.daemonUrl}/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
 
+  /**
+   * Re-run a failed task by re-submitting its original prompt as a fresh task.
+   * The stored Task only carries prompt/source/backend/model (not the full
+   * annotation), so the other annotation fields fall back to their defaults —
+   * a fresh worktree, default reasoning effort. This goes through the same
+   * `/annotate` flow as a normal submit, so it creates a brand-new task.
+   */
+  async retryTask(id: string): Promise<Task | null> {
+    const orig = this.state.tasks.find((t) => t.id === id);
+    if (!orig) return null;
+    const annotation: Annotation = {
+      prompt: orig.prompt,
+      source: orig.source,
+      selector: null,
+      componentPath: [],
+      nearbyText: null,
+      confidence: 'low',
+      worktreeMode: 'new',
+      backend: orig.backend,
+      model: orig.model ?? '',
+      reasoningEffort: 'medium',
+      images: [],
+    };
+    return this.sendAnnotation(annotation);
+  }
+
   /** Send a follow-up message to an existing task (resumes its session). */
   async sendMessage(id: string, text: string): Promise<void> {
     const res = await fetch(`${this.daemonUrl}/tasks/${encodeURIComponent(id)}/message`, {

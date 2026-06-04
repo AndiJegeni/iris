@@ -6,6 +6,8 @@ type PillProps = {
   active: boolean;
   onArm: () => void;
   onDisarm: () => void;
+  /** Toggle the chat / tasks panel (chat button). No-op when omitted. */
+  onChat?: () => void;
   /** Open the settings panel (gear button). No-op when omitted. */
   onSettings?: () => void;
   theme?: OverlayTheme;
@@ -21,14 +23,25 @@ type PillProps = {
 type PillPalette = { surface: string; stroke: string; icon: string; shadow: string; hover: string };
 
 // Matched to Agentation's launcher + toolbar (measured live off the example
-// page). Its collapsed launcher is a 44px circle with a prominent star glyph —
-// bigger than its own toolbar icons, so the parked state reads strong. The
-// active toolbar uses smaller 20px glyphs in 28px buttons (4px padding). Both
-// states land on a 44px height so arming doesn't change the pill's size.
+// page). The collapsed launcher is a circle with a prominent star glyph — bigger
+// than its own toolbar icons, so the parked state reads strong. The active
+// toolbar uses 20px glyphs in 28px buttons (4px padding). Both states land on a
+// 40px height so arming doesn't change the pill's size.
 const ICON_SIZE = 20; // active toolbar glyph
-const STAR_SIZE = 20; // collapsed-launcher glyph (smaller than the 44px circle for breathing room)
+const STAR_SIZE = 20; // collapsed-launcher glyph (smaller than the circle for breathing room)
 const ICON_BTN = 28; // active toolbar button (20px glyph + 4px padding)
-const CIRCLE = 44; // collapsed launcher diameter
+const CIRCLE = 40; // collapsed launcher diameter (= toolbar height: 28px button + 6px top/bottom)
+
+// Theme accent blue (mirrors theme.ts `accent`) for the keyboard focus ring on
+// the pill's icon buttons — replaces the host browser's default yellow outline.
+const ACCENT = '#3b82f6';
+
+// Open/close motion. One persistent container morphs between the parked circle
+// and the expanded toolbar — arming/disarming eases the width (long expo curve,
+// à la Agentation) while the two layers crossfade, so the star dissolves into the
+// icons instead of snapping. Both states share the height + right edge, so the
+// pill grows leftward from a fixed anchor and never jumps.
+const MORPH = 'width 320ms cubic-bezier(0.19, 1, 0.22, 1)';
 
 const PILL: Record<OverlayTheme, PillPalette> = {
   light: {
@@ -51,6 +64,7 @@ export function Pill({
   active,
   onArm,
   onDisarm,
+  onChat,
   onSettings,
   theme = 'dark',
   positionStyle,
@@ -83,88 +97,132 @@ export function Pill({
     cursor: 'pointer',
   };
 
-  if (!active) {
-    return (
-      <button
-        type="button"
-        onClick={onArm}
-        onMouseDown={onDragStart}
-        aria-label="localagents"
-        style={{
-          ...baseSurface,
-          ...positionStyle,
-          // Matches the active pill's height (28px button + 8px top/bottom padding).
-          width: `${CIRCLE}px`,
-          height: `${CIRCLE}px`,
-          padding: 0,
-          borderRadius: '999px',
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-        }}
-      >
-        <StarIcon />
-      </button>
-    );
-  }
+  // Expanded-toolbar width, derived from its parts so it tracks the layout below:
+  // pad-l 8 · chat 28 · gap 6 · ml 2 · settings 28 · gap 6 · divider 1 · gap 6 · ml 2 · close 28 · pad-r 6.
+  const TOOLBAR_W = 8 + ICON_BTN + 6 + 2 + ICON_BTN + 6 + 1 + 6 + 2 + ICON_BTN + 6;
 
   return (
     <div
+      className="la-pill-root"
       onMouseDown={onDragStart}
       style={{
         ...baseSurface,
         ...positionStyle,
-        // 8 · chat · 6 · settings · 6 · divider · 6 · close · 6, with 8 top/bottom.
-        padding: '8px 6px 8px 8px',
+        height: `${CIRCLE}px`,
+        width: active ? `${TOOLBAR_W}px` : `${CIRCLE}px`,
         borderRadius: '999px',
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: '6px',
-        // Drag affordance on the bar background; buttons keep their pointer cursor.
-        cursor: 'grab',
+        overflow: 'hidden',
+        transition: MORPH,
+        // Drag affordance on the bar; the buttons/star keep their pointer cursor.
+        cursor: active ? 'grab' : 'pointer',
       }}
     >
-      {/* Buttons hug the 14px icon so the glyphs honor the 12/4/4/4 spacing; the
-          circular 7.5% ink hover halo is drawn via box-shadow + bg so it doesn't
-          push the icons apart. */}
+      {/* Buttons hug the 20px icon; the circular 7.5% ink hover halo is drawn via
+          box-shadow + bg so it doesn't push the icons apart. Layers crossfade on
+          the same easing window. Focus rings use the theme accent (keyboard-only
+          via :focus-visible) instead of the host browser's default outline. The
+          launcher fills the clipped container, so its ring is inset to avoid being
+          cut off; the toolbar buttons sit inside the padding so theirs can sit out. */}
       <style>
-        {'.la-pill-btn{background:transparent;transition:background 90ms,box-shadow 90ms}' +
-          `.la-pill-btn:hover{background:${p.hover};box-shadow:0 0 0 4px ${p.hover}}`}
+        {'.la-pill-btn{background:transparent;outline:none;transition:background 90ms,box-shadow 90ms}' +
+          `.la-pill-btn:hover{background:${p.hover};box-shadow:0 0 0 4px ${p.hover}}` +
+          `.la-pill-btn:focus-visible{outline:none;box-shadow:0 0 0 2px ${ACCENT}}` +
+          '.la-pill-layer{transition:opacity 180ms ease}' +
+          '.la-pill-launcher{outline:none}' +
+          `.la-pill-launcher:focus-visible{box-shadow:inset 0 0 0 2px ${ACCENT}}`}
       </style>
+
+      {/* Parked launcher: the star, pinned to the right CIRCLE px so it sits
+          exactly where the toolbar's close button lands — the morph stays anchored. */}
       <button
         type="button"
-        aria-label="chat"
         onClick={onArm}
-        className="la-pill-btn"
-        style={iconButton}
+        aria-label="lens"
+        aria-hidden={active ? true : undefined}
+        tabIndex={active ? -1 : 0}
+        className="la-pill-launcher la-pill-layer"
+        style={{
+          // top:0 + bottom:0 (not an explicit height) so the layer fills the
+          // container's inner box — with box-sizing:border-box the 1px border
+          // would otherwise leave the glyph ~1px low (asymmetric padding).
+          position: 'absolute',
+          top: 0,
+          bottom: 0,
+          right: 0,
+          width: `${CIRCLE}px`,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 0,
+          border: 'none',
+          background: 'transparent',
+          color: p.icon,
+          cursor: 'pointer',
+          opacity: active ? 0 : 1,
+          pointerEvents: active ? 'none' : 'auto',
+        }}
       >
-        <ChatIcon />
+        <StarIcon />
       </button>
-      <button
-        type="button"
-        aria-label="settings"
-        onClick={() => onSettings?.()}
-        className="la-pill-btn"
-        // +2px beyond the 6px gap so the chat/settings hover halos don't overlap.
-        style={{ ...iconButton, marginLeft: '2px' }}
+
+      {/* Expanded toolbar, same right anchor + height as the circle. */}
+      <div
+        aria-hidden={active ? undefined : true}
+        className="la-pill-layer"
+        style={{
+          // top:0 + bottom:0 (not an explicit height) so the toolbar fills the
+          // container's inner box symmetrically — the 1px border was making the
+          // top padding read ~1px taller than the bottom.
+          position: 'absolute',
+          top: 0,
+          bottom: 0,
+          right: 0,
+          width: `${TOOLBAR_W}px`,
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '6px',
+          padding: '6px 6px 6px 8px',
+          opacity: active ? 1 : 0,
+          pointerEvents: active ? 'auto' : 'none',
+        }}
       >
-        <SettingsIcon />
-      </button>
-      <span style={{ width: '1px', height: '20px', background: p.stroke, flexShrink: 0 }} />
-      <button
-        type="button"
-        aria-label="close"
-        onClick={onDisarm}
-        className="la-pill-btn"
-        style={iconButton}
-      >
-        <CloseIcon />
-      </button>
+        <button
+          type="button"
+          aria-label="chat"
+          onClick={() => onChat?.()}
+          tabIndex={active ? 0 : -1}
+          className="la-pill-btn"
+          style={iconButton}
+        >
+          <ChatIcon />
+        </button>
+        <button
+          type="button"
+          aria-label="settings"
+          onClick={() => onSettings?.()}
+          tabIndex={active ? 0 : -1}
+          className="la-pill-btn"
+          // +2px beyond the 6px gap so the chat/settings hover halos don't overlap.
+          style={{ ...iconButton, marginLeft: '2px' }}
+        >
+          <SettingsIcon />
+        </button>
+        <span style={{ width: '1px', height: '20px', background: p.stroke, flexShrink: 0 }} />
+        <button
+          type="button"
+          aria-label="close"
+          onClick={onDisarm}
+          tabIndex={active ? 0 : -1}
+          className="la-pill-btn"
+          // Nudged 2px right of the divider gap for a touch more breathing room.
+          style={{ ...iconButton, marginLeft: '2px' }}
+        >
+          <CloseIcon />
+        </button>
+      </div>
     </div>
   );
 }
-
 
 /**
  * Icons inlined from packages/overlay/src/assets/icons (star-06, message-circle-01,
@@ -174,7 +232,17 @@ export function Pill({
  */
 function StarIcon() {
   return (
-    <svg width={STAR_SIZE} height={STAR_SIZE} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    // Optical centering: the glyph's bounding box is symmetric, but the light
+    // sparkle accents on the left make the whole mark read left-of-center in the
+    // circle. Nudge right so it sits visually centered.
+    <svg
+      width={STAR_SIZE}
+      height={STAR_SIZE}
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+      style={{ transform: 'translateX(1px)' }}
+    >
       <path
         d="M2.99967 14.6668V11.3335M2.99967 4.66683V1.3335M1.33301 3.00016H4.66634M1.33301 13.0002H4.66634M8.66634 2.00016L7.51022 5.00607C7.32221 5.49489 7.22821 5.7393 7.08203 5.94489C6.95247 6.12709 6.79327 6.28629 6.61106 6.41585C6.40548 6.56203 6.16107 6.65604 5.67225 6.84404L2.66634 8.00016L5.67225 9.15628C6.16107 9.34429 6.40548 9.43829 6.61107 9.58448C6.79327 9.71404 6.95247 9.87323 7.08203 10.0554C7.22821 10.261 7.32221 10.5054 7.51022 10.9943L8.66634 14.0002L9.82246 10.9943C10.0105 10.5054 10.1045 10.261 10.2507 10.0554C10.3802 9.87323 10.5394 9.71404 10.7216 9.58448C10.9272 9.43829 11.1716 9.34429 11.6604 9.15628L14.6663 8.00016L11.6604 6.84404C11.1716 6.65604 10.9272 6.56203 10.7216 6.41585C10.5394 6.28629 10.3802 6.12709 10.2507 5.94489C10.1045 5.7393 10.0105 5.49489 9.82246 5.00607L8.66634 2.00016Z"
         stroke="currentColor"
