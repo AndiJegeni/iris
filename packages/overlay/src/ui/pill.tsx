@@ -167,7 +167,7 @@ export function Pill({
           pointerEvents: active ? 'none' : 'auto',
         }}
       >
-        <StarIcon />
+        <CursorIcon />
       </button>
 
       {/* Expanded toolbar, same right anchor + height as the circle. */}
@@ -230,28 +230,18 @@ export function Pill({
 }
 
 /**
- * Icons inlined from packages/overlay/src/assets/icons (star-06, message-circle-01,
+ * Icons inlined from packages/overlay/src/assets/icons (cursor-click, message-circle-01,
  * settings-02, x-close) with stroke = currentColor so they take the pill's ink
  * color (per theme). Inlined rather than imported to stay bundler-agnostic across the daemon's
  * Bun build and the example's Next/SWC build — same convention as picked-popover.
  */
-function StarIcon() {
+function CursorIcon() {
   return (
-    // Optical centering: the glyph's bounding box is symmetric, but the light
-    // sparkle accents on the left make the whole mark read left-of-center in the
-    // circle. Nudge right so it sits visually centered.
-    <svg
-      width={STAR_SIZE}
-      height={STAR_SIZE}
-      viewBox="0 0 16 16"
-      fill="none"
-      aria-hidden="true"
-      style={{ transform: 'translateX(1px)' }}
-    >
+    <svg width={STAR_SIZE} height={STAR_SIZE} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
-        d="M2.99967 14.6668V11.3335M2.99967 4.66683V1.3335M1.33301 3.00016H4.66634M1.33301 13.0002H4.66634M8.66634 2.00016L7.51022 5.00607C7.32221 5.49489 7.22821 5.7393 7.08203 5.94489C6.95247 6.12709 6.79327 6.28629 6.61106 6.41585C6.40548 6.56203 6.16107 6.65604 5.67225 6.84404L2.66634 8.00016L5.67225 9.15628C6.16107 9.34429 6.40548 9.43829 6.61107 9.58448C6.79327 9.71404 6.95247 9.87323 7.08203 10.0554C7.22821 10.261 7.32221 10.5054 7.51022 10.9943L8.66634 14.0002L9.82246 10.9943C10.0105 10.5054 10.1045 10.261 10.2507 10.0554C10.3802 9.87323 10.5394 9.71404 10.7216 9.58448C10.9272 9.43829 11.1716 9.34429 11.6604 9.15628L14.6663 8.00016L11.6604 6.84404C11.1716 6.65604 10.9272 6.56203 10.7216 6.41585C10.5394 6.28629 10.3802 6.12709 10.2507 5.94489C10.1045 5.7393 10.0105 5.49489 9.82246 5.00607L8.66634 2.00016Z"
+        d="M9 3.5V2M5.06066 5.06066L4 4M5.06066 13L4 14.0607M13 5.06066L14.0607 4M3.5 9H2M8.5 8.5L12.6111 21.2778L15.5 18.3889L19.1111 22L22 19.1111L18.3889 15.5L21.2778 12.6111L8.5 8.5Z"
         stroke="currentColor"
-        stroke-width="1.33333"
+        stroke-width="2"
         stroke-linecap="round"
         stroke-linejoin="round"
       />
