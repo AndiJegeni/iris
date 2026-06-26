@@ -2,8 +2,9 @@ import { Annotation } from '@localagents/shared';
 import { Hono } from 'hono';
 import { getRunner } from './agents';
 import type { RunRequest } from './agents/types';
-import { type AuthState, resolveAuth } from './auth';
+import { type AuthState, resolveAuth, writeConfig } from './auth';
 import { EventBus, type WsClientData } from './events';
+import { loginAnthropic, loginOpenai, logoutAnthropic, logoutOpenai } from './login';
 import { bundleOverlay } from './overlay-bundle';
 import { TaskQueue } from './queue';
 import { shellHtml } from './shell-html';
@@ -36,10 +37,32 @@ export type Orchestrator = {
 export async function start(opts: StartOptions): Promise<Orchestrator> {
   const port = opts.port ?? 4747;
   const mainPort = opts.mainPort ?? 3000;
-  const auth = resolveAuth({
+  // Mutable so login/logout/save-key endpoints can refresh it in place; the
+  // /annotate handler reads the latest value when routing a task.
+  let auth = resolveAuth({
     repoRoot: opts.repoRoot,
     flagAnthropic: opts.flagAnthropic,
     flagOpenai: opts.flagOpenai,
+  });
+  const reResolveAuth = (): AuthState => {
+    auth = resolveAuth({
+      repoRoot: opts.repoRoot,
+      flagAnthropic: opts.flagAnthropic,
+      flagOpenai: opts.flagOpenai,
+    });
+    return auth;
+  };
+  const authStatus = () => ({
+    anthropic: {
+      method: auth.anthropic.method,
+      configured: auth.anthropic.method !== 'none',
+      source: auth.anthropic.source,
+    },
+    openai: {
+      method: auth.openai.method,
+      configured: auth.openai.method !== 'none',
+      source: auth.openai.source,
+    },
   });
 
   const bus = new EventBus();
@@ -63,12 +86,60 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
 
   app.get('/health', (c) => c.json({ ok: true as const, repo: opts.repoRoot, version: VERSION }));
 
-  app.get('/auth/status', (c) =>
-    c.json({
-      anthropic: { configured: Boolean(auth.anthropic), source: auth.source.anthropic },
-      openai: { configured: Boolean(auth.openai), source: auth.source.openai },
-    }),
-  );
+  app.get('/auth/status', (c) => c.json(authStatus()));
+
+  // Subscription login: shells out to the provider CLI's OAuth flow (opens the
+  // user's browser). On success we pin the method to 'oauth' so the stored
+  // credential is used even if an API key is also present.
+  app.post('/auth/login/:provider', async (c) => {
+    const provider = c.req.param('provider');
+    const result =
+      provider === 'anthropic'
+        ? await loginAnthropic()
+        : provider === 'openai'
+          ? await loginOpenai()
+          : { ok: false, error: `unknown provider "${provider}"` };
+    if (!result.ok) return c.json({ ok: false, error: result.error }, 400);
+    writeConfig(
+      opts.repoRoot,
+      provider === 'anthropic' ? { anthropicAuthMethod: 'oauth' } : { openaiAuthMethod: 'oauth' },
+    );
+    reResolveAuth();
+    return c.json({ ok: true, status: authStatus() });
+  });
+
+  app.post('/auth/logout/:provider', async (c) => {
+    const provider = c.req.param('provider');
+    if (provider === 'anthropic') {
+      await logoutAnthropic();
+      writeConfig(opts.repoRoot, { anthropicAuthMethod: 'none' });
+    } else if (provider === 'openai') {
+      await logoutOpenai();
+      writeConfig(opts.repoRoot, { openaiAuthMethod: 'none' });
+    } else {
+      return c.json({ ok: false, error: `unknown provider "${provider}"` }, 400);
+    }
+    reResolveAuth();
+    return c.json({ ok: true, status: authStatus() });
+  });
+
+  // Save (or clear) an API key, and switch the provider to API-key auth.
+  app.post('/auth/key/:provider', async (c) => {
+    const provider = c.req.param('provider');
+    const raw = (await c.req.json().catch(() => null)) as { key?: unknown } | null;
+    const key = typeof raw?.key === 'string' ? raw.key.trim() : '';
+    if (provider !== 'anthropic' && provider !== 'openai') {
+      return c.json({ ok: false, error: `unknown provider "${provider}"` }, 400);
+    }
+    writeConfig(
+      opts.repoRoot,
+      provider === 'anthropic'
+        ? { anthropicApiKey: key || undefined, anthropicAuthMethod: key ? 'api-key' : 'none' }
+        : { openaiApiKey: key || undefined, openaiAuthMethod: key ? 'api-key' : 'none' },
+    );
+    reResolveAuth();
+    return c.json({ ok: true, status: authStatus() });
+  });
 
   app.get('/overlay.js', async (c) => {
     try {
@@ -122,10 +193,7 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
     }
     const annotation = parsed.data;
 
-    const runner = getRunner(annotation.backend, {
-      anthropicKey: auth.anthropic,
-      openaiKey: auth.openai,
-    });
+    const runner = getRunner(annotation.backend, auth);
     if (!runner) {
       return c.json({ error: `backend "${annotation.backend}" not available yet` }, 400);
     }
@@ -191,6 +259,11 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
 
   const server = Bun.serve<WsClientData, never>({
     port,
+    // Subscription-login endpoints block while the user completes the browser
+    // OAuth flow (claude setup-token / codex login can take a minute-plus). The
+    // default 10s idle timeout would kill the request — and leave an orphaned
+    // CLI process — long before the user finishes. Bun caps this at 255s.
+    idleTimeout: 255,
     fetch(req, srv) {
       const url = new URL(req.url);
       if (url.pathname === '/tasks' && req.headers.get('upgrade')?.toLowerCase() === 'websocket') {

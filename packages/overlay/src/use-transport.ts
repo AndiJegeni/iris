@@ -21,5 +21,9 @@ export function useTransport() {
     retry: t.retryTask.bind(t),
     sendMessage: t.sendMessage.bind(t),
     fetchTranscript: t.fetchTranscript.bind(t),
+    login: t.loginProvider.bind(t),
+    logout: t.logoutProvider.bind(t),
+    saveApiKey: t.saveApiKey.bind(t),
+    refreshAuth: t.fetchAuthStatus.bind(t),
   };
 }
