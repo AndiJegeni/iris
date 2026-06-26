@@ -1,6 +1,9 @@
 /** @jsxImportSource preact */
 import { useState } from 'preact/hooks';
+import type { AuthStatus } from '../transport';
 import { type OverlayTheme, type ThemeTokens, tokens } from './theme';
+
+type Provider = 'anthropic' | 'openai';
 
 type SettingsPanelProps = {
   theme?: OverlayTheme;
@@ -12,20 +15,29 @@ type SettingsPanelProps = {
   /** Whether the overlay blocks clicks/scrolls on the host page. */
   blockInteractions?: boolean;
   onToggleBlockInteractions?: (next: boolean) => void;
-  /** Stored keys by provider, e.g. { anthropic, openai }. UI shell only. */
-  apiKeys?: Record<string, string>;
-  /** Surface a saved key to the host — no real storage happens here. */
-  onSaveKey?: (provider: string, value: string) => void;
+  /** Current provider auth status from the daemon (null until fetched). */
+  auth?: AuthStatus | null;
+  /** Start a subscription login (opens the browser via the daemon). */
+  onLogin?: (provider: Provider) => Promise<void>;
+  /** Log out of a subscription / clear a key. */
+  onLogout?: (provider: Provider) => Promise<void>;
+  /** Persist (or clear, when empty) a provider API key. */
+  onSaveKey?: (provider: Provider, value: string) => Promise<void>;
 };
 
 const VERSION = 'v0.1';
 
 const PANEL_WIDTH = 320;
 
-/** Providers shown in the "Manage API keys" sub-view, in display order. */
-const PROVIDERS: { id: string; label: string; placeholder: string }[] = [
-  { id: 'anthropic', label: 'Anthropic', placeholder: 'sk-ant-…' },
-  { id: 'openai', label: 'OpenAI', placeholder: 'sk-…' },
+/** Providers shown in the "Accounts" sub-view, in display order. */
+const PROVIDERS: {
+  id: Provider;
+  label: string;
+  loginLabel: string;
+  placeholder: string;
+}[] = [
+  { id: 'anthropic', label: 'Claude', loginLabel: 'Log in with Claude', placeholder: 'sk-ant-…' },
+  { id: 'openai', label: 'Codex', loginLabel: 'Log in with ChatGPT', placeholder: 'sk-…' },
 ];
 
 /**
@@ -40,19 +52,18 @@ export function SettingsPanel({
   onToggleTheme,
   blockInteractions = false,
   onToggleBlockInteractions,
-  apiKeys,
+  auth,
+  onLogin,
+  onLogout,
   onSaveKey,
 }: SettingsPanelProps) {
   const t = tokens(theme);
-  const [view, setView] = useState<'settings' | 'keys'>('settings');
+  const [view, setView] = useState<'settings' | 'accounts'>('settings');
 
   return (
     <div style={{ ...panelStyle(t), ...anchorStyle }}>
       <style>
-        {'.la-sp-row{background:transparent;transition:background 80ms}' +
-          `.la-sp-row:hover{background:${t.controlBg}}` +
-          '.la-sp-icon{opacity:0.6;transition:opacity 80ms}' +
-          '.la-sp-icon:hover{opacity:1}'}
+        {`.la-sp-row{background:transparent;transition:background 80ms}.la-sp-row:hover{background:${t.controlBg}}.la-sp-icon{opacity:0.6;transition:opacity 80ms}.la-sp-icon:hover{opacity:1}`}
       </style>
 
       {view === 'settings' ? (
@@ -62,12 +73,14 @@ export function SettingsPanel({
           onToggleTheme={onToggleTheme}
           blockInteractions={blockInteractions}
           onToggleBlockInteractions={onToggleBlockInteractions}
-          onOpenKeys={() => setView('keys')}
+          onOpenAccounts={() => setView('accounts')}
         />
       ) : (
-        <KeysView
+        <AccountsView
           t={t}
-          apiKeys={apiKeys}
+          auth={auth}
+          onLogin={onLogin}
+          onLogout={onLogout}
           onSaveKey={onSaveKey}
           onBack={() => setView('settings')}
         />
@@ -82,22 +95,20 @@ function SettingsView({
   onToggleTheme,
   blockInteractions,
   onToggleBlockInteractions,
-  onOpenKeys,
+  onOpenAccounts,
 }: {
   t: ThemeTokens;
   theme: OverlayTheme;
   onToggleTheme: (() => void) | undefined;
   blockInteractions: boolean;
   onToggleBlockInteractions: ((next: boolean) => void) | undefined;
-  onOpenKeys: () => void;
+  onOpenAccounts: () => void;
 }) {
   return (
     <>
       <div style={panelHeader(t)}>
         <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: '6px' }}>
-          <span style={{ fontWeight: 500, fontSize: '13px', color: t.textPrimary }}>
-            lens
-          </span>
+          <span style={{ fontWeight: 500, fontSize: '13px', color: t.textPrimary }}>lens</span>
           <span style={{ fontSize: '11px', color: t.textFaint }}>{VERSION}</span>
         </span>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
@@ -127,13 +138,8 @@ function SettingsView({
 
         <div style={dividerStyle(t)} />
 
-        <button
-          type="button"
-          className="la-sp-row"
-          style={rowStyle(t)}
-          onClick={onOpenKeys}
-        >
-          <span style={{ fontSize: '12px', color: t.textPrimary }}>Manage API keys</span>
+        <button type="button" className="la-sp-row" style={rowStyle(t)} onClick={onOpenAccounts}>
+          <span style={{ fontSize: '12px', color: t.textPrimary }}>Accounts</span>
           <span style={{ display: 'inline-flex', color: t.textFaint }}>
             <ChevronRight />
           </span>
@@ -143,25 +149,26 @@ function SettingsView({
   );
 }
 
-function KeysView({
+function AccountsView({
   t,
-  apiKeys,
+  auth,
+  onLogin,
+  onLogout,
   onSaveKey,
   onBack,
 }: {
   t: ThemeTokens;
-  apiKeys: Record<string, string> | undefined;
-  onSaveKey: ((provider: string, value: string) => void) | undefined;
+  auth: AuthStatus | null | undefined;
+  onLogin: ((provider: Provider) => Promise<void>) | undefined;
+  onLogout: ((provider: Provider) => Promise<void>) | undefined;
+  onSaveKey: ((provider: Provider, value: string) => Promise<void>) | undefined;
   onBack: () => void;
 }) {
-  // Seed local drafts from the passed-in keys; edits stay local until Save.
-  const [drafts, setDrafts] = useState<Record<string, string>>(() => ({ ...(apiKeys ?? {}) }));
-
   return (
     <>
       {/* Override the shared header's left padding (12px) → 10px so the back
           chevron's glyph (centered in a 28px button, +6px) lines up with the
-          provider input boxes' left edge (container padding 16px). */}
+          provider cards' left edge (container padding 16px). */}
       <div style={{ ...panelHeader(t), paddingLeft: '10px' }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
           <button
@@ -173,62 +180,159 @@ function KeysView({
           >
             <ChevronLeft />
           </button>
-          <span style={{ fontWeight: 500, fontSize: '13px', color: t.textPrimary }}>API Keys</span>
+          <span style={{ fontWeight: 500, fontSize: '13px', color: t.textPrimary }}>Accounts</span>
         </span>
       </div>
 
       <div style={{ padding: '4px 16px 14px' }}>
-        {PROVIDERS.map((p) => {
-          const value = drafts[p.id] ?? '';
-          const dirty = value !== (apiKeys?.[p.id] ?? '');
-          return (
-            <div key={p.id} style={{ marginBottom: '12px' }}>
-              <label
-                style={{
-                  display: 'block',
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  color: t.textPrimary,
-                  marginBottom: '5px',
-                  marginLeft: '2px',
-                }}
-              >
-                {p.label}
-              </label>
-              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                <input
-                  type="password"
-                  value={value}
-                  placeholder={p.placeholder}
-                  onInput={(e) =>
-                    setDrafts((d) => ({ ...d, [p.id]: (e.target as HTMLInputElement).value }))
-                  }
-                  // biome-ignore lint/suspicious/noExplicitAny: CSS custom property for ::placeholder color
-                  style={{ ...inputStyle(t), '--la-ph': t.textFaint } as any}
-                  className="la-sp-field"
-                />
-                <button
-                  type="button"
-                  style={{ ...saveBtn(t), opacity: dirty ? 1 : 0.4, cursor: dirty ? 'pointer' : 'default' }}
-                  disabled={!dirty}
-                  onClick={() => onSaveKey?.(p.id, value)}
-                >
-                  Save
-                </button>
-              </div>
-            </div>
-          );
-        })}
+        {PROVIDERS.map((p, i) => (
+          <ProviderCard
+            key={p.id}
+            t={t}
+            provider={p}
+            status={auth?.[p.id]}
+            onLogin={onLogin}
+            onLogout={onLogout}
+            onSaveKey={onSaveKey}
+            isLast={i === PROVIDERS.length - 1}
+          />
+        ))}
 
-        <style>
-          {'.la-sp-field::placeholder{color:var(--la-ph);opacity:1}'}
-        </style>
-
-        <p style={{ fontSize: '11px', color: t.textFaint, lineHeight: 1.5, margin: '4px 0 0' }}>
-          Keys are stored locally on this device and never leave it.
-        </p>
+        <style>{'.la-sp-field::placeholder{color:var(--la-ph);opacity:1}'}</style>
       </div>
     </>
+  );
+}
+
+function ProviderCard({
+  t,
+  provider,
+  status,
+  onLogin,
+  onLogout,
+  onSaveKey,
+  isLast,
+}: {
+  t: ThemeTokens;
+  provider: { id: Provider; label: string; loginLabel: string; placeholder: string };
+  status: { method: string; configured: boolean } | undefined;
+  onLogin: ((provider: Provider) => Promise<void>) | undefined;
+  onLogout: ((provider: Provider) => Promise<void>) | undefined;
+  onSaveKey: ((provider: Provider, value: string) => Promise<void>) | undefined;
+  isLast: boolean;
+}) {
+  const [busy, setBusy] = useState<null | 'login' | 'logout' | 'save'>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [keyDraft, setKeyDraft] = useState('');
+
+  const method = status?.method ?? 'none';
+  const loggedIn = method === 'oauth';
+  const hasKey = method === 'api-key';
+
+  const statusLabel = loggedIn
+    ? 'Subscription · connected'
+    : hasKey
+      ? 'API key set'
+      : 'Not connected';
+  const statusColor = loggedIn ? t.accent : hasKey ? t.textPrimary : t.textFaint;
+
+  const run = async (kind: 'login' | 'logout' | 'save', fn: () => Promise<void>) => {
+    setBusy(kind);
+    setError(null);
+    try {
+      await fn();
+      if (kind === 'save') setKeyDraft('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div style={{ marginBottom: isLast ? 0 : '14px' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '7px',
+          marginLeft: '2px',
+        }}
+      >
+        <span style={{ fontSize: '12px', fontWeight: 500, color: t.textPrimary }}>
+          {provider.label}
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+          <span
+            style={{
+              width: '6px',
+              height: '6px',
+              borderRadius: '50%',
+              background: statusColor,
+              opacity: loggedIn || hasKey ? 1 : 0.5,
+            }}
+          />
+          <span style={{ fontSize: '11px', color: statusColor }}>{statusLabel}</span>
+        </span>
+      </div>
+
+      {loggedIn ? (
+        <button
+          type="button"
+          style={{ ...secondaryBtn(t), width: '100%' }}
+          disabled={busy !== null}
+          onClick={() => onLogout && run('logout', () => onLogout(provider.id))}
+        >
+          {busy === 'logout' ? 'Logging out…' : 'Log out'}
+        </button>
+      ) : (
+        <button
+          type="button"
+          style={{ ...saveBtn(t), width: '100%', opacity: busy ? 0.6 : 1 }}
+          disabled={busy !== null}
+          onClick={() => onLogin && run('login', () => onLogin(provider.id))}
+        >
+          {busy === 'login' ? 'Waiting for browser…' : provider.loginLabel}
+        </button>
+      )}
+
+      {/* API-key alternative */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '10px 2px 7px' }}>
+        <span style={{ height: '1px', flex: 1, background: t.controlBorder }} />
+        <span style={{ fontSize: '10px', color: t.textFaint, letterSpacing: '0.04em' }}>OR</span>
+        <span style={{ height: '1px', flex: 1, background: t.controlBorder }} />
+      </div>
+      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+        <input
+          type="password"
+          value={keyDraft}
+          placeholder={hasKey ? 'Replace API key…' : provider.placeholder}
+          onInput={(e) => setKeyDraft((e.target as HTMLInputElement).value)}
+          // biome-ignore lint/suspicious/noExplicitAny: CSS custom property for ::placeholder color
+          style={{ ...inputStyle(t), '--la-ph': t.textFaint } as any}
+          className="la-sp-field"
+        />
+        <button
+          type="button"
+          style={{
+            ...secondaryBtn(t),
+            opacity: keyDraft.trim() && !busy ? 1 : 0.4,
+            cursor: keyDraft.trim() && !busy ? 'pointer' : 'default',
+          }}
+          disabled={!keyDraft.trim() || busy !== null}
+          onClick={() => onSaveKey && run('save', () => onSaveKey(provider.id, keyDraft.trim()))}
+        >
+          {busy === 'save' ? '…' : 'Save'}
+        </button>
+      </div>
+
+      {error ? (
+        <p style={{ fontSize: '11px', color: '#e5484d', lineHeight: 1.4, margin: '6px 2px 0' }}>
+          {error}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -341,8 +445,7 @@ const panelStyle = (t: ThemeTokens) => ({
   display: 'flex',
   flexDirection: 'column' as const,
   color: t.textPrimary,
-  fontFamily:
-    'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+  fontFamily: 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
   fontSize: '12px',
   letterSpacing: '-0.02em',
   overflow: 'hidden',
@@ -421,4 +524,21 @@ const saveBtn = (t: ThemeTokens) => ({
   fontSize: '12px',
   fontWeight: 500,
   letterSpacing: 'inherit',
+  cursor: 'pointer',
+});
+
+/** Lower-emphasis button (log out, save key) — outlined rather than filled. */
+const secondaryBtn = (t: ThemeTokens) => ({
+  flexShrink: 0,
+  height: '30px',
+  padding: '0 12px',
+  background: t.controlBg,
+  color: t.textPrimary,
+  border: `1px solid ${t.controlBorder}`,
+  borderRadius: '6px',
+  fontFamily: 'inherit',
+  fontSize: '12px',
+  fontWeight: 500,
+  letterSpacing: 'inherit',
+  cursor: 'pointer',
 });

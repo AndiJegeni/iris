@@ -95,7 +95,8 @@ export function Overlay() {
   const systemTheme = usePrefersColorScheme();
   const [themeOverride, setThemeOverride] = useState<OverlayTheme | null>(null);
   const theme = themeOverride ?? systemTheme;
-  const { state, send, cancel, retry, sendMessage, fetchTranscript } = useTransport();
+  const { state, send, cancel, retry, sendMessage, fetchTranscript, login, logout, saveApiKey } =
+    useTransport();
 
   useEffect(() => {
     const controller = startSelectMode({
@@ -305,6 +306,10 @@ export function Overlay() {
           anchorStyle={panelAnchorStyle}
           onClose={() => setShowSettings(false)}
           onToggleTheme={() => setThemeOverride(theme === 'dark' ? 'light' : 'dark')}
+          auth={state.auth}
+          onLogin={login}
+          onLogout={logout}
+          onSaveKey={saveApiKey}
         />
       ) : null}
     </>

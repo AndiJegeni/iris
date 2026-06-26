@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import type { ProviderAuth } from '../auth';
 import type { AgentRunner, RunEvent, RunRequest } from './types';
 
 /**
@@ -31,30 +32,42 @@ const WORKER_PATH = fileURLToPath(new URL('./claude-worker.ts', import.meta.url)
  * worktree (the SDK resolves edits against process.cwd(), ignoring its own cwd
  * option — see claude-worker.ts).
  */
-export function createClaudeRunner(env: { anthropicKey: string | null }): AgentRunner {
+export function createClaudeRunner(auth: ProviderAuth): AgentRunner {
   return async function* claudeRunner(req: RunRequest): AsyncGenerator<RunEvent> {
-    if (!env.anthropicKey) {
+    if (auth.method === 'none') {
       yield {
         kind: 'error',
-        message: 'ANTHROPIC_API_KEY not configured. Set the env var or pass --anthropic-key.',
+        message:
+          'Claude not configured. Log in with your Claude subscription or set an API key in Settings.',
       };
       return;
     }
 
     yield { kind: 'status', status: 'running' };
 
+    // Base env, minus both credential vars. For 'oauth' we set NEITHER and let
+    // the bundled Claude Code binary read the user's cached `claude auth login`
+    // subscription session; for 'api-key' we set exactly the key. Stripping
+    // ANTHROPIC_API_KEY is essential either way — it out-precedences the
+    // subscription session, so an inherited key would silently override it.
+    const childEnv: Record<string, string> = { ...process.env } as Record<string, string>;
+    // biome-ignore lint/performance/noDelete: must remove the var from the child env entirely; setting it to undefined would still leak an inherited credential into the spawn.
+    delete childEnv.ANTHROPIC_API_KEY;
+    // biome-ignore lint/performance/noDelete: never forward a stray OAuth token; the session is read from the CLI's own store, not env.
+    delete childEnv.CLAUDE_CODE_OAUTH_TOKEN;
+    // CRITICAL: override PWD. Claude Code resolves the project dir from $PWD,
+    // not process.cwd(). The daemon inherited PWD=<main repo> from the shell
+    // that started it; without this override every worktree task would edit
+    // main. (OLDPWD cleared for good measure.)
+    childEnv.PWD = req.cwd;
+    childEnv.OLDPWD = req.cwd;
+    if (auth.method === 'api-key' && auth.apiKey) {
+      childEnv.ANTHROPIC_API_KEY = auth.apiKey;
+    }
+
     const proc = Bun.spawn(['bun', WORKER_PATH], {
       cwd: req.cwd, // ← the worktree; becomes the worker's process.cwd()
-      env: {
-        ...process.env,
-        // CRITICAL: override PWD. Claude Code resolves the project dir from
-        // $PWD, not process.cwd(). The daemon inherited PWD=<main repo> from
-        // the shell that started it; without this override every worktree task
-        // would edit main. (chpwd/OLDPWD cleared for good measure.)
-        PWD: req.cwd,
-        OLDPWD: req.cwd,
-        ANTHROPIC_API_KEY: env.anthropicKey,
-      },
+      env: childEnv,
       stdin: 'pipe',
       stdout: 'pipe',
       stderr: 'inherit',

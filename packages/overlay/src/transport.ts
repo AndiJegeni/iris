@@ -2,6 +2,11 @@ import type { Annotation, Task, TranscriptEntry, Worktree, WsEvent } from '@loca
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
+/** How a provider authenticates, mirrored from the daemon's /auth/status. */
+export type AuthMethod = 'api-key' | 'oauth' | 'none';
+export type ProviderAuthStatus = { method: AuthMethod; configured: boolean; source: string };
+export type AuthStatus = { anthropic: ProviderAuthStatus; openai: ProviderAuthStatus };
+
 export type TransportState = {
   status: ConnectionStatus;
   tasks: Task[];
@@ -10,6 +15,8 @@ export type TransportState = {
   logs: Record<string, string[]>;
   /** Per-task structured transcript for the chat UI (full history). */
   transcripts: Record<string, TranscriptEntry[]>;
+  /** Provider auth status from the daemon, or null until first fetched. */
+  auth: AuthStatus | null;
 };
 
 const LOG_CAP_PER_TASK = 40;
@@ -38,6 +45,7 @@ class Transport {
     worktrees: [],
     logs: {},
     transcripts: {},
+    auth: null,
   };
   private listeners = new Set<Listener>();
   private ws: WebSocket | null = null;
@@ -53,7 +61,10 @@ class Transport {
       this.scheduleReconnect();
       return;
     }
-    this.ws.addEventListener('open', () => this.setState({ status: 'connected' }));
+    this.ws.addEventListener('open', () => {
+      this.setState({ status: 'connected' });
+      void this.fetchAuthStatus();
+    });
     this.ws.addEventListener('close', () => {
       this.setState({ status: 'disconnected' });
       this.scheduleReconnect();
@@ -200,6 +211,59 @@ class Transport {
       const body = await res.text().catch(() => '');
       throw new Error(`message ${res.status}: ${body || res.statusText}`);
     }
+  }
+
+  /** Fetch the daemon's current provider auth status into state. */
+  async fetchAuthStatus(): Promise<void> {
+    try {
+      const res = await fetch(`${this.daemonUrl}/auth/status`);
+      if (!res.ok) return;
+      const auth = (await res.json()) as AuthStatus;
+      this.setState({ auth });
+    } catch {
+      // best-effort; UI shows "unknown" until a later fetch succeeds
+    }
+  }
+
+  /**
+   * Start a subscription login for a provider. The daemon opens the user's
+   * browser for the OAuth flow and resolves once complete (or errors).
+   */
+  async loginProvider(provider: 'anthropic' | 'openai'): Promise<void> {
+    const res = await fetch(`${this.daemonUrl}/auth/login/${provider}`, { method: 'POST' });
+    const json = (await res.json().catch(() => null)) as {
+      ok: boolean;
+      error?: string;
+      status?: AuthStatus;
+    } | null;
+    if (!res.ok || !json?.ok) {
+      throw new Error(json?.error || `login failed (${res.status})`);
+    }
+    if (json.status) this.setState({ auth: json.status });
+  }
+
+  /** Log out of a provider's subscription (or clear its API key). */
+  async logoutProvider(provider: 'anthropic' | 'openai'): Promise<void> {
+    const res = await fetch(`${this.daemonUrl}/auth/logout/${provider}`, { method: 'POST' });
+    const json = (await res.json().catch(() => null)) as { status?: AuthStatus } | null;
+    if (json?.status) this.setState({ auth: json.status });
+    else await this.fetchAuthStatus();
+  }
+
+  /** Save (or clear, when empty) a provider's API key and switch to key auth. */
+  async saveApiKey(provider: 'anthropic' | 'openai', key: string): Promise<void> {
+    const res = await fetch(`${this.daemonUrl}/auth/key/${provider}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key }),
+    });
+    const json = (await res.json().catch(() => null)) as {
+      ok: boolean;
+      error?: string;
+      status?: AuthStatus;
+    } | null;
+    if (!res.ok || !json?.ok) throw new Error(json?.error || `save failed (${res.status})`);
+    if (json.status) this.setState({ auth: json.status });
   }
 
   /** Load a task's full transcript (e.g. when opening its chat) and seed state. */

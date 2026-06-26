@@ -67,9 +67,10 @@ function resolveRepoRoot(cwd: string): string {
   }
 }
 
-function describeAuth(label: string, configured: boolean, source: string, envName: string): string {
-  if (configured) return `  ${label.padEnd(8)} configured (${source})`;
-  return `  ${label.padEnd(8)} \x1b[33mnot configured\x1b[0m — set ${envName} or pass --${label}-key`;
+function describeAuth(label: string, method: string, source: string, envName: string): string {
+  if (method === 'oauth') return `  ${label.padEnd(8)} subscription login`;
+  if (method === 'api-key') return `  ${label.padEnd(8)} API key (${source})`;
+  return `  ${label.padEnd(8)} \x1b[33mnot configured\x1b[0m — log in via Settings, set ${envName}, or pass --${label}-key`;
 }
 
 async function main(): Promise<void> {
@@ -106,14 +107,14 @@ async function main(): Promise<void> {
       `  main:     :${orchestrator.mainPort}  (your dev server — keep it running)`,
       describeAuth(
         'claude',
-        Boolean(orchestrator.auth.anthropic),
-        orchestrator.auth.source.anthropic,
+        orchestrator.auth.anthropic.method,
+        orchestrator.auth.anthropic.source,
         'ANTHROPIC_API_KEY',
       ),
       describeAuth(
         'codex',
-        Boolean(orchestrator.auth.openai),
-        orchestrator.auth.source.openai,
+        orchestrator.auth.openai.method,
+        orchestrator.auth.openai.source,
         'OPENAI_API_KEY',
       ),
       '',

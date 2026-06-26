@@ -1,4 +1,5 @@
 import { execSync, spawn } from 'node:child_process';
+import type { ProviderAuth } from '../auth';
 import type { AgentRunner, RunEvent, RunRequest } from './types';
 
 const STDOUT_LOG_PREFIX_MAX = 320;
@@ -36,9 +37,12 @@ function codexAvailable(): boolean {
  * a black-box subprocess: spawn `codex exec <prompt>` in the worktree, stream
  * stdout/stderr as log events, and infer success from exit code + `git status`.
  *
- * Auth: codex reads `OPENAI_API_KEY` from env. We export it before spawning.
+ * Auth: codex manages its own credentials. For a ChatGPT subscription login
+ * (`codex login`) we let it read its cached ~/.codex/auth.json — and we strip
+ * OPENAI_API_KEY from the child env so an inherited key can't override the
+ * subscription. For API-key auth we pass OPENAI_API_KEY through instead.
  */
-export function createCodexRunner(env: { openaiKey: string | null }): AgentRunner {
+export function createCodexRunner(auth: ProviderAuth): AgentRunner {
   return async function* codexRunner(req: RunRequest): AsyncGenerator<RunEvent> {
     if (!codexAvailable()) {
       yield {
@@ -48,20 +52,27 @@ export function createCodexRunner(env: { openaiKey: string | null }): AgentRunne
       };
       return;
     }
-    if (!env.openaiKey) {
+    if (auth.method === 'none') {
       yield {
         kind: 'error',
-        message: 'OPENAI_API_KEY not configured. Set the env var or pass --openai-key.',
+        message: 'Codex not configured. Log in with ChatGPT or set an API key in Settings.',
       };
       return;
     }
 
     yield { kind: 'status', status: 'running' };
 
+    const childEnv: Record<string, string> = { ...process.env } as Record<string, string>;
+    // biome-ignore lint/performance/noDelete: must remove the var from the child env entirely so an inherited key can't override the ChatGPT subscription login; re-added below only for api-key auth.
+    delete childEnv.OPENAI_API_KEY;
+    if (auth.method === 'api-key' && auth.apiKey) {
+      childEnv.OPENAI_API_KEY = auth.apiKey;
+    }
+
     const prompt = buildPrompt(req);
     const proc = spawn('codex', ['exec', prompt], {
       cwd: req.cwd,
-      env: { ...process.env, OPENAI_API_KEY: env.openaiKey },
+      env: childEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
