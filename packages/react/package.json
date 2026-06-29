@@ -1,14 +1,47 @@
 {
   "name": "@localagents/react",
-  "version": "0.0.1",
-  "type": "module",
+  "version": "0.1.0",
+  "description": "Drop-in React component that injects the localagents overlay in dev (no-op in production).",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "author": "Andi Jegeni",
+  "homepage": "https://github.com/AndiJegeni/localagents#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AndiJegeni/localagents.git",
+    "directory": "packages/react"
+  },
+  "bugs": {
+    "url": "https://github.com/AndiJegeni/localagents/issues"
+  },
+  "keywords": ["localagents", "react", "ai", "coding-agent", "overlay", "dev-tools"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --clean --external react",
+    "prepublishOnly": "tsup src/index.ts --format esm,cjs --dts --clean --external react"
   },
   "peerDependencies": {
     "react": ">=17"
   },
   "devDependencies": {
-    "@types/react": "^19.0.2"
+    "@types/react": "^19.0.2",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2"
   }
 }

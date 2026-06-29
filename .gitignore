@@ -6,4 +6,6 @@ dist
 .env*
 !.env.example
 .localagents/
-bun.lockb
+.localagents-worktrees/
+*.tgz
+*.tsbuildinfo

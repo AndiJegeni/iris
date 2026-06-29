@@ -6,13 +6,17 @@
   "workspaces": ["packages/*", "examples/*"],
   "scripts": {
     "dev": "bun packages/cli/src/index.ts",
-    "typecheck": "tsc -b",
+    "build": "bun run --filter '@localagents/react' build && bun run --filter 'localagents' build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "format": "biome format --write .",
-    "lint": "biome check ."
+    "lint": "biome check .",
+    "ci": "biome ci ."
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
-    "@types/bun": "^1.1.14",
+    "@types/node": "^22.10.5",
+    "esbuild": "^0.24.2",
+    "tsup": "^8.3.5",
     "typescript": "^5.7.2"
   }
 }

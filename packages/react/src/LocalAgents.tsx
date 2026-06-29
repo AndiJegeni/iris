@@ -116,7 +116,7 @@ export function LocalAgents({ daemonUrl = DEFAULT_DAEMON_URL }: LocalAgentsProps
         script.setAttribute(SCRIPT_MARKER, 'true');
         document.head.appendChild(script);
       } catch {
-        // eslint-disable-next-line no-console
+        // One-line hint guiding the user to start the daemon.
         console.info(
           '[localagents] daemon not detected on',
           daemonUrl,

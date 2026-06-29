@@ -26,7 +26,7 @@ function isRunnable(status: TaskStatus): boolean {
  * second waits for the first to finish before starting. Tasks against
  * *different* worktrees run in parallel.
  *
- * State is in-memory; restart of the daemon drops the queue. v0 acceptable.
+ * State is in-memory; restarting the daemon drops the queue.
  */
 export class TaskQueue {
   private waiting = new Map<string, QueueEntry[]>(); // by worktreeSlug

@@ -1,6 +1,6 @@
-import { type ChildProcess, spawn } from 'node:child_process';
-import { execSync } from 'node:child_process';
+import { type ChildProcess, execSync, spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
 import type { Worktree } from '@localagents/shared';
 import type { EventBus } from './events';
@@ -190,7 +190,7 @@ export class WorktreeManager {
 
   /**
    * Merge a worktree's branch into main and tear down the worktree. Used by
-   * the "Ship it" button (M7).
+   * the "Ship it" button.
    */
   async shipIt(slug: string): Promise<{ ok: true } | { ok: false; error: string }> {
     if (slug === 'main') return { ok: false, error: 'cannot ship main into itself' };
@@ -273,7 +273,10 @@ export class WorktreeManager {
         encoding: 'utf8',
         maxBuffer: 16 * 1024 * 1024,
       });
-      const files = out.split('\n').map((l) => l.trim()).filter(Boolean);
+      const files = out
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
       for (const rel of files) {
         const src = join(this.repoRoot, rel);
         const dst = join(worktreePath, rel);
@@ -373,18 +376,15 @@ function sleep(ms: number): Promise<void> {
  * more reliable than an HTTP fetch (catches non-HTTP listeners and zombie
  * dev servers from prior runs that would otherwise cause EADDRINUSE).
  */
-async function isPortFree(port: number): Promise<boolean> {
-  try {
-    const server = Bun.listen({
-      hostname: '0.0.0.0',
-      port,
-      socket: { data() {}, open() {}, close() {} },
+function isPortFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => {
+      server.close(() => resolve(true));
     });
-    server.stop(true);
-    return true;
-  } catch {
-    return false;
-  }
+    server.listen(port, '0.0.0.0');
+  });
 }
 
 /** Wrap a path in quotes for shell-safe command execution. */

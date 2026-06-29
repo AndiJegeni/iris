@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 import { execSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { VERSION, start } from '@localagents/orchestrator';
@@ -60,7 +59,12 @@ Options:
 
 function resolveRepoRoot(cwd: string): string {
   try {
-    const out = execSync('git rev-parse --show-toplevel', { cwd, encoding: 'utf8' });
+    // stderr ignored: outside a git repo this prints a "fatal:" line we handle.
+    const out = execSync('git rev-parse --show-toplevel', {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
     return out.trim();
   } catch {
     return resolve(cwd);

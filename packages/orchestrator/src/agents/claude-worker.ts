@@ -1,12 +1,11 @@
-#!/usr/bin/env bun
 /**
  * Claude agent worker — runs ONE task (or one follow-up turn) in its own process.
  *
  * Why a separate process: the Agent SDK resolves file edits against
  * `process.cwd()`, NOT the `cwd` option passed to `query()`. To isolate a task
- * to its worktree, the parent spawns this script with `Bun.spawn(..., { cwd })`
- * so this process's cwd IS the worktree. Edits then land in the right place,
- * and parallel tasks (each its own process) never clobber each other's cwd.
+ * to its worktree, the parent spawns this script with `{ cwd }` so this
+ * process's cwd IS the worktree. Edits then land in the right place, and
+ * parallel tasks (each its own process) never clobber each other's cwd.
  *
  * Protocol:
  *   - stdin:  one JSON line `{ prompt: string, resume?: string }`
@@ -38,8 +37,17 @@ function emitEntry(entry: TranscriptEntry): void {
   emit({ kind: 'entry', entry });
 }
 
+function readStdin(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    process.stdin.on('data', (c: Buffer) => chunks.push(c));
+    process.stdin.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    process.stdin.on('error', reject);
+  });
+}
+
 async function main(): Promise<void> {
-  const input = await Bun.stdin.text();
+  const input = await readStdin();
   let prompt: string;
   let resume: string | undefined;
   try {

@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import type { AgentRunner, RunEvent, RunRequest } from './types';
 
@@ -23,13 +24,19 @@ function buildPrompt(req: RunRequest): string {
   return `${header}User request:\n${req.prompt}`;
 }
 
-const WORKER_PATH = fileURLToPath(new URL('./claude-worker.ts', import.meta.url));
+// Dev runs this module as `.ts` under Bun; the built daemon runs as `.js` under
+// Node. Spawn the matching worker with the matching runtime.
+const isBuilt = import.meta.url.endsWith('.js');
+const WORKER_PATH = fileURLToPath(
+  new URL(isBuilt ? './claude-worker.js' : './claude-worker.ts', import.meta.url),
+);
+const WORKER_CMD = isBuilt ? process.execPath : 'bun';
 
 /**
- * Drive a single Claude Code session. Spawns `claude-worker.ts` as a child
- * process with `cwd` = the task's worktree, so the SDK's file edits land in the
- * worktree (the SDK resolves edits against process.cwd(), ignoring its own cwd
- * option — see claude-worker.ts).
+ * Drive a single Claude Code session. Spawns the worker as a child process with
+ * `cwd` = the task's worktree, so the SDK's file edits land in the worktree (the
+ * SDK resolves edits against process.cwd(), ignoring its own cwd option — see
+ * claude-worker.ts).
  */
 export function createClaudeRunner(env: { anthropicKey: string | null }): AgentRunner {
   return async function* claudeRunner(req: RunRequest): AsyncGenerator<RunEvent> {
@@ -43,34 +50,75 @@ export function createClaudeRunner(env: { anthropicKey: string | null }): AgentR
 
     yield { kind: 'status', status: 'running' };
 
-    const proc = Bun.spawn(['bun', WORKER_PATH], {
+    const proc = spawn(WORKER_CMD, [WORKER_PATH], {
       cwd: req.cwd, // ← the worktree; becomes the worker's process.cwd()
       env: {
         ...process.env,
         // CRITICAL: override PWD. Claude Code resolves the project dir from
         // $PWD, not process.cwd(). The daemon inherited PWD=<main repo> from
         // the shell that started it; without this override every worktree task
-        // would edit main. (chpwd/OLDPWD cleared for good measure.)
+        // would edit main. (OLDPWD cleared for good measure.)
         PWD: req.cwd,
         OLDPWD: req.cwd,
         ANTHROPIC_API_KEY: env.anthropicKey,
       },
-      stdin: 'pipe',
-      stdout: 'pipe',
-      stderr: 'inherit',
+      stdio: ['pipe', 'pipe', 'inherit'],
     });
 
-    // Send the prompt (+ optional resume session id for follow-ups), then close stdin.
-    // On a follow-up turn the prompt is the raw user message — the worktree
-    // context was already established by the original run's session.
+    // Send the prompt (+ optional resume session id for follow-ups), then close
+    // stdin. On a follow-up turn the prompt is the raw user message — the
+    // worktree context was already established by the original run's session.
     const workerPrompt = req.resumeSessionId ? req.prompt : buildPrompt(req);
-    proc.stdin.write(
+    proc.stdin?.write(
       JSON.stringify({
         prompt: workerPrompt,
         ...(req.resumeSessionId ? { resume: req.resumeSessionId } : {}),
       }),
     );
-    proc.stdin.end();
+    proc.stdin?.end();
+
+    // Bridge stdout 'data' events (JSON-lines) to the generator via a queue.
+    const queue: RunEvent[] = [];
+    let resolveWait: (() => void) | null = null;
+    const wake = () => {
+      const r = resolveWait;
+      resolveWait = null;
+      r?.();
+    };
+    let exited = false;
+    let exitCode: number | null = null;
+    let buffer = '';
+
+    const pushLine = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      const ev = parseEvent(trimmed);
+      if (ev) queue.push(ev);
+    };
+
+    proc.stdout?.on('data', (chunk: Buffer) => {
+      buffer += chunk.toString('utf8');
+      let nl = buffer.indexOf('\n');
+      while (nl !== -1) {
+        pushLine(buffer.slice(0, nl));
+        buffer = buffer.slice(nl + 1);
+        nl = buffer.indexOf('\n');
+      }
+      wake();
+    });
+    proc.on('close', (code) => {
+      if (buffer.trim()) pushLine(buffer);
+      buffer = '';
+      exitCode = code ?? -1;
+      exited = true;
+      wake();
+    });
+    proc.on('error', (err) => {
+      queue.push({ kind: 'error', message: err.message });
+      exitCode = -1;
+      exited = true;
+      wake();
+    });
 
     const onAbort = () => {
       try {
@@ -82,36 +130,25 @@ export function createClaudeRunner(env: { anthropicKey: string | null }): AgentR
     req.signal.addEventListener('abort', onAbort);
 
     try {
-      // Read stdout as JSON-lines, yielding each RunEvent.
-      const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
+      let sawError = false;
       while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        let nl = buffer.indexOf('\n');
-        while (nl !== -1) {
-          const line = buffer.slice(0, nl).trim();
-          buffer = buffer.slice(nl + 1);
-          if (line) {
-            const ev = parseEvent(line);
-            if (ev) yield ev;
+        if (queue.length > 0) {
+          const ev = queue.shift();
+          if (ev) {
+            if (ev.kind === 'error') sawError = true;
+            yield ev;
           }
-          nl = buffer.indexOf('\n');
+          continue;
         }
+        if (exited) break;
+        await new Promise<void>((resolve) => {
+          resolveWait = resolve;
+        });
       }
-      const tail = buffer.trim();
-      if (tail) {
-        const ev = parseEvent(tail);
-        if (ev) yield ev;
-      }
-
-      const code = await proc.exited;
-      if (code !== 0 && !req.signal.aborted) {
+      if (!sawError && exitCode !== 0 && !req.signal.aborted) {
         yield {
           kind: 'error',
-          message: `claude worker exited with code ${code} (see daemon logs)`,
+          message: `claude worker exited with code ${exitCode} (see daemon logs)`,
         };
       }
     } finally {

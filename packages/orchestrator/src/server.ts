@@ -1,17 +1,17 @@
+import { type ServerType, serve } from '@hono/node-server';
 import { Annotation } from '@localagents/shared';
 import { Hono } from 'hono';
+import { WebSocketServer } from 'ws';
 import { getRunner } from './agents';
 import type { RunRequest } from './agents/types';
 import { type AuthState, resolveAuth } from './auth';
-import { EventBus, type WsClientData } from './events';
-import { bundleOverlay } from './overlay-bundle';
+import { EventBus } from './events';
+import { getOverlayJs } from './overlay-bundle';
 import { TaskQueue } from './queue';
 import { shellHtml } from './shell-html';
 import { WorktreeManager } from './worktrees';
 
-type BunServer = ReturnType<typeof Bun.serve>;
-
-export const VERSION = '0.0.1';
+export const VERSION = '0.1.0';
 
 export type StartOptions = {
   repoRoot: string;
@@ -23,7 +23,6 @@ export type StartOptions = {
 };
 
 export type Orchestrator = {
-  server: BunServer;
   port: number;
   mainPort: number;
   auth: AuthState;
@@ -32,6 +31,24 @@ export type Orchestrator = {
   bus: EventBus;
   stop: () => Promise<void>;
 };
+
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+/**
+ * A localhost dev tool that can run code must not accept cross-site requests.
+ * Allow requests from any loopback origin (the user's app may run on any port);
+ * reject everything else. Requests without an Origin header are non-browser
+ * (curl / server-to-server) and are allowed — the daemon binds to loopback only.
+ */
+function isLoopbackOrigin(origin: string | undefined): boolean {
+  if (!origin) return false;
+  try {
+    const { hostname } = new URL(origin);
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+  } catch {
+    return false;
+  }
+}
 
 export async function start(opts: StartOptions): Promise<Orchestrator> {
   const port = opts.port ?? 4747;
@@ -51,14 +68,23 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
   const app = new Hono();
 
   app.use('*', async (c, next) => {
+    const origin = c.req.header('Origin');
+    // Block cross-site state-changing requests (CSRF / drive-by from any page
+    // the user happens to be visiting). See isLoopbackOrigin.
+    if (MUTATING_METHODS.has(c.req.method) && origin && !isLoopbackOrigin(origin)) {
+      return c.json({ error: 'cross-origin request blocked' }, 403);
+    }
     await next();
-    c.header('Access-Control-Allow-Origin', '*');
+    if (isLoopbackOrigin(origin)) {
+      c.header('Access-Control-Allow-Origin', origin);
+      c.header('Vary', 'Origin');
+    }
     c.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
     c.header('Access-Control-Allow-Headers', 'Content-Type');
   });
   app.options('*', (c) => c.body(null, 204));
 
-  // Root: shell page with iframe + viewport switcher (M5).
+  // Root: shell page with iframe + viewport switcher.
   app.get('/', (c) => c.html(shellHtml(mainPort), 200, { 'Cache-Control': 'no-store' }));
 
   app.get('/health', (c) => c.json({ ok: true as const, repo: opts.repoRoot, version: VERSION }));
@@ -72,14 +98,10 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
 
   app.get('/overlay.js', async (c) => {
     try {
-      const code = await bundleOverlay();
-      return new Response(code, {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/javascript; charset=utf-8',
-          'Cache-Control': 'no-store',
-          'Access-Control-Allow-Origin': '*',
-        },
+      const code = await getOverlayJs();
+      return c.body(code, 200, {
+        'Content-Type': 'application/javascript; charset=utf-8',
+        'Cache-Control': 'no-store',
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -189,34 +211,32 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
     return c.json({ task: result.task });
   });
 
-  const server = Bun.serve<WsClientData, never>({
-    port,
-    fetch(req, srv) {
-      const url = new URL(req.url);
-      if (url.pathname === '/tasks' && req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
-        const upgraded = srv.upgrade(req, { data: { id: crypto.randomUUID() } as WsClientData });
-        if (upgraded) return undefined;
-        return new Response('upgrade failed', { status: 426 });
-      }
-      return app.fetch(req);
-    },
-    websocket: {
-      open(ws) {
-        bus.attach(ws);
-        bus.sendHello(ws, worktrees.list(), queue.list());
-      },
-      message() {
-        // No inbound messages in v0.
-      },
-      close(ws) {
-        bus.detach(ws);
-      },
-    },
+  // Bind to loopback only: the daemon runs agents that edit files and execute
+  // shell commands, so it must never be reachable from the LAN.
+  const server: ServerType = serve({ fetch: app.fetch, port, hostname: '127.0.0.1' });
+
+  // WebSocket for live task/worktree updates, sharing the HTTP server.
+  const wss = new WebSocketServer({ noServer: true });
+  server.on('upgrade', (req, socket, head) => {
+    let pathname = '/';
+    try {
+      pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
+    } catch {
+      // malformed URL; reject below
+    }
+    if (pathname !== '/tasks' || (req.headers.origin && !isLoopbackOrigin(req.headers.origin))) {
+      socket.destroy();
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      bus.attach(ws);
+      bus.sendHello(ws, worktrees.list(), queue.list());
+      ws.on('close', () => bus.detach(ws));
+    });
   });
 
   return {
-    server,
-    port: server.port ?? port,
+    port,
     mainPort,
     auth,
     queue,
@@ -224,7 +244,9 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
     bus,
     stop: async () => {
       await worktrees.cleanup();
-      server.stop(true);
+      for (const client of wss.clients) client.terminate();
+      wss.close();
+      await new Promise<void>((res) => server.close(() => res()));
     },
   };
 }
