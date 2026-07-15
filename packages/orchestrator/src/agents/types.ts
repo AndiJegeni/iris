@@ -27,6 +27,12 @@ export type RunEvent =
   /** The backend's resumable session id, captured once per run. */
   | { kind: 'session'; sessionId: string }
   | { kind: 'done'; summary?: string }
+  /**
+   * The run died because the provider's credential is expired or rejected.
+   * Distinct from 'error' so the daemon can mark the provider as needing a new
+   * login instead of leaving the user with a raw 401.
+   */
+  | { kind: 'needs-auth'; message: string }
   | { kind: 'error'; message: string };
 
 /**

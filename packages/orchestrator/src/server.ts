@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { getRunner } from './agents';
 import type { RunRequest } from './agents/types';
 import { type AuthState, resolveAuth, writeConfig } from './auth';
+import { backendProvider } from './auth-errors';
 import { EventBus, type WsClientData } from './events';
 import { loginAnthropic, loginOpenai, logoutAnthropic, logoutOpenai } from './login';
 import { bundleOverlay } from './overlay-bundle';
@@ -52,21 +53,35 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
     });
     return auth;
   };
+
+  // Providers whose credential a real run has rejected. The CLIs' cached login
+  // records can't be trusted on their own — `claude auth status` still reports a
+  // logged-in claude.ai session after its OAuth token has expired beyond refresh
+  // — so a run's 401 is what actually tells us the session is dead, and it
+  // overrides the record until the user reconnects or a later run succeeds.
+  const expired = new Set<'anthropic' | 'openai'>();
   const authStatus = () => ({
     anthropic: {
       method: auth.anthropic.method,
       configured: auth.anthropic.method !== 'none',
       source: auth.anthropic.source,
+      expired: expired.has('anthropic'),
     },
     openai: {
       method: auth.openai.method,
       configured: auth.openai.method !== 'none',
       source: auth.openai.source,
+      expired: expired.has('openai'),
     },
   });
 
   const bus = new EventBus();
-  const queue = new TaskQueue(bus);
+  const queue = new TaskQueue(bus, (backend, ok) => {
+    const provider = backendProvider(backend);
+    if (!provider) return;
+    if (ok) expired.delete(provider);
+    else expired.add(provider);
+  });
   const worktrees = new WorktreeManager(opts.repoRoot, bus, mainPort, {
     devCmd: opts.devCmd,
   });
@@ -104,6 +119,8 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
       opts.repoRoot,
       provider === 'anthropic' ? { anthropicAuthMethod: 'oauth' } : { openaiAuthMethod: 'oauth' },
     );
+    // Fresh session — drop any expired flag from the old one.
+    expired.delete(provider === 'anthropic' ? 'anthropic' : 'openai');
     reResolveAuth();
     return c.json({ ok: true, status: authStatus() });
   });
@@ -113,9 +130,11 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
     if (provider === 'anthropic') {
       await logoutAnthropic();
       writeConfig(opts.repoRoot, { anthropicAuthMethod: 'none' });
+      expired.delete('anthropic');
     } else if (provider === 'openai') {
       await logoutOpenai();
       writeConfig(opts.repoRoot, { openaiAuthMethod: 'none' });
+      expired.delete('openai');
     } else {
       return c.json({ ok: false, error: `unknown provider "${provider}"` }, 400);
     }
@@ -137,6 +156,8 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
         ? { anthropicApiKey: key || undefined, anthropicAuthMethod: key ? 'api-key' : 'none' }
         : { openaiApiKey: key || undefined, openaiAuthMethod: key ? 'api-key' : 'none' },
     );
+    // New credential — the previous rejection no longer applies.
+    expired.delete(provider);
     reResolveAuth();
     return c.json({ ok: true, status: authStatus() });
   });

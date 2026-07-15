@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import type { ProviderAuth } from '../auth';
+import { authFailureMessage } from '../auth-errors';
 import type { AgentRunner, RunEvent, RunRequest } from './types';
 
 /**
@@ -109,7 +110,7 @@ export function createClaudeRunner(auth: ProviderAuth): AgentRunner {
           buffer = buffer.slice(nl + 1);
           if (line) {
             const ev = parseEvent(line);
-            if (ev) yield ev;
+            if (ev) yield* mapEvent(ev, auth);
           }
           nl = buffer.indexOf('\n');
         }
@@ -117,7 +118,7 @@ export function createClaudeRunner(auth: ProviderAuth): AgentRunner {
       const tail = buffer.trim();
       if (tail) {
         const ev = parseEvent(tail);
-        if (ev) yield ev;
+        if (ev) yield* mapEvent(ev, auth);
       }
 
       const code = await proc.exited;
@@ -131,6 +132,20 @@ export function createClaudeRunner(auth: ProviderAuth): AgentRunner {
       req.signal.removeEventListener('abort', onAbort);
     }
   };
+}
+
+/**
+ * The worker only knows *that* auth failed; the runner knows *how* the user
+ * authenticated, so it rewrites the raw 401 into the action that fixes it —
+ * keeping the provider's own wording as a log line for debugging.
+ */
+function* mapEvent(ev: RunEvent, auth: ProviderAuth): Generator<RunEvent> {
+  if (ev.kind === 'needs-auth') {
+    yield { kind: 'log', line: `[auth] ${ev.message}` };
+    yield { kind: 'needs-auth', message: authFailureMessage('claude', auth.method) };
+    return;
+  }
+  yield ev;
 }
 
 function parseEvent(line: string): RunEvent | null {

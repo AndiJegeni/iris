@@ -4,7 +4,16 @@ export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
 /** How a provider authenticates, mirrored from the daemon's /auth/status. */
 export type AuthMethod = 'api-key' | 'oauth' | 'none';
-export type ProviderAuthStatus = { method: AuthMethod; configured: boolean; source: string };
+export type ProviderAuthStatus = {
+  method: AuthMethod;
+  configured: boolean;
+  source: string;
+  /**
+   * A real run was rejected by this credential (expired subscription session or
+   * a bad key). The daemon's own record can look healthy while this is true.
+   */
+  expired?: boolean;
+};
 export type AuthStatus = { anthropic: ProviderAuthStatus; openai: ProviderAuthStatus };
 
 export type TransportState = {
@@ -135,7 +144,9 @@ class Transport {
         });
         return;
       case 'needs-auth':
-        // Surfaced by the popover when sending hits the same backend.
+        // A run was rejected by the provider's credential. Pull the refreshed
+        // status so the Accounts panel stops claiming the session is connected.
+        void this.fetchAuthStatus();
         return;
     }
   }

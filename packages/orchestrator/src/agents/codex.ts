@@ -1,8 +1,11 @@
 import { execSync, spawn } from 'node:child_process';
 import type { ProviderAuth } from '../auth';
+import { authFailureMessage, isAuthError } from '../auth-errors';
 import type { AgentRunner, RunEvent, RunRequest } from './types';
 
 const STDOUT_LOG_PREFIX_MAX = 320;
+/** How much of codex's stderr we keep around to classify a failed exit. */
+const STDERR_TAIL_MAX = 4000;
 
 function buildPrompt(req: RunRequest): string {
   const ctx: string[] = [];
@@ -86,6 +89,12 @@ export function createCodexRunner(auth: ProviderAuth): AgentRunner {
     };
 
     let exitCode: number | null = null;
+    // Codex reports its own failures (auth included) on stderr and just exits
+    // non-zero, so we keep a stderr tail to classify the exit against. Only
+    // stderr: stdout is the agent's own chatter, and an agent working on auth
+    // code prints "401" all day — classifying that would report a perfectly
+    // good account as expired.
+    let stderrTail = '';
 
     proc.stdout?.on('data', (chunk: Buffer) => {
       const lines = chunk
@@ -101,6 +110,7 @@ export function createCodexRunner(auth: ProviderAuth): AgentRunner {
     proc.stderr?.on('data', (chunk: Buffer) => {
       const text = chunk.toString('utf-8').trim();
       if (text) {
+        stderrTail = `${stderrTail}${text}\n`.slice(-STDERR_TAIL_MAX);
         queue.push({ kind: 'log', line: `[stderr] ${text.slice(0, STDOUT_LOG_PREFIX_MAX)}` });
         wake();
       }
@@ -155,6 +165,8 @@ export function createCodexRunner(auth: ProviderAuth): AgentRunner {
             ? `Edited ${changedCount} file(s)`
             : 'codex exited cleanly but reported no changes',
       };
+    } else if (isAuthError(stderrTail)) {
+      yield { kind: 'needs-auth', message: authFailureMessage('codex', auth.method) };
     } else {
       yield { kind: 'error', message: `codex exited with code ${exitCode}` };
     }
