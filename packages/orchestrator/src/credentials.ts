@@ -25,6 +25,12 @@ import { join } from 'node:path';
  * to Console API-key auth). Runs `claude auth status --json` and checks for a
  * logged-in first-party claude.ai session. Returns false if the CLI is missing
  * or not logged in.
+ *
+ * CAUTION — this proves a login *record* exists, not that it still works.
+ * `claude auth status` keeps reporting `loggedIn: true, authMethod: "claude.ai"`
+ * for a session whose OAuth token has expired past refresh, while every real
+ * call 401s. Never present this as a verified session on its own: the daemon
+ * marks a provider expired when a run is actually rejected (see auth-errors.ts).
  */
 export function claudeSubscriptionLoggedIn(): boolean {
   try {

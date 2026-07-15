@@ -20,6 +20,7 @@
 import { randomUUID } from 'node:crypto';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { TranscriptEntry } from '@localagents/shared';
+import { isAuthError } from '../auth-errors';
 
 type RunEvent =
   | { kind: 'status'; status: 'running' | 'editing' }
@@ -28,6 +29,7 @@ type RunEvent =
   | { kind: 'entry'; entry: TranscriptEntry }
   | { kind: 'session'; sessionId: string }
   | { kind: 'done'; summary?: string }
+  | { kind: 'needs-auth'; message: string }
   | { kind: 'error'; message: string };
 
 function emit(ev: RunEvent): void {
@@ -96,6 +98,12 @@ async function main(): Promise<void> {
         const m = message as any;
         summary = m.result ?? m.summary;
         const durationMs = typeof m.duration_ms === 'number' ? m.duration_ms : undefined;
+        // The SDK reports some auth failures as an error *result* rather than a
+        // throw; treat both as needs-auth.
+        if (m.is_error === true && typeof summary === 'string' && isAuthError(summary)) {
+          emit({ kind: 'needs-auth', message: summary });
+          return;
+        }
         if (summary) {
           emitEntry({
             id: randomUUID(),
@@ -117,7 +125,11 @@ async function main(): Promise<void> {
           : 'No changes'),
     });
   } catch (err) {
-    emit({ kind: 'error', message: err instanceof Error ? err.message : String(err) });
+    // An expired subscription session / rejected key surfaces here as a thrown
+    // 401. Flag it as such so the daemon can tell the user to re-authenticate
+    // rather than reporting an opaque failure.
+    const message = err instanceof Error ? err.message : String(err);
+    emit({ kind: isAuthError(message) ? 'needs-auth' : 'error', message });
   }
 }
 

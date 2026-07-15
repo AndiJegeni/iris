@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Annotation, Task, TaskStatus, TranscriptEntry } from '@localagents/shared';
+import type { Annotation, Backend, Task, TaskStatus, TranscriptEntry } from '@localagents/shared';
 import type { AgentRunner, RunRequest } from './agents/types';
 import type { EventBus } from './events';
 
@@ -35,7 +35,16 @@ export class TaskQueue {
   /** Per-task structured conversation, retained after completion for follow-ups. */
   private transcripts = new Map<string, TranscriptEntry[]>();
 
-  constructor(private readonly bus: EventBus) {}
+  /**
+   * @param onAuthResult Told, after each finished run, whether the backend's
+   *   credential actually worked. A real call is the only trustworthy proof —
+   *   the provider CLIs' cached login records outlive the sessions they
+   *   describe (see auth-errors.ts).
+   */
+  constructor(
+    private readonly bus: EventBus,
+    private readonly onAuthResult?: (backend: Backend, ok: boolean) => void,
+  ) {}
 
   /** The full structured transcript for a task (empty if unknown). */
   getTranscript(taskId: string): TranscriptEntry[] {
@@ -186,6 +195,22 @@ export class TaskQueue {
             break;
           case 'done':
             this.updateStatus(next, 'done', ev.summary);
+            this.onAuthResult?.(next.task.backend, true);
+            break;
+          case 'needs-auth':
+            // Put the reason in the chat too — a bare "Failed" row with a 401
+            // behind it is exactly what left users stuck.
+            this.appendEntry(next.task.id, {
+              id: randomUUID(),
+              role: 'error',
+              at: Date.now(),
+              text: ev.message,
+            });
+            this.updateStatus(next, 'failed', ev.message);
+            // Flag the provider first, so a client refetching /auth/status on
+            // the broadcast below sees the expired state.
+            this.onAuthResult?.(next.task.backend, false);
+            this.bus.broadcast({ type: 'needs-auth', backend: next.task.backend });
             break;
           case 'error':
             this.updateStatus(next, 'failed', ev.message);

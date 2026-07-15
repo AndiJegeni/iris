@@ -1,6 +1,6 @@
 /** @jsxImportSource preact */
 import { useState } from 'preact/hooks';
-import type { AuthStatus } from '../transport';
+import type { AuthStatus, ProviderAuthStatus } from '../transport';
 import { type OverlayTheme, type ThemeTokens, tokens } from './theme';
 
 type Provider = 'anthropic' | 'openai';
@@ -28,6 +28,9 @@ type SettingsPanelProps = {
 const VERSION = 'v0.1';
 
 const PANEL_WIDTH = 320;
+
+/** Red used for both the expired-credential state and inline errors. */
+const DANGER = '#e5484d';
 
 /** Providers shown in the "Accounts" sub-view, in display order. */
 const PROVIDERS: {
@@ -215,7 +218,7 @@ function ProviderCard({
 }: {
   t: ThemeTokens;
   provider: { id: Provider; label: string; loginLabel: string; placeholder: string };
-  status: { method: string; configured: boolean } | undefined;
+  status: ProviderAuthStatus | undefined;
   onLogin: ((provider: Provider) => Promise<void>) | undefined;
   onLogout: ((provider: Provider) => Promise<void>) | undefined;
   onSaveKey: ((provider: Provider, value: string) => Promise<void>) | undefined;
@@ -226,15 +229,22 @@ function ProviderCard({
   const [keyDraft, setKeyDraft] = useState('');
 
   const method = status?.method ?? 'none';
-  const loggedIn = method === 'oauth';
+  // A credential the daemon has seen a real run rejected: the stored session
+  // still *looks* valid, so only this tells us it no longer works.
+  const expired = Boolean(status?.expired) && method !== 'none';
+  const loggedIn = method === 'oauth' && !expired;
   const hasKey = method === 'api-key';
 
-  const statusLabel = loggedIn
-    ? 'Subscription · connected'
-    : hasKey
-      ? 'API key set'
-      : 'Not connected';
-  const statusColor = loggedIn ? t.accent : hasKey ? t.textPrimary : t.textFaint;
+  const statusLabel = expired
+    ? method === 'oauth'
+      ? 'Session expired — log in again'
+      : 'API key rejected'
+    : loggedIn
+      ? 'Subscription · connected'
+      : hasKey
+        ? 'API key set'
+        : 'Not connected';
+  const statusColor = expired ? DANGER : loggedIn ? t.accent : hasKey ? t.textPrimary : t.textFaint;
 
   const run = async (kind: 'login' | 'logout' | 'save', fn: () => Promise<void>) => {
     setBusy(kind);
@@ -270,7 +280,7 @@ function ProviderCard({
               height: '6px',
               borderRadius: '50%',
               background: statusColor,
-              opacity: loggedIn || hasKey ? 1 : 0.5,
+              opacity: loggedIn || hasKey || expired ? 1 : 0.5,
             }}
           />
           <span style={{ fontSize: '11px', color: statusColor }}>{statusLabel}</span>
@@ -293,7 +303,11 @@ function ProviderCard({
           disabled={busy !== null}
           onClick={() => onLogin && run('login', () => onLogin(provider.id))}
         >
-          {busy === 'login' ? 'Waiting for browser…' : provider.loginLabel}
+          {busy === 'login'
+            ? 'Waiting for browser…'
+            : expired && method === 'oauth'
+              ? 'Log in again'
+              : provider.loginLabel}
         </button>
       )}
 
@@ -328,7 +342,7 @@ function ProviderCard({
       </div>
 
       {error ? (
-        <p style={{ fontSize: '11px', color: '#e5484d', lineHeight: 1.4, margin: '6px 2px 0' }}>
+        <p style={{ fontSize: '11px', color: DANGER, lineHeight: 1.4, margin: '6px 2px 0' }}>
           {error}
         </p>
       ) : null}
