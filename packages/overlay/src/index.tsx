@@ -2,7 +2,7 @@
 import { render } from 'preact';
 import { Overlay } from './overlay';
 
-export const OVERLAY_HOST_ID = '__localagents_overlay__';
+export const OVERLAY_HOST_ID = '__iris_overlay__';
 
 const SHADOW_RESET = `
   :host {

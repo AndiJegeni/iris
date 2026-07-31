@@ -1,5 +1,5 @@
 {
-  "version": "0.0.1",
+  "version": "0.1.0",
   "configurations": [
     {
       "name": "example-direct",
@@ -9,7 +9,7 @@
       "autoPort": false
     },
     {
-      "name": "localagents-shell",
+      "name": "iris-shell",
       "runtimeExecutable": "bun",
       "runtimeArgs": [
         "packages/cli/src/index.ts",

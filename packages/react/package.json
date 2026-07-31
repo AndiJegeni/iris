@@ -1,14 +1,47 @@
 {
-  "name": "@localagents/react",
-  "version": "0.0.1",
-  "type": "module",
+  "name": "@useiris/react",
+  "version": "0.1.0",
+  "description": "Drop-in React component that injects the Iris overlay in dev (no-op in production).",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "author": "Andi Jegeni",
+  "homepage": "https://github.com/AndiJegeni/iris#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AndiJegeni/iris.git",
+    "directory": "packages/react"
+  },
+  "bugs": {
+    "url": "https://github.com/AndiJegeni/iris/issues"
+  },
+  "keywords": ["iris", "useiris", "react", "ai", "coding-agent", "overlay", "dev-tools"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "tsup"
   },
   "peerDependencies": {
     "react": ">=17"
   },
   "devDependencies": {
-    "@types/react": "^19.0.2"
+    "@types/react": "^19.0.2",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2"
   }
 }

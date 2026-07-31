@@ -1,11 +1,13 @@
-import { type ChildProcess, spawn } from 'node:child_process';
-import { execSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
+import { type ChildProcess, execSync, spawn } from 'node:child_process';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
-import type { Worktree } from '@localagents/shared';
+import type { Worktree } from '@iris/shared';
 import type { EventBus } from './events';
+import { defaultDevCmd, detectPackageManager } from './project';
+import { sleep } from './util';
 
-const WORKTREE_DIR_NAME = '.localagents-worktrees';
+const WORKTREE_DIR_NAME = '.iris-worktrees';
 const FIRST_AGENT_PORT = 3001;
 const MAX_PORT = 3199;
 const READY_TIMEOUT_MS = 60_000;
@@ -25,25 +27,25 @@ type ManagedWorktree = {
  * are created on demand for parallel tasks; each gets its own `next dev` on a
  * dedicated port (3001, 3002, …).
  *
- * Worktrees themselves are created under `<repoParent>/.localagents-worktrees/`
+ * Worktrees themselves are created under `<repoParent>/.iris-worktrees/`
  * (sibling to the repo) to keep the user's repo directory tidy.
  */
 export type WorktreeManagerOptions = {
   /**
    * Command to spawn a dev server in a worktree. `%PORT%` is replaced with the
-   * allocated port. Default: `bun run dev --port %PORT%`. Use this when your
-   * app isn't at the repo root, e.g. `cd app && bun run dev --port %PORT%`.
+   * allocated port. Defaults to the dev script of whichever package manager the
+   * repo's lockfile implies. Use this when your app isn't at the repo root,
+   * e.g. `cd app && npm run dev -- --port %PORT%`.
    */
   devCmd?: string | undefined;
 };
-
-const DEFAULT_DEV_CMD = 'bun run dev --port %PORT%';
 
 export class WorktreeManager {
   private worktrees = new Map<string, ManagedWorktree>();
   private nextSlugNum = 1;
   private readonly worktreeRoot: string;
-  private readonly devCmd: string;
+  /** Resolved dev command, exposed so the CLI banner can print it up front. */
+  readonly devCmd: string;
 
   constructor(
     private readonly repoRoot: string,
@@ -52,7 +54,7 @@ export class WorktreeManager {
     options: WorktreeManagerOptions = {},
   ) {
     this.worktreeRoot = join(dirname(repoRoot), WORKTREE_DIR_NAME);
-    this.devCmd = options.devCmd ?? DEFAULT_DEV_CMD;
+    this.devCmd = options.devCmd ?? defaultDevCmd(detectPackageManager(repoRoot));
 
     const main: Worktree = {
       slug: 'main',
@@ -111,7 +113,7 @@ export class WorktreeManager {
 
     // Carry main's UNCOMMITTED changes into the clone (clone only has committed
     // state). Tracked edits via patch; untracked files copied best-effort. This
-    // is what brings <LocalAgents/> and your current work-in-progress along.
+    // is what brings <Iris /> and your current work-in-progress along.
     this.carryUncommittedChanges(path);
 
     const worktree: Worktree = {
@@ -190,7 +192,7 @@ export class WorktreeManager {
 
   /**
    * Merge a worktree's branch into main and tear down the worktree. Used by
-   * the "Ship it" button (M7).
+   * the "Ship it" button.
    */
   async shipIt(slug: string): Promise<{ ok: true } | { ok: false; error: string }> {
     if (slug === 'main') return { ok: false, error: 'cannot ship main into itself' };
@@ -209,7 +211,7 @@ export class WorktreeManager {
         hasChanges = true;
       }
       if (hasChanges) {
-        execSync(`git commit -m ${quote(`localagents: changes from ${slug}`)}`, {
+        execSync(`git commit -m ${quote(`iris: changes from ${slug}`)}`, {
           cwd: m.worktree.path,
         });
       }
@@ -262,7 +264,7 @@ export class WorktreeManager {
       }
     } catch (err) {
       process.stderr.write(
-        `[localagents] could not carry tracked changes into worktree: ${String(err)}\n`,
+        `[iris] could not carry tracked changes into worktree: ${String(err)}\n`,
       );
     }
 
@@ -273,7 +275,10 @@ export class WorktreeManager {
         encoding: 'utf8',
         maxBuffer: 16 * 1024 * 1024,
       });
-      const files = out.split('\n').map((l) => l.trim()).filter(Boolean);
+      const files = out
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
       for (const rel of files) {
         const src = join(this.repoRoot, rel);
         const dst = join(worktreePath, rel);
@@ -312,7 +317,7 @@ export class WorktreeManager {
       const topPath = join(this.repoRoot, top);
       if (!existsSync(topPath)) continue;
       try {
-        const entries = require('node:fs').readdirSync(topPath, { withFileTypes: true });
+        const entries = readdirSync(topPath, { withFileTypes: true });
         for (const ent of entries) {
           if (ent.isDirectory()) tryLink(join(top, ent.name));
         }
@@ -364,27 +369,20 @@ export class WorktreeManager {
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 /**
  * True if nothing is listening on `port`. Probes by attempting a TCP bind —
  * more reliable than an HTTP fetch (catches non-HTTP listeners and zombie
  * dev servers from prior runs that would otherwise cause EADDRINUSE).
  */
-async function isPortFree(port: number): Promise<boolean> {
-  try {
-    const server = Bun.listen({
-      hostname: '0.0.0.0',
-      port,
-      socket: { data() {}, open() {}, close() {} },
+function isPortFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => {
+      server.close(() => resolve(true));
     });
-    server.stop(true);
-    return true;
-  } catch {
-    return false;
-  }
+    server.listen(port, '0.0.0.0');
+  });
 }
 
 /** Wrap a path in quotes for shell-safe command execution. */

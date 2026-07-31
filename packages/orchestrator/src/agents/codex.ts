@@ -1,44 +1,23 @@
 import { execSync, spawn } from 'node:child_process';
 import type { ProviderAuth } from '../auth';
 import { authFailureMessage, isAuthError } from '../auth-errors';
+import { commandExists } from '../util';
+import { buildFollowUpPrompt, buildPrompt } from './prompt';
 import type { AgentRunner, RunEvent, RunRequest } from './types';
 
 const STDOUT_LOG_PREFIX_MAX = 320;
 /** How much of codex's stderr we keep around to classify a failed exit. */
 const STDERR_TAIL_MAX = 4000;
 
-function buildPrompt(req: RunRequest): string {
-  const ctx: string[] = [];
-  if (req.source) {
-    const col = req.source.column != null ? `:${req.source.column}` : '';
-    ctx.push(`File: ${req.source.file}:${req.source.line}${col}`);
-  }
-  if (req.componentPath.length > 0) {
-    ctx.push(`Component path: ${req.componentPath.map((c) => `<${c}/>`).join(' › ')}`);
-  }
-  if (req.selector) ctx.push(`Selector: ${req.selector}`);
-  if (req.text) ctx.push(`Element text: "${req.text}"`);
-
-  const header =
-    ctx.length > 0
-      ? `Context (auto-captured from the browser):\n${ctx.map((l) => `  ${l}`).join('\n')}\n\n`
-      : '';
-  return `${header}User request:\n${req.prompt}`;
-}
-
-function codexAvailable(): boolean {
-  try {
-    execSync('command -v codex', { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * OpenAI Codex CLI wrapper. Codex has no programmatic SDK, so we treat it as
  * a black-box subprocess: spawn `codex exec <prompt>` in the worktree, stream
  * stdout/stderr as log events, and infer success from exit code + `git status`.
+ *
+ * Follow-ups: codex owns its session store and we don't read it, so we don't
+ * resume — the earlier conversation is replayed into the prompt (see
+ * buildFollowUpPrompt). Costs tokens on long threads, but a follow-up that
+ * silently forgets the task is worse.
  *
  * Auth: codex manages its own credentials. For a ChatGPT subscription login
  * (`codex login`) we let it read its cached ~/.codex/auth.json — and we strip
@@ -47,7 +26,7 @@ function codexAvailable(): boolean {
  */
 export function createCodexRunner(auth: ProviderAuth): AgentRunner {
   return async function* codexRunner(req: RunRequest): AsyncGenerator<RunEvent> {
-    if (!codexAvailable()) {
+    if (!commandExists('codex')) {
       yield {
         kind: 'error',
         message:
@@ -72,7 +51,10 @@ export function createCodexRunner(auth: ProviderAuth): AgentRunner {
       childEnv.OPENAI_API_KEY = auth.apiKey;
     }
 
-    const prompt = buildPrompt(req);
+    // `codex exec` starts a fresh session every time and we never capture its
+    // session id, so a follow-up would otherwise arrive with no memory of the
+    // turn it is continuing. Replay the conversation into the prompt instead.
+    const prompt = req.priorTranscript?.length ? buildFollowUpPrompt(req) : buildPrompt(req);
     const proc = spawn('codex', ['exec', prompt], {
       cwd: req.cwd,
       env: childEnv,

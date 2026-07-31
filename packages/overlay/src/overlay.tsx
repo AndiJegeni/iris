@@ -6,7 +6,7 @@ import {
   collectComponentPath,
   getFiberFromDom,
   resolveSource,
-} from './source-map';
+} from './source-resolution';
 import { ElementOutline, type OutlineLabel } from './ui/element-outline';
 import { PickedPopover } from './ui/picked-popover';
 import { Pill } from './ui/pill';
@@ -39,7 +39,7 @@ type DragState = {
 const DRAG_THRESHOLD = 4;
 // Keep the pill this far from the viewport edges while dragging.
 const MARGIN = 8;
-const PILL_POS_KEY = 'localagents:pill-pos';
+const PILL_POS_KEY = 'iris:pill-pos';
 // Pill circle diameter (mirrors CIRCLE in pill.tsx) and the gap a panel leaves
 // above the pill. The settings + chat panels open just above wherever the pill
 // currently sits, so these keep them tethered to it.
@@ -242,7 +242,7 @@ export function Overlay() {
   return (
     <>
       <style>{`
-        @keyframes localagents-pulse {
+        @keyframes iris-pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.4; }
         }
@@ -270,6 +270,7 @@ export function Overlay() {
           element={picked.element}
           resolution={picked.resolution}
           theme={theme}
+          gitAvailable={state.capabilities?.git ?? true}
           onClose={closePopover}
           onSubmit={async (annotation) => {
             await send(annotation);
@@ -283,6 +284,7 @@ export function Overlay() {
       {chatOpen ? (
         <PickedPopover
           theme={theme}
+          gitAvailable={state.capabilities?.git ?? true}
           anchorStyle={panelAnchorStyle}
           onClose={() => setChatOpen(false)}
           onSubmit={async (annotation) => {
@@ -324,7 +326,7 @@ const TEXTY_TAGS = /^(h1|h2|h3|h4|h5|h6|button|a|label|p|li|summary)$/;
  * cheap fiber walk (collectComponentPath) — NOT the dispatcher probe in
  * resolveSource — since this runs on every hovered-element change. The component
  * path comes back innermost-first, so we reverse it to read outermost→innermost
- * like Agentation's breadcrumb (`<Gallery> <Section>`).
+ * as a breadcrumb (`<Gallery> <Section>`).
  */
 function describeHover(el: Element): OutlineLabel {
   const fiber = getFiberFromDom(el);

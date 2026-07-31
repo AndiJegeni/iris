@@ -5,5 +5,10 @@ dist
 *.log
 .env*
 !.env.example
+.iris/
+.iris-worktrees/
+# pre-rename locations, still read for backward compat
 .localagents/
-bun.lockb
+.localagents-worktrees/
+*.tgz
+*.tsbuildinfo

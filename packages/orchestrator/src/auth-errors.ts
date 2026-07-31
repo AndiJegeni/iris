@@ -1,4 +1,4 @@
-import type { Backend } from '@localagents/shared';
+import type { Backend } from '@iris/shared';
 import type { AuthMethod } from './auth';
 
 /**

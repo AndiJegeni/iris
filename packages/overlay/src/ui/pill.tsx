@@ -1,4 +1,5 @@
 /** @jsxImportSource preact */
+import { ChatIcon, CloseIcon, CursorIcon, SettingsIcon } from './icons';
 import type { OverlayTheme } from './theme';
 
 type PillProps = {
@@ -22,9 +23,7 @@ type PillProps = {
 // `stroke` is the outline + active divider; `hover` is the icon-button halo.
 type PillPalette = { surface: string; stroke: string; icon: string; shadow: string; hover: string };
 
-// Matched to Agentation's launcher + toolbar (measured live off the example
-// page). The collapsed launcher is a circle with a prominent star glyph — bigger
-// than its own toolbar icons, so the parked state reads strong. The active
+// The collapsed launcher is a circle carrying a single glyph; the active
 // toolbar uses 20px glyphs in 28px buttons (4px padding). Both states land on a
 // 40px height so arming doesn't change the pill's size.
 const ICON_SIZE = 20; // active toolbar glyph
@@ -37,8 +36,8 @@ const CIRCLE = 40; // collapsed launcher diameter (= toolbar height: 28px button
 const ACCENT = '#3b82f6';
 
 // Open/close motion. One persistent container morphs between the parked circle
-// and the expanded toolbar — arming/disarming eases the width (long expo curve,
-// à la Agentation) while the two layers crossfade, so the star dissolves into the
+// and the expanded toolbar — arming/disarming eases the width (long expo curve)
+// while the two layers crossfade, so the launcher glyph dissolves into the
 // icons instead of snapping. Both states share the height + right edge, so the
 // pill grows leftward from a fixed anchor and never jumps.
 const MORPH = 'width 320ms cubic-bezier(0.19, 1, 0.22, 1)';
@@ -129,12 +128,7 @@ export function Pill({
           launcher fills the clipped container, so its ring is inset to avoid being
           cut off; the toolbar buttons sit inside the padding so theirs can sit out. */}
       <style>
-        {'.la-pill-btn{background:transparent;outline:none;transition:background 90ms,box-shadow 90ms}' +
-          `.la-pill-btn:hover{background:${p.hover};box-shadow:0 0 0 4px ${p.hover}}` +
-          `.la-pill-btn:focus-visible{outline:none;box-shadow:0 0 0 2px ${ACCENT}}` +
-          '.la-pill-layer{transition:opacity 180ms ease}' +
-          '.la-pill-launcher{outline:none}' +
-          `.la-pill-launcher:focus-visible{box-shadow:inset 0 0 0 2px ${ACCENT}}`}
+        {`.la-pill-btn{background:transparent;outline:none;transition:background 90ms,box-shadow 90ms}.la-pill-btn:hover{background:${p.hover};box-shadow:0 0 0 4px ${p.hover}}.la-pill-btn:focus-visible{outline:none;box-shadow:0 0 0 2px ${ACCENT}}.la-pill-layer{transition:opacity 180ms ease}.la-pill-launcher{outline:none}.la-pill-launcher:focus-visible{box-shadow:inset 0 0 0 2px ${ACCENT}}`}
       </style>
 
       {/* Parked launcher: the star, pinned to the right CIRCLE px so it sits
@@ -142,7 +136,7 @@ export function Pill({
       <button
         type="button"
         onClick={onArm}
-        aria-label="lens"
+        aria-label="Iris"
         aria-hidden={active ? true : undefined}
         tabIndex={active ? -1 : 0}
         className="la-pill-launcher la-pill-layer"
@@ -167,7 +161,7 @@ export function Pill({
           pointerEvents: active ? 'none' : 'auto',
         }}
       >
-        <CursorIcon />
+        <CursorIcon size={STAR_SIZE} />
       </button>
 
       {/* Expanded toolbar, same right anchor + height as the circle. */}
@@ -199,7 +193,7 @@ export function Pill({
           className="la-pill-btn"
           style={iconButton}
         >
-          <ChatIcon />
+          <ChatIcon size={ICON_SIZE} />
         </button>
         <button
           type="button"
@@ -210,7 +204,7 @@ export function Pill({
           // +2px beyond the 6px gap so the chat/settings hover halos don't overlap.
           style={{ ...iconButton, marginLeft: '2px' }}
         >
-          <SettingsIcon />
+          <SettingsIcon size={ICON_SIZE} />
         </button>
         <span style={{ width: '1px', height: '20px', background: p.stroke, flexShrink: 0 }} />
         <button
@@ -222,78 +216,9 @@ export function Pill({
           // Nudged 2px right of the divider gap for a touch more breathing room.
           style={{ ...iconButton, marginLeft: '2px' }}
         >
-          <CloseIcon />
+          <CloseIcon size={ICON_SIZE} />
         </button>
       </div>
     </div>
-  );
-}
-
-/**
- * Icons inlined from packages/overlay/src/assets/icons (cursor-click, message-circle-01,
- * settings-02, x-close) with stroke = currentColor so they take the pill's ink
- * color (per theme). Inlined rather than imported to stay bundler-agnostic across the daemon's
- * Bun build and the example's Next/SWC build — same convention as picked-popover.
- */
-function CursorIcon() {
-  return (
-    <svg width={STAR_SIZE} height={STAR_SIZE} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M9 3.5V2M5.06066 5.06066L4 4M5.06066 13L4 14.0607M13 5.06066L14.0607 4M3.5 9H2M8.5 8.5L12.6111 21.2778L15.5 18.3889L19.1111 22L22 19.1111L18.3889 15.5L21.2778 12.6111L8.5 8.5Z"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-    </svg>
-  );
-}
-
-function ChatIcon() {
-  return (
-    <svg width={ICON_SIZE} height={ICON_SIZE} viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M14.0001 7.66667C14.0001 10.7963 11.463 13.3333 8.33341 13.3333C7.61556 13.3333 6.92888 13.1999 6.29685 12.9564C6.18129 12.9118 6.12351 12.8896 6.07756 12.879C6.03237 12.8686 5.99966 12.8642 5.95332 12.8624C5.9062 12.8606 5.85451 12.866 5.75112 12.8767L2.3371 13.2296C2.01161 13.2632 1.84886 13.2801 1.75286 13.2215C1.66924 13.1705 1.61229 13.0853 1.59713 12.9885C1.57972 12.8774 1.65749 12.7335 1.81303 12.4456L2.90347 10.4272C2.99327 10.261 3.03817 10.1779 3.05851 10.098C3.0786 10.019 3.08345 9.96213 3.07703 9.88095C3.07052 9.79875 3.03446 9.69175 2.96232 9.47774C2.77064 8.90906 2.66674 8.3 2.66674 7.66667C2.66674 4.53705 5.2038 2 8.33341 2C11.463 2 14.0001 4.53705 14.0001 7.66667Z"
-        stroke="currentColor"
-        stroke-width="1.33333"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-    </svg>
-  );
-}
-
-function SettingsIcon() {
-  return (
-    <svg width={ICON_SIZE} height={ICON_SIZE} viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M6.26369 12.9142L6.65332 13.7905C6.76914 14.0514 6.95817 14.273 7.19747 14.4286C7.43677 14.5841 7.71606 14.6669 8.00147 14.6668C8.28687 14.6669 8.56616 14.5841 8.80546 14.4286C9.04476 14.273 9.23379 14.0514 9.34961 13.7905L9.73924 12.9142C9.87794 12.6033 10.1112 12.3441 10.4059 12.1735C10.7024 12.0025 11.0455 11.9296 11.3859 11.9653L12.3392 12.0668C12.623 12.0968 12.9094 12.0439 13.1637 11.9144C13.418 11.7849 13.6292 11.5844 13.7718 11.3372C13.9146 11.0902 13.9826 10.807 13.9677 10.5221C13.9527 10.2372 13.8553 9.9627 13.6874 9.73202L13.1229 8.95646C12.922 8.67825 12.8146 8.34337 12.8163 8.00016C12.8162 7.65789 12.9246 7.3244 13.1259 7.04757L13.6904 6.27201C13.8583 6.04133 13.9556 5.76688 13.9706 5.48195C13.9856 5.19701 13.9176 4.91386 13.7748 4.66683C13.6322 4.41965 13.4209 4.21916 13.1667 4.08965C12.9124 3.96014 12.626 3.90718 12.3422 3.9372L11.3889 4.03868C11.0484 4.07444 10.7054 4.00158 10.4089 3.83053C10.1136 3.659 9.88025 3.3984 9.74221 3.08609L9.34961 2.20979C9.23379 1.94894 9.04476 1.72731 8.80546 1.57176C8.56616 1.41622 8.28687 1.33345 8.00147 1.3335C7.71606 1.33345 7.43677 1.41622 7.19747 1.57176C6.95817 1.72731 6.76914 1.94894 6.65332 2.20979L6.26369 3.08609C6.12564 3.3984 5.89227 3.659 5.59702 3.83053C5.3005 4.00158 4.95747 4.07444 4.61702 4.03868L3.66072 3.9372C3.37694 3.90718 3.09055 3.96014 2.83627 4.08965C2.58198 4.21916 2.37073 4.41965 2.22813 4.66683C2.08535 4.91386 2.01732 5.19701 2.03231 5.48195C2.0473 5.76688 2.14466 6.04133 2.31258 6.27201L2.87702 7.04757C3.07831 7.3244 3.18671 7.65789 3.18665 8.00016C3.18671 8.34244 3.07831 8.67593 2.87702 8.95276L2.31258 9.72831C2.14466 9.95899 2.0473 10.2335 2.03231 10.5184C2.01732 10.8033 2.08535 11.0865 2.22813 11.3335C2.37088 11.5805 2.58215 11.7809 2.8364 11.9104C3.09064 12.0399 3.37697 12.093 3.66072 12.0631L4.61406 11.9616C4.9545 11.9259 5.29753 11.9987 5.59406 12.1698C5.89041 12.3408 6.12486 12.6015 6.26369 12.9142Z"
-        stroke="currentColor"
-        stroke-width="1.33333"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-      <path
-        d="M8.00027 10.0002C9.10484 10.0002 10.0003 9.10473 10.0003 8.00016C10.0003 6.89559 9.10484 6.00016 8.00027 6.00016C6.8957 6.00016 6.00027 6.89559 6.00027 8.00016C6.00027 9.10473 6.8957 10.0002 8.00027 10.0002Z"
-        stroke="currentColor"
-        stroke-width="1.33333"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-    </svg>
-  );
-}
-
-function CloseIcon() {
-  return (
-    <svg width={ICON_SIZE} height={ICON_SIZE} viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M12 4L4 12M4 4L12 12"
-        stroke="currentColor"
-        stroke-width="1.33333"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-    </svg>
   );
 }

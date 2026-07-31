@@ -1,4 +1,4 @@
-import type { AttachedImage, SourceLocation, TranscriptEntry } from '@localagents/shared';
+import type { AttachedImage, SourceLocation, TranscriptEntry } from '@iris/shared';
 
 export type RunRequest = {
   prompt: string;
@@ -15,6 +15,12 @@ export type RunRequest = {
    * messages) instead of starting fresh. Carries the backend's session id.
    */
   resumeSessionId?: string;
+  /**
+   * The conversation so far, set on follow-up turns. Backends that can resume
+   * their own session (Claude, via `resumeSessionId`) ignore this; those that
+   * cannot replay it into the prompt so a follow-up still has context.
+   */
+  priorTranscript?: TranscriptEntry[];
   signal: AbortSignal;
 };
 

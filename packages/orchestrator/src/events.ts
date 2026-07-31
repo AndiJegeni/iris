@@ -1,7 +1,5 @@
-import type { Task, Worktree, WsEvent } from '@localagents/shared';
-import type { ServerWebSocket } from 'bun';
-
-export type WsClientData = { id: string };
+import type { Capabilities, Task, Worktree, WsEvent } from '@iris/shared';
+import type { WebSocket } from 'ws';
 
 /**
  * Tiny pub/sub for WS clients. The orchestrator broadcasts task and worktree
@@ -9,13 +7,13 @@ export type WsClientData = { id: string };
  * the current state so a freshly-opened tab is consistent.
  */
 export class EventBus {
-  private clients = new Set<ServerWebSocket<WsClientData>>();
+  private clients = new Set<WebSocket>();
 
-  attach(ws: ServerWebSocket<WsClientData>): void {
+  attach(ws: WebSocket): void {
     this.clients.add(ws);
   }
 
-  detach(ws: ServerWebSocket<WsClientData>): void {
+  detach(ws: WebSocket): void {
     this.clients.delete(ws);
   }
 
@@ -30,8 +28,8 @@ export class EventBus {
     }
   }
 
-  sendHello(ws: ServerWebSocket<WsClientData>, worktrees: Worktree[], tasks: Task[]): void {
-    const hello: WsEvent = { type: 'hello', worktrees, tasks };
+  sendHello(ws: WebSocket, worktrees: Worktree[], tasks: Task[], capabilities: Capabilities): void {
+    const hello: WsEvent = { type: 'hello', worktrees, tasks, capabilities };
     try {
       ws.send(JSON.stringify(hello));
     } catch {

@@ -1,20 +1,15 @@
-import type { Annotation, Task, TranscriptEntry, Worktree, WsEvent } from '@localagents/shared';
+import {
+  type Annotation,
+  type AuthStatus,
+  type Capabilities,
+  type Task,
+  type TranscriptEntry,
+  type Worktree,
+  type WsEvent,
+  mergeTranscriptEntry,
+} from '@iris/shared';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
-
-/** How a provider authenticates, mirrored from the daemon's /auth/status. */
-export type AuthMethod = 'api-key' | 'oauth' | 'none';
-export type ProviderAuthStatus = {
-  method: AuthMethod;
-  configured: boolean;
-  source: string;
-  /**
-   * A real run was rejected by this credential (expired subscription session or
-   * a bad key). The daemon's own record can look healthy while this is true.
-   */
-  expired?: boolean;
-};
-export type AuthStatus = { anthropic: ProviderAuthStatus; openai: ProviderAuthStatus };
 
 export type TransportState = {
   status: ConnectionStatus;
@@ -26,21 +21,18 @@ export type TransportState = {
   transcripts: Record<string, TranscriptEntry[]>;
   /** Provider auth status from the daemon, or null until first fetched. */
   auth: AuthStatus | null;
+  /**
+   * What the daemon can do on this machine. Null until the first 'hello';
+   * treat unknown as capable so the UI doesn't flicker into a disabled state
+   * during the initial connect.
+   */
+  capabilities: Capabilities | null;
 };
 
 const LOG_CAP_PER_TASK = 40;
 const RECONNECT_DELAY_MS = 1500;
 
 type Listener = (state: TransportState) => void;
-
-/** Append a transcript entry, or update one in place when its id already exists. */
-function mergeEntry(cur: TranscriptEntry[], entry: TranscriptEntry): TranscriptEntry[] {
-  const idx = cur.findIndex((e) => e.id === entry.id);
-  if (idx < 0) return [...cur, entry];
-  const next = [...cur];
-  next[idx] = { ...cur[idx], ...entry };
-  return next;
-}
 
 /**
  * Singleton WebSocket connection to the orchestrator's /tasks endpoint, plus
@@ -55,6 +47,7 @@ class Transport {
     logs: {},
     transcripts: {},
     auth: null,
+    capabilities: null,
   };
   private listeners = new Set<Listener>();
   private ws: WebSocket | null = null;
@@ -103,7 +96,11 @@ class Transport {
   private handleEvent(event: WsEvent): void {
     switch (event.type) {
       case 'hello':
-        this.setState({ tasks: event.tasks, worktrees: event.worktrees });
+        this.setState({
+          tasks: event.tasks,
+          worktrees: event.worktrees,
+          capabilities: event.capabilities,
+        });
         return;
       case 'task:created':
         this.setState({ tasks: [...this.state.tasks, event.task] });
@@ -126,7 +123,8 @@ class Transport {
         this.setState({
           transcripts: {
             ...this.state.transcripts,
-            [event.id]: mergeEntry(this.state.transcripts[event.id] ?? [], event.entry),
+            [event.id]: mergeTranscriptEntry(this.state.transcripts[event.id] ?? [], event.entry)
+              .entries,
           },
         });
         return;
@@ -298,7 +296,7 @@ let _transport: Transport | null = null;
 
 /**
  * Daemon URL inference. The overlay is loaded via `<script src="http://localhost:4747/overlay.js">`
- * by the `<LocalAgents />` React component, so `import.meta.url` is the daemon URL.
+ * by the `<Iris />` React component, so `import.meta.url` is the daemon URL.
  */
 function inferDaemonUrl(): string {
   try {

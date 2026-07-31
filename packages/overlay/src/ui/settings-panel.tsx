@@ -1,9 +1,8 @@
 /** @jsxImportSource preact */
+import { type AuthStatus, type Provider, type ProviderAuthStatus, VERSION } from '@iris/shared';
 import { useState } from 'preact/hooks';
-import type { AuthStatus, ProviderAuthStatus } from '../transport';
+import { ChevronLeftIcon, ChevronRightIcon, MoonIcon, SunIcon } from './icons';
 import { type OverlayTheme, type ThemeTokens, tokens } from './theme';
-
-type Provider = 'anthropic' | 'openai';
 
 type SettingsPanelProps = {
   theme?: OverlayTheme;
@@ -12,9 +11,6 @@ type SettingsPanelProps = {
   onClose: () => void;
   /** Flip the overlay between light and dark. */
   onToggleTheme?: () => void;
-  /** Whether the overlay blocks clicks/scrolls on the host page. */
-  blockInteractions?: boolean;
-  onToggleBlockInteractions?: (next: boolean) => void;
   /** Current provider auth status from the daemon (null until fetched). */
   auth?: AuthStatus | null;
   /** Start a subscription login (opens the browser via the daemon). */
@@ -24,8 +20,6 @@ type SettingsPanelProps = {
   /** Persist (or clear, when empty) a provider API key. */
   onSaveKey?: (provider: Provider, value: string) => Promise<void>;
 };
-
-const VERSION = 'v0.1';
 
 const PANEL_WIDTH = 320;
 
@@ -53,8 +47,6 @@ export function SettingsPanel({
   theme = 'dark',
   anchorStyle,
   onToggleTheme,
-  blockInteractions = false,
-  onToggleBlockInteractions,
   auth,
   onLogin,
   onLogout,
@@ -74,8 +66,6 @@ export function SettingsPanel({
           t={t}
           theme={theme}
           onToggleTheme={onToggleTheme}
-          blockInteractions={blockInteractions}
-          onToggleBlockInteractions={onToggleBlockInteractions}
           onOpenAccounts={() => setView('accounts')}
         />
       ) : (
@@ -96,23 +86,19 @@ function SettingsView({
   t,
   theme,
   onToggleTheme,
-  blockInteractions,
-  onToggleBlockInteractions,
   onOpenAccounts,
 }: {
   t: ThemeTokens;
   theme: OverlayTheme;
   onToggleTheme: (() => void) | undefined;
-  blockInteractions: boolean;
-  onToggleBlockInteractions: ((next: boolean) => void) | undefined;
   onOpenAccounts: () => void;
 }) {
   return (
     <>
       <div style={panelHeader(t)}>
         <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: '6px' }}>
-          <span style={{ fontWeight: 500, fontSize: '13px', color: t.textPrimary }}>lens</span>
-          <span style={{ fontSize: '11px', color: t.textFaint }}>{VERSION}</span>
+          <span style={{ fontWeight: 500, fontSize: '13px', color: t.textPrimary }}>Iris</span>
+          <span style={{ fontSize: '11px', color: t.textFaint }}>v{VERSION}</span>
         </span>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
           <button
@@ -129,22 +115,10 @@ function SettingsView({
       </div>
 
       <div style={{ padding: '2px 8px 8px' }}>
-        <button
-          type="button"
-          className="la-sp-row"
-          style={rowStyle(t)}
-          onClick={() => onToggleBlockInteractions?.(!blockInteractions)}
-        >
-          <span style={{ fontSize: '12px', color: t.textPrimary }}>Block page interactions</span>
-          <Checkbox checked={blockInteractions} t={t} />
-        </button>
-
-        <div style={dividerStyle(t)} />
-
         <button type="button" className="la-sp-row" style={rowStyle(t)} onClick={onOpenAccounts}>
           <span style={{ fontSize: '12px', color: t.textPrimary }}>Accounts</span>
           <span style={{ display: 'inline-flex', color: t.textFaint }}>
-            <ChevronRight />
+            <ChevronRightIcon size={14} />
           </span>
         </button>
       </div>
@@ -181,7 +155,7 @@ function AccountsView({
             onClick={onBack}
             aria-label="Back"
           >
-            <ChevronLeft />
+            <ChevronLeftIcon />
           </button>
           <span style={{ fontWeight: 500, fontSize: '13px', color: t.textPrimary }}>Accounts</span>
         </span>
@@ -350,102 +324,6 @@ function ProviderCard({
   );
 }
 
-function Checkbox({ checked, t }: { checked: boolean; t: ThemeTokens }) {
-  return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: '16px',
-        height: '16px',
-        borderRadius: '4px',
-        flexShrink: 0,
-        border: checked ? `1px solid ${t.accent}` : `1px solid ${t.controlBorder}`,
-        background: checked ? t.accent : 'transparent',
-        color: t.accentText,
-      }}
-    >
-      {checked ? <CheckIcon /> : null}
-    </span>
-  );
-}
-
-/**
- * Icons inlined as small functions (stroke = currentColor) — same bundler-agnostic
- * convention as pill.tsx / picked-popover.tsx. kebab-case SVG attrs, since Preact
- * drops camelCase SVG props.
- */
-function SunIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M8 1.3335V2.66683M8 13.3335V14.6668M2.66667 8.00016H1.33333M4.22876 4.22892L3.28595 3.28612M11.7712 4.22892L12.714 3.28612M4.22876 11.7721L3.28595 12.7149M11.7712 11.7721L12.714 12.7149M14.6667 8.00016H13.3333M11.3333 8.00016C11.3333 9.84111 9.84095 11.3335 8 11.3335C6.15905 11.3335 4.66667 9.84111 4.66667 8.00016C4.66667 6.15921 6.15905 4.66683 8 4.66683C9.84095 4.66683 11.3333 6.15921 11.3333 8.00016Z"
-        stroke="currentColor"
-        stroke-width="1.33333"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-    </svg>
-  );
-}
-
-function MoonIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M14 8.52732C13.8959 9.65327 13.4727 10.7261 12.7793 11.6195C12.0858 12.5129 11.1517 13.1888 10.0866 13.5688C9.02147 13.9488 7.86987 14.0172 6.76709 13.766C5.66431 13.5147 4.65649 12.9544 3.86225 12.1502C3.06801 11.3459 2.51974 10.3315 2.28133 9.22636C2.04293 8.12122 2.12431 6.97095 2.51593 5.91029C2.90755 4.84962 3.59302 3.92295 4.49321 3.23938C5.3934 2.5558 6.47165 2.14431 7.6 2.0533C6.94946 2.93351 6.63647 4.01851 6.71765 5.11055C6.79883 6.20259 7.26886 7.22941 8.04269 8.0033C8.81652 8.77719 9.84334 9.24729 10.9354 9.32847C12.0274 9.40965 13.1124 9.09666 13.9926 8.44612L14 8.52732Z"
-        stroke="currentColor"
-        stroke-width="1.33333"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-    </svg>
-  );
-}
-
-function ChevronRight() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M6 4L10 8L6 12"
-        stroke="currentColor"
-        stroke-width="1.33333"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-    </svg>
-  );
-}
-
-function ChevronLeft() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M10 4L6 8L10 12"
-        stroke="currentColor"
-        stroke-width="1.33333"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-      <path
-        d="M8.33366 2.5L3.75033 7.08333L1.66699 5"
-        stroke="currentColor"
-        stroke-width="1.5"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-    </svg>
-  );
-}
-
 const panelStyle = (t: ThemeTokens) => ({
   position: 'fixed' as const,
   bottom: '64px',
@@ -486,14 +364,6 @@ const rowStyle = (_t: ThemeTokens) => ({
   fontFamily: 'inherit',
   letterSpacing: 'inherit',
   textAlign: 'left' as const,
-});
-
-const dividerStyle = (t: ThemeTokens) => ({
-  height: '1px',
-  background: t.controlBorder,
-  // Inset further (was 8px) and thinner-feeling so the rule reads as a subtle
-  // hairline between the two rows rather than a full-width separator.
-  margin: '3px 40px',
 });
 
 const iconBtn = (t: ThemeTokens) => ({
