@@ -1,8 +1,11 @@
 /** @jsxImportSource preact */
 import { render } from 'preact';
+import { OVERLAY_HOST_ID } from './constants';
 import { Overlay } from './overlay';
 
-export const OVERLAY_HOST_ID = '__iris_overlay__';
+// Re-exported from its own side-effect-free module (see constants.ts) so that
+// importing the id elsewhere doesn't trigger this module's auto-mount below.
+export { OVERLAY_HOST_ID };
 
 const SHADOW_RESET = `
   :host {

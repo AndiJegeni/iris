@@ -185,9 +185,15 @@ export function PickedPopover({
     if (!userTouchedMode) setWorktreeMode(defaultWorktreeMode(prompt));
   }, [prompt, userTouchedMode, gitAvailable]);
 
-  // Autofocus the textarea on mount.
+  // Autofocus the textarea on open. Deferred one frame: focusing synchronously on
+  // mount races the click that opened the popover — the browser's post-click focus
+  // handling lands after the effect and steals it back, and the node is mid
+  // entrance-animation — so the focus silently fails and the composer opens
+  // unfocused. A rAF defer lets the open settle so focus reliably sticks;
+  // preventScroll keeps the host page from jumping to the overlay.
   useEffect(() => {
-    textareaRef.current?.focus();
+    const raf = requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(raf);
   }, []);
 
   // Read the latest prompt from a ref inside the outside-click handler so the
@@ -217,12 +223,13 @@ export function PickedPopover({
     );
   };
 
-  // Clicking outside the popover while typing means "you can't pick another
-  // component yet — finish or cancel this first": shake the composer instead of
-  // dropping the text. An empty composer just closes. We test composedPath()
-  // rather than contains() because the overlay is in a shadow root — at the
-  // document level the event target retargets to the shadow host, so contains()
-  // would treat every inside-click as outside.
+  // An outside click never silently destroys the composer: clicking the page — or
+  // the very element it's anchored to, right after you picked it — shouldn't make
+  // it vanish. If there's unsent text, nudge (shake) as a "finish or press Escape
+  // first" cue; if it's empty, just leave it open. Dismissal is deliberate: Escape
+  // or submit. We test composedPath() rather than contains() because the overlay is
+  // in a shadow root — at the document level the event target retargets to the
+  // shadow host, so contains() would treat every inside-click as outside.
   // biome-ignore lint/correctness/useExhaustiveDependencies: shake reads latest via refs
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -230,15 +237,11 @@ export function PickedPopover({
       if (!root) return;
       const path = e.composedPath?.() ?? [];
       if (path.includes(root)) return; // click landed inside the popover
-      if (promptRef.current.trim()) {
-        shake();
-      } else {
-        requestClose();
-      }
+      if (promptRef.current.trim()) shake();
     };
     document.addEventListener('mousedown', onDown, true);
     return () => document.removeEventListener('mousedown', onDown, true);
-  }, [requestClose]);
+  }, []);
 
   // Grow the textarea with its content up to 3 lines, then scroll.
   // biome-ignore lint/correctness/useExhaustiveDependencies: resize when prompt changes

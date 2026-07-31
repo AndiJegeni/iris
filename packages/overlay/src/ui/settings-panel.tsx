@@ -1,7 +1,7 @@
 /** @jsxImportSource preact */
 import { type AuthStatus, type Provider, type ProviderAuthStatus, VERSION } from '@iris/shared';
 import { useState } from 'preact/hooks';
-import { ChevronLeftIcon, ChevronRightIcon, MoonIcon, SunIcon } from './icons';
+import { CheckboxCheckIcon, ChevronLeftIcon, ChevronRightIcon, MoonIcon, SunIcon } from './icons';
 import { type OverlayTheme, type ThemeTokens, tokens } from './theme';
 
 type SettingsPanelProps = {
@@ -11,6 +11,9 @@ type SettingsPanelProps = {
   onClose: () => void;
   /** Flip the overlay between light and dark. */
   onToggleTheme?: () => void;
+  /** Whether the overlay blocks clicks/scrolls on the host page. */
+  blockInteractions?: boolean;
+  onToggleBlockInteractions?: (next: boolean) => void;
   /** Current provider auth status from the daemon (null until fetched). */
   auth?: AuthStatus | null;
   /** Start a subscription login (opens the browser via the daemon). */
@@ -47,6 +50,8 @@ export function SettingsPanel({
   theme = 'dark',
   anchorStyle,
   onToggleTheme,
+  blockInteractions = false,
+  onToggleBlockInteractions,
   auth,
   onLogin,
   onLogout,
@@ -66,6 +71,8 @@ export function SettingsPanel({
           t={t}
           theme={theme}
           onToggleTheme={onToggleTheme}
+          blockInteractions={blockInteractions}
+          onToggleBlockInteractions={onToggleBlockInteractions}
           onOpenAccounts={() => setView('accounts')}
         />
       ) : (
@@ -86,11 +93,15 @@ function SettingsView({
   t,
   theme,
   onToggleTheme,
+  blockInteractions,
+  onToggleBlockInteractions,
   onOpenAccounts,
 }: {
   t: ThemeTokens;
   theme: OverlayTheme;
   onToggleTheme: (() => void) | undefined;
+  blockInteractions: boolean;
+  onToggleBlockInteractions: ((next: boolean) => void) | undefined;
   onOpenAccounts: () => void;
 }) {
   return (
@@ -115,6 +126,18 @@ function SettingsView({
       </div>
 
       <div style={{ padding: '2px 8px 8px' }}>
+        <button
+          type="button"
+          className="la-sp-row"
+          style={rowStyle(t)}
+          onClick={() => onToggleBlockInteractions?.(!blockInteractions)}
+        >
+          <span style={{ fontSize: '12px', color: t.textPrimary }}>Block page interactions</span>
+          <Checkbox checked={blockInteractions} t={t} />
+        </button>
+
+        <div style={dividerStyle(t)} />
+
         <button type="button" className="la-sp-row" style={rowStyle(t)} onClick={onOpenAccounts}>
           <span style={{ fontSize: '12px', color: t.textPrimary }}>Accounts</span>
           <span style={{ display: 'inline-flex', color: t.textFaint }}>
@@ -349,6 +372,35 @@ const panelHeader = (_t: ThemeTokens) => ({
   justifyContent: 'space-between',
   padding: '9px 9px 5px 12px',
 });
+
+const dividerStyle = (t: ThemeTokens) => ({
+  height: '1px',
+  background: t.controlBorder,
+  // Inset so the rule reads as a subtle hairline between the two rows rather
+  // than a full-width separator.
+  margin: '3px 40px',
+});
+
+function Checkbox({ checked, t }: { checked: boolean; t: ThemeTokens }) {
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '16px',
+        height: '16px',
+        borderRadius: '4px',
+        flexShrink: 0,
+        border: checked ? `1px solid ${t.accent}` : `1px solid ${t.controlBorder}`,
+        background: checked ? t.accent : 'transparent',
+        color: t.accentText,
+      }}
+    >
+      {checked ? <CheckboxCheckIcon /> : null}
+    </span>
+  );
+}
 
 const rowStyle = (_t: ThemeTokens) => ({
   display: 'flex',

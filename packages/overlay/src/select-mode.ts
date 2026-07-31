@@ -1,4 +1,4 @@
-import { OVERLAY_HOST_ID } from './index';
+import { OVERLAY_HOST_ID, SHIELD_ATTR } from './constants';
 
 export type SelectModeHandlers = {
   /** Fired when the hover/pick "selecting" mode turns on or off (armed OR Alt-held, and not paused). */
@@ -105,7 +105,7 @@ export function startSelectMode(handlers: SelectModeHandlers): SelectModeControl
 
   const onClickCapture = (e: MouseEvent) => {
     // Never treat clicks on our own overlay (pill, popover) as element picks.
-    if ((e.target as Element | null)?.id === OVERLAY_HOST_ID) return;
+    if (isOverlayChrome(e)) return;
     if (!isSelecting()) return;
     // When armed, a plain click picks. For transient Alt mode, require Alt held.
     if (!armed && !e.altKey) return;
@@ -165,6 +165,23 @@ function setCrosshairCursor(on: boolean): void {
     crosshairStyle?.remove();
     crosshairStyle = null;
   }
+}
+
+/**
+ * Did this event land on the overlay's own UI (pill, popover, panel)?
+ *
+ * Tested against `composedPath()` rather than `event.target`, because the overlay
+ * lives in a shadow root: by the time an event reaches window, anything inside it
+ * has retargeted to the shadow host, so `target` can't distinguish *which* part
+ * of the overlay was hit. The interaction shield is the one part that is
+ * deliberately not chrome — it's a transparent stand-in for the page beneath it,
+ * so clicking it must still pick the element underneath.
+ */
+function isOverlayChrome(e: Event): boolean {
+  const path = e.composedPath?.() ?? [];
+  const hit = path[0];
+  if (hit instanceof Element && hit.hasAttribute(SHIELD_ATTR)) return false;
+  return path.some((n) => n instanceof Element && n.id === OVERLAY_HOST_ID);
 }
 
 /**
