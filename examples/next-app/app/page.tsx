@@ -7,7 +7,7 @@ export default function Home() {
   return (
     <main className="page">
       <header className="hero">
-        <h1>localagents</h1>
+        <h1>iris</h1>
         <p className="tag">Hold Alt and click an element to start.</p>
       </header>
 
@@ -35,9 +35,8 @@ export default function Home() {
       </section>
 
       <footer className="footer">
-        <small>made with localagents</small>
+        <small>made with iris</small>
       </footer>
     </main>
   );
 }
-// changed by agent-2

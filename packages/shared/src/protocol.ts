@@ -1,13 +1,65 @@
 import { z } from 'zod';
 
+/**
+ * Released version, surfaced by the CLI banner, `GET /health`, and the overlay's
+ * Settings panel. Kept here so those three can't disagree; bump it together with
+ * the package.json versions when cutting a release.
+ */
+export const VERSION = '0.1.0';
+
+// ---------- Capabilities ----------
+
+/**
+ * What this daemon can actually do, given the machine it's running on. The
+ * overlay uses it to disable affordances up front rather than let a task fail
+ * on submit.
+ */
+export const Capabilities = z.object({
+  /** Worktree mode clones the repo — false outside a git work tree. */
+  git: z.boolean(),
+});
+export type Capabilities = z.infer<typeof Capabilities>;
+
 // ---------- Health ----------
 
+/** Body of `GET /health`. */
 export const HealthResponse = z.object({
   ok: z.literal(true),
   repo: z.string(),
   version: z.string(),
+  capabilities: Capabilities,
 });
 export type HealthResponse = z.infer<typeof HealthResponse>;
+
+// ---------- Auth ----------
+
+/** The two credential providers the daemon can authenticate against. */
+export const Provider = z.enum(['anthropic', 'openai']);
+export type Provider = z.infer<typeof Provider>;
+
+/** How a provider authenticates: a pay-per-use API key, a subscription login, or nothing. */
+export const AuthMethod = z.enum(['api-key', 'oauth', 'none']);
+export type AuthMethod = z.infer<typeof AuthMethod>;
+
+export const ProviderAuthStatus = z.object({
+  method: AuthMethod,
+  configured: z.boolean(),
+  /** Where the credential came from: flag, env, config, oauth, or missing. */
+  source: z.string(),
+  /**
+   * A real run was rejected by this credential (expired subscription session or
+   * a bad key). The daemon's own record can look healthy while this is true.
+   */
+  expired: z.boolean().optional(),
+});
+export type ProviderAuthStatus = z.infer<typeof ProviderAuthStatus>;
+
+/** Body of `GET /auth/status`. */
+export const AuthStatus = z.object({
+  anthropic: ProviderAuthStatus,
+  openai: ProviderAuthStatus,
+});
+export type AuthStatus = z.infer<typeof AuthStatus>;
 
 // ---------- Source location ----------
 
@@ -43,26 +95,65 @@ export const MAX_IMAGES_PER_ANNOTATION = 6;
 export const Backend = z.enum(['claude', 'codex', 'echo']);
 export type Backend = z.infer<typeof Backend>;
 
-/** Known model value → human display label. Single source of truth shared by
- *  the picker UI and the task panel so they never drift. */
-export const MODEL_LABELS: Record<string, string> = {
-  'opus-4.8': 'Opus 4.8',
-  'opus-4.8-1m': 'Opus 4.8 (1M context)',
-  'sonnet-4.6': 'Sonnet 4.6',
-  'haiku-4.5': 'Haiku 4.5',
-  'gpt-5.4': 'GPT-5.4',
-  'gpt-5.5': 'GPT-5.5',
+/** Model family, which decides both the picker grouping and the effort tiers. */
+export const ModelProvider = z.enum(['claude', 'gpt']);
+export type ModelProvider = z.infer<typeof ModelProvider>;
+
+export type ModelSpec = {
+  value: string;
+  label: string;
+  provider: ModelProvider;
+  /** Which runner executes this model. */
+  backend: Backend;
 };
+
+/**
+ * Every model the UI offers, in display order. Single source of truth: the
+ * picker, the task panel's label lookup, and the backend routing all read this,
+ * so adding a model is a one-line change here. Claude legacy models are
+ * intentionally omitted.
+ */
+export const MODELS: ModelSpec[] = [
+  { value: 'opus-4.8', label: 'Opus 4.8', provider: 'claude', backend: 'claude' },
+  { value: 'opus-4.8-1m', label: 'Opus 4.8 (1M context)', provider: 'claude', backend: 'claude' },
+  { value: 'sonnet-4.6', label: 'Sonnet 4.6', provider: 'claude', backend: 'claude' },
+  { value: 'haiku-4.5', label: 'Haiku 4.5', provider: 'claude', backend: 'claude' },
+  { value: 'gpt-5.4', label: 'GPT-5.4', provider: 'gpt', backend: 'codex' },
+  { value: 'gpt-5.5', label: 'GPT-5.5', provider: 'gpt', backend: 'codex' },
+];
+
+/** Pre-selected model for a new task. */
+export const DEFAULT_MODEL = 'opus-4.8-1m';
+
+/** Stand-in when a stored model value is no longer in the catalog. */
+export const FALLBACK_MODEL: ModelSpec = MODELS[0] as ModelSpec;
 
 /** Display label for a model value, falling back to the raw value. */
 export function modelLabel(value: string): string {
-  return MODEL_LABELS[value] ?? value;
+  return MODELS.find((m) => m.value === value)?.label ?? value;
 }
 
 // Reasoning effort. Claude exposes low→max; GPT (codex) tops out at extra-high
 // and has no "max" tier — the UI filters per provider.
 export const ReasoningEffort = z.enum(['low', 'medium', 'high', 'extra', 'max', 'extra-high']);
 export type ReasoningEffort = z.infer<typeof ReasoningEffort>;
+
+/** Selectable effort tiers per model family, in display order. */
+export const EFFORTS: Record<ModelProvider, { value: ReasoningEffort; label: string }[]> = {
+  claude: [
+    { value: 'low', label: 'Low' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'high', label: 'High' },
+    { value: 'extra', label: 'Extra' },
+    { value: 'max', label: 'Max' },
+  ],
+  gpt: [
+    { value: 'low', label: 'Low' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'high', label: 'High' },
+    { value: 'extra-high', label: 'Extra High' },
+  ],
+};
 
 export const WorktreeMode = z.enum(['same', 'new']);
 export type WorktreeMode = z.infer<typeof WorktreeMode>;
@@ -152,10 +243,35 @@ export const TranscriptEntry = z.object({
 });
 export type TranscriptEntry = z.infer<typeof TranscriptEntry>;
 
+/**
+ * Append a transcript entry, or merge it into the existing one with the same id.
+ * Entries stream in as partials (a tool call is emitted when it starts, then
+ * again with its result), so a same-id arrival updates rather than duplicates.
+ *
+ * Shared because the daemon and the overlay each keep their own copy of the
+ * transcript and must fold updates in identically.
+ */
+export function mergeTranscriptEntry(
+  cur: TranscriptEntry[],
+  entry: TranscriptEntry,
+): { entries: TranscriptEntry[]; merged: TranscriptEntry } {
+  const idx = cur.findIndex((e) => e.id === entry.id);
+  if (idx < 0) return { entries: [...cur, entry], merged: entry };
+  const merged = { ...cur[idx], ...entry };
+  const entries = [...cur];
+  entries[idx] = merged;
+  return { entries, merged };
+}
+
 // ---------- WebSocket events ----------
 
 export const WsEvent = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('hello'), worktrees: z.array(Worktree), tasks: z.array(Task) }),
+  z.object({
+    type: z.literal('hello'),
+    worktrees: z.array(Worktree),
+    tasks: z.array(Task),
+    capabilities: Capabilities,
+  }),
   z.object({ type: z.literal('task:created'), task: Task }),
   z.object({ type: z.literal('task:updated'), task: Task }),
   z.object({ type: z.literal('task:log'), id: z.string(), line: z.string() }),

@@ -74,8 +74,8 @@ export function startSelectMode(handlers: SelectModeHandlers): SelectModeControl
     if (e.key === 'Escape') {
       // While paused, a popover is open: Escape belongs to it (the overlay closes
       // the popover and resumes), so select mode stays armed to keep picking.
-      // Only disarm when actively selecting with nothing open. This mirrors
-      // Agentation — sending or cancelling a message keeps you in select mode.
+      // Only disarm when actively selecting with nothing open: sending or
+      // cancelling a message should keep you in select mode for the next pick.
       if (paused) return;
       armed = false;
       altActive = false;
@@ -145,8 +145,9 @@ export function startSelectMode(handlers: SelectModeHandlers): SelectModeControl
   return { arm, disarm, pause, resume, dispose };
 }
 
-// Force a crosshair cursor across the whole host page while selecting (matches
-// Agentation's "click the icon → cursor turns into a +" feel). Injected as a
+// Force a crosshair cursor across the whole host page while selecting, so
+// arming the picker is felt immediately ("click the icon → the cursor turns
+// into a +") rather than only shown in the pill. Injected as a
 // global `!important` rule so it overrides every element's own cursor. It lives
 // in the host document's <head>, so it does NOT pierce the overlay's shadow root
 // — the pill/popover keep their normal pointer cursors.
@@ -156,7 +157,7 @@ function setCrosshairCursor(on: boolean): void {
   if (on) {
     if (crosshairStyle) return;
     const style = document.createElement('style');
-    style.setAttribute('data-localagents-cursor', '');
+    style.setAttribute('data-iris-cursor', '');
     style.textContent = '*, *::before, *::after { cursor: crosshair !important; }';
     document.head.appendChild(style);
     crosshairStyle = style;

@@ -1,4 +1,5 @@
-import { execSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { commandExists } from './util';
 
 /**
  * Interactive subscription-login flows. Both delegate to the official CLIs,
@@ -11,23 +12,14 @@ import { execSync, spawn } from 'node:child_process';
  *
  * The daemon runs locally on the user's machine, so spawning a browser-opening
  * CLI works. We give each flow a generous timeout in case the browser leg
- * stalls. (NB: we deliberately do NOT use `claude setup-token` — it mints a
- * captured token, which is both interactive-paste-prone and the "offer claude.ai
- * login" path Anthropic's Agent SDK terms reserve for approved partners.)
+ * stalls. Note that these commands are the CLIs' own login flows: the session
+ * belongs to the CLI, lives wherever it already keeps it, and Iris holds no
+ * credential of its own for either provider.
  */
 
 export type LoginResult = { ok: boolean; error?: string };
 
 const LOGIN_TIMEOUT_MS = 180_000;
-
-function commandExists(cmd: string): boolean {
-  try {
-    execSync(`command -v ${cmd}`, { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Spawn a browser-opening CLI login and resolve when it exits. We never read its

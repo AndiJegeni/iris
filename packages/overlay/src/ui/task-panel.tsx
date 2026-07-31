@@ -1,8 +1,22 @@
 /** @jsxImportSource preact */
-import { modelLabel, type Task, type TranscriptEntry } from '@localagents/shared';
+import type { Task, TranscriptEntry } from '@iris/shared';
 import { useEffect, useState } from 'preact/hooks';
+import { BackgroundTasksIcon, CloseThinIcon } from './icons';
 import { TaskChat } from './task-chat';
-import { type OverlayTheme, type ThemeTokens, tokens } from './theme';
+import {
+  CHAT_WIDTH,
+  DRAWER_MARGIN,
+  DRAWER_WIDTH,
+  buttonStyle,
+  clearBtn,
+  countStyle,
+  iconBtn,
+  panelHeader,
+  panelStyle,
+  sectionHeader,
+} from './task-panel.styles';
+import { TaskRow, isRunning } from './task-row';
+import { type OverlayTheme, tokens } from './theme';
 
 type TaskPanelProps = {
   tasks: Task[];
@@ -21,59 +35,6 @@ type TaskPanelProps = {
   open?: boolean;
   /** Fired when the panel wants to open/close — pairs with `open` for control. */
   onOpenChange?: (open: boolean) => void;
-};
-
-const DRAWER_WIDTH = 400;
-const CHAT_WIDTH = 460;
-const DRAWER_MARGIN = 8;
-
-function isRunning(t: Task): boolean {
-  return t.status === 'queued' || t.status === 'running' || t.status === 'editing';
-}
-
-function elapsed(t: Task): string {
-  const end = isRunning(t) ? Date.now() : t.updatedAt;
-  const secs = Math.max(0, Math.round((end - t.createdAt) / 1000));
-  if (secs < 60) return `${secs}s`;
-  const m = Math.floor(secs / 60);
-  const s = secs % 60;
-  return `${m}m ${s}s`;
-}
-
-/** Model display name for a task — the model's label, else the backend name. */
-function modelName(t: Task): string {
-  return t.model?.trim() ? modelLabel(t.model) : capitalize(t.backend);
-}
-
-function statusLine(t: Task): string {
-  const model = modelName(t);
-  switch (t.status) {
-    case 'queued':
-      return 'Queued';
-    case 'running':
-      return model;
-    case 'editing':
-      return t.message ?? model;
-    case 'done':
-      return `${model} · Completed`;
-    case 'failed':
-      return `${model} · Failed`;
-    case 'cancelled':
-      return 'Cancelled';
-  }
-}
-
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-const DOT_COLOR: Record<Task['status'], string> = {
-  queued: '#a1a1aa',
-  running: '#3b82f6',
-  editing: '#8b5cf6',
-  done: '#16a34a',
-  failed: '#dc2626',
-  cancelled: '#a1a1aa',
 };
 
 /**
@@ -153,9 +114,7 @@ export function TaskPanel({
 
   return (
     <>
-      <style>
-        {'.la-tp-dim{opacity:0.5;transition:opacity 80ms}.la-tp-dim:hover{opacity:1}'}
-      </style>
+      <style>{'.la-tp-dim{opacity:0.5;transition:opacity 80ms}.la-tp-dim:hover{opacity:1}'}</style>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -203,14 +162,7 @@ export function TaskPanel({
                   style={iconBtn(t)}
                   aria-label="Close"
                 >
-                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-                    <path
-                      d="M4 4 L12 12 M12 4 L4 12"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                    />
-                  </svg>
+                  <CloseThinIcon />
                 </button>
               </div>
 
@@ -282,215 +234,3 @@ export function TaskPanel({
     </>
   );
 }
-
-type TaskRowProps = {
-  task: Task;
-  t: ThemeTokens;
-  hasTranscript: boolean;
-  onOpenChat: () => void;
-  onCancel?: () => void;
-  /** Re-run this task; only rendered for failed rows. */
-  onRetry?: () => void;
-};
-
-function TaskRow({ task, t, hasTranscript, onOpenChat, onCancel, onRetry }: TaskRowProps) {
-  const failed = task.status === 'failed';
-  return (
-    <div style={cardStyle(t)}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '9px' }}>
-        {/* Only the failed state shows a status dot. */}
-        {failed ? (
-          <span
-            style={{
-              width: '8px',
-              height: '8px',
-              borderRadius: '999px',
-              background: DOT_COLOR[task.status],
-              marginTop: '5px',
-              flexShrink: 0,
-            }}
-          />
-        ) : null}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 500, fontSize: '12px', color: t.textPrimary }}>
-            {task.prompt}
-          </div>
-          <div style={{ color: t.textMuted, fontSize: '12px', marginTop: '2px' }}>
-            {statusLine(task)} <span style={{ color: t.textFaint }}>· {elapsed(task)}</span>
-          </div>
-          {/* Failed rows show Retry alongside View chat — a clear way to re-run. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            {hasTranscript ? (
-              <button type="button" style={viewChatLink(t)} onClick={onOpenChat}>
-                View chat
-              </button>
-            ) : null}
-            {failed && onRetry ? (
-              <button type="button" style={retryBtn(t)} onClick={onRetry}>
-                Retry
-              </button>
-            ) : null}
-          </div>
-        </div>
-        {onCancel ? (
-          <button type="button" className="la-tp-dim" style={stopBtn(t)} onClick={onCancel}>
-            Stop
-          </button>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-// Two overlapping circles — from assets/icons/background.svg.
-function BackgroundTasksIcon({ color }: { color: string }) {
-  return (
-    <svg viewBox="0 0 24 24" width="18" height="18" style={{ display: 'block' }} aria-hidden="true">
-      {/* kebab-case attrs — Preact doesn't map camelCase SVG props, so strokeWidth
-          was being dropped. 1.8 in a 24 viewBox ≈ the modal icons' visual weight. */}
-      <g stroke={color} stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M12.6749 16.2962C15.0082 13.9629 15.0082 10.1797 12.6749 7.84634C10.3415 5.51296 6.55833 5.51296 4.22495 7.84634C1.89157 10.1797 1.89157 13.9629 4.22495 16.2962C6.55833 18.6296 10.3415 18.6296 12.6749 16.2962Z" />
-        <path d="M19.9176 16.2962C22.251 13.9629 22.251 10.1797 19.9176 7.84634C17.5843 5.51296 13.8011 5.51296 11.4677 7.84634C9.13435 10.1797 9.13435 13.9629 11.4677 16.2962C13.8011 18.6296 17.5843 18.6296 19.9176 16.2962Z" />
-      </g>
-    </svg>
-  );
-}
-
-const buttonStyle = (t: ThemeTokens) => ({
-  position: 'fixed' as const,
-  top: '14px',
-  right: '14px',
-  height: '34px',
-  minWidth: '34px',
-  padding: '0 10px',
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: '4px',
-  background: t.controlBg,
-  border: `1px solid ${t.controlBorder}`,
-  borderRadius: '999px',
-  cursor: 'pointer',
-  boxShadow: t.pillShadow,
-  pointerEvents: 'auto' as const,
-});
-
-const countStyle = {
-  fontSize: '13px',
-  fontWeight: 600,
-  fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-  letterSpacing: '-0.02em',
-};
-
-const panelStyle = (t: ThemeTokens, theme: OverlayTheme) => ({
-  position: 'fixed' as const,
-  top: `${DRAWER_MARGIN}px`,
-  right: `${DRAWER_MARGIN}px`,
-  bottom: `${DRAWER_MARGIN}px`,
-  // Fully opaque (no see-through to the page): the surface token is ~98% alpha,
-  // so paint a solid theme-appropriate fill. Dark → solid dark, light → solid
-  // white. Shadow + rounding below are unchanged.
-  background: theme === 'light' ? '#ffffff' : '#0f0f0f',
-  border: `1px solid ${t.surfaceBorder}`,
-  borderRadius: '16px',
-  boxShadow: t.surfaceShadow,
-  pointerEvents: 'auto' as const,
-  display: 'flex',
-  flexDirection: 'column' as const,
-  color: t.textPrimary,
-  fontFamily: 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
-  fontSize: '12px',
-  letterSpacing: '-0.02em',
-  overflow: 'hidden',
-});
-
-const panelHeader = (_t: ThemeTokens) => ({
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  // Left padding matches the section labels (container 16 + sectionHeader 6).
-  padding: '16px 16px 10px 22px',
-});
-
-// Matches the "Background Tasks" header (medium weight, 50% ink). Labels are
-// nudged 4px right / Clear 4px left via the padding.
-const sectionHeader = (t: ThemeTokens) => ({
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  color: t.textPrimary,
-  opacity: 0.5,
-  fontSize: '12px',
-  fontWeight: 500,
-  padding: '8px 6px 6px',
-});
-
-const cardStyle = (t: ThemeTokens) => ({
-  background: t.cardBg,
-  borderRadius: '6px',
-  padding: '11px 12px',
-  marginBottom: '7px',
-});
-
-// Text-only button: 50% ink, no fill/border, brightens to 100% on hover
-// (handled by the .la-tp-dim rule). Slightly rounded for the focus ring.
-const stopBtn = (t: ThemeTokens) => ({
-  background: 'transparent',
-  border: 'none',
-  borderRadius: '4px',
-  padding: '4px 6px',
-  fontSize: '12px',
-  fontWeight: 500,
-  color: t.textPrimary,
-  cursor: 'pointer',
-  flexShrink: 0,
-  fontFamily: 'inherit',
-});
-
-const clearBtn = (_t: ThemeTokens) => ({
-  background: 'transparent',
-  border: 'none',
-  // Inherits the section header's 50%-ink color.
-  color: 'inherit',
-  fontSize: '12px',
-  cursor: 'pointer',
-  padding: 0,
-  fontFamily: 'inherit',
-});
-
-const viewChatLink = (t: ThemeTokens) => ({
-  background: 'transparent',
-  border: 'none',
-  color: t.link,
-  fontSize: '12px',
-  cursor: 'pointer',
-  padding: 0,
-  marginTop: '8px',
-  // Sits left-aligned under the status line.
-  display: 'block',
-  fontFamily: 'inherit',
-});
-
-// Failed-row "Retry" — a clearly-visible pill that re-runs the original prompt.
-// Tinted with the accent so it reads as the primary recovery action.
-const retryBtn = (t: ThemeTokens) => ({
-  background: t.accent,
-  border: 'none',
-  borderRadius: '6px',
-  color: t.accentText,
-  fontSize: '12px',
-  fontWeight: 500,
-  cursor: 'pointer',
-  padding: '4px 10px',
-  marginTop: '8px',
-  display: 'block',
-  fontFamily: 'inherit',
-});
-
-const iconBtn = (t: ThemeTokens) => ({
-  background: 'transparent',
-  border: 'none',
-  color: t.textFaint,
-  cursor: 'pointer',
-  padding: '2px',
-  display: 'inline-flex',
-});

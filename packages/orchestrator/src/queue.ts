@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import type { Annotation, Backend, Task, TaskStatus, TranscriptEntry } from '@localagents/shared';
+import {
+  type Annotation,
+  type Backend,
+  type Task,
+  type TaskStatus,
+  type TranscriptEntry,
+  mergeTranscriptEntry,
+} from '@iris/shared';
 import type { AgentRunner, RunRequest } from './agents/types';
 import type { EventBus } from './events';
 
@@ -26,7 +33,7 @@ function isRunnable(status: TaskStatus): boolean {
  * second waits for the first to finish before starting. Tasks against
  * *different* worktrees run in parallel.
  *
- * State is in-memory; restart of the daemon drops the queue. v0 acceptable.
+ * State is in-memory; restarting the daemon drops the queue.
  */
 export class TaskQueue {
   private waiting = new Map<string, QueueEntry[]>(); // by worktreeSlug
@@ -51,12 +58,15 @@ export class TaskQueue {
     return this.transcripts.get(taskId) ?? [];
   }
 
-  /** Snapshot every known task. Used to populate `hello` events. */
+  /**
+   * Snapshot every known task. Used to populate `hello` events.
+   *
+   * Reads `byId`, which holds finished tasks too — walking `running`/`waiting`
+   * instead would drop everything already done, so a reconnecting client would
+   * see its completed tasks vanish even though they're still resumable.
+   */
   list(): Task[] {
-    const out: Task[] = [];
-    for (const e of this.running.values()) out.push(e.task);
-    for (const q of this.waiting.values()) for (const e of q) out.push(e.task);
-    return out.sort((a, b) => a.createdAt - b.createdAt);
+    return [...this.byId.values()].map((e) => e.task).sort((a, b) => a.createdAt - b.createdAt);
   }
 
   enqueue(
@@ -106,6 +116,11 @@ export class TaskQueue {
     if (!entry) return { ok: false, error: 'task not found' };
     if (isRunnable(entry.task.status)) return { ok: false, error: 'task is still running' };
 
+    // Snapshot the conversation before appending the new message: it's the
+    // context for this turn, and a backend that can't resume its own session
+    // replays it into the prompt.
+    const priorTranscript = this.getTranscript(taskId);
+
     // Record the follow-up, then re-arm the entry to resume with the new prompt.
     this.appendEntry(taskId, { id: randomUUID(), role: 'user', at: Date.now(), text });
     entry.abort = new AbortController();
@@ -113,6 +128,7 @@ export class TaskQueue {
       ...entry.request,
       prompt: text,
       ...(entry.sessionId ? { resumeSessionId: entry.sessionId } : {}),
+      ...(priorTranscript.length > 0 ? { priorTranscript } : {}),
     };
     this.updateStatus(entry, 'queued');
 
@@ -126,19 +142,8 @@ export class TaskQueue {
 
   /** Append a transcript entry, or update one in place when its id already exists. */
   private appendEntry(taskId: string, entry: TranscriptEntry): void {
-    const cur = this.transcripts.get(taskId) ?? [];
-    const idx = cur.findIndex((e) => e.id === entry.id);
-    let merged: TranscriptEntry;
-    let next: TranscriptEntry[];
-    if (idx >= 0) {
-      merged = { ...cur[idx], ...entry };
-      next = [...cur];
-      next[idx] = merged;
-    } else {
-      merged = entry;
-      next = [...cur, entry];
-    }
-    this.transcripts.set(taskId, next);
+    const { entries, merged } = mergeTranscriptEntry(this.transcripts.get(taskId) ?? [], entry);
+    this.transcripts.set(taskId, entries);
     this.bus.broadcast({ type: 'task:entry', id: taskId, entry: merged });
   }
 

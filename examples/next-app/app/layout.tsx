@@ -1,9 +1,9 @@
 import './globals.css';
-import { LocalAgents } from '@localagents/react';
+import { Iris } from '@useiris/react';
 import type { ReactNode } from 'react';
 
 export const metadata = {
-  title: 'localagents example',
+  title: 'iris example',
   description: 'Click an element, queue a task.',
 };
 
@@ -12,7 +12,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en">
       <body>
         {children}
-        <LocalAgents />
+        <Iris />
       </body>
     </html>
   );

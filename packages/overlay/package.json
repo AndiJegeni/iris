@@ -1,6 +1,6 @@
 {
-  "name": "@localagents/overlay",
-  "version": "0.0.1",
+  "name": "@iris/overlay",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": {
@@ -13,7 +13,7 @@
     "./ui/settings-panel": "./src/ui/settings-panel.tsx"
   },
   "dependencies": {
-    "@localagents/shared": "workspace:*",
+    "@iris/shared": "workspace:*",
     "preact": "^10.25.4"
   }
 }

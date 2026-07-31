@@ -1,10 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import type { TranscriptEntry } from '@localagents/shared';
+import type { TranscriptEntry } from '@iris/shared';
+import { sleep } from '../util';
 import type { AgentRunner, RunEvent, RunRequest } from './types';
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 function entry(e: Omit<TranscriptEntry, 'at'>): RunEvent {
   return { kind: 'entry', entry: { ...e, at: Date.now() } };
@@ -17,6 +14,11 @@ function entry(e: Omit<TranscriptEntry, 'at'>): RunEvent {
  * path can be exercised without burning Anthropic credits.
  *
  * Selected via the `backend: 'echo'` value on an annotation when developing.
+ * Deliberately not offered in the model picker — reach it by POSTing to
+ * `/annotate` directly:
+ *
+ *   curl -X POST localhost:4747/annotate -H 'content-type: application/json' \
+ *     -d '{"prompt":"hi","backend":"echo","worktreeMode":"same", …}'
  */
 export const echoRunner: AgentRunner = async function* (req: RunRequest): AsyncGenerator<RunEvent> {
   yield { kind: 'status', status: 'running' };

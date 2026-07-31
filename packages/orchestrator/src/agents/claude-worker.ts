@@ -1,12 +1,11 @@
-#!/usr/bin/env bun
 /**
  * Claude agent worker — runs ONE task (or one follow-up turn) in its own process.
  *
  * Why a separate process: the Agent SDK resolves file edits against
  * `process.cwd()`, NOT the `cwd` option passed to `query()`. To isolate a task
- * to its worktree, the parent spawns this script with `Bun.spawn(..., { cwd })`
- * so this process's cwd IS the worktree. Edits then land in the right place,
- * and parallel tasks (each its own process) never clobber each other's cwd.
+ * to its worktree, the parent spawns this script with `{ cwd }` so this
+ * process's cwd IS the worktree. Edits then land in the right place, and
+ * parallel tasks (each its own process) never clobber each other's cwd.
  *
  * Protocol:
  *   - stdin:  one JSON line `{ prompt: string, resume?: string }`
@@ -19,18 +18,13 @@
  */
 import { randomUUID } from 'node:crypto';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { TranscriptEntry } from '@localagents/shared';
+import type { TranscriptEntry } from '@iris/shared';
 import { isAuthError } from '../auth-errors';
-
-type RunEvent =
-  | { kind: 'status'; status: 'running' | 'editing' }
-  | { kind: 'log'; line: string }
-  | { kind: 'edit'; file: string; description?: string }
-  | { kind: 'entry'; entry: TranscriptEntry }
-  | { kind: 'session'; sessionId: string }
-  | { kind: 'done'; summary?: string }
-  | { kind: 'needs-auth'; message: string }
-  | { kind: 'error'; message: string };
+import { CLAUDE_BINARY_ENV } from '../claude-binary';
+// The parent parses stdout back into this exact union, so it is the wire format
+// between the two processes — import it rather than restating it here, where a
+// silent drift would only surface as a dropped event at runtime.
+import type { RunEvent } from './types';
 
 function emit(ev: RunEvent): void {
   process.stdout.write(`${JSON.stringify(ev)}\n`);
@@ -40,8 +34,17 @@ function emitEntry(entry: TranscriptEntry): void {
   emit({ kind: 'entry', entry });
 }
 
+function readStdin(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    process.stdin.on('data', (c: Buffer) => chunks.push(c));
+    process.stdin.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    process.stdin.on('error', reject);
+  });
+}
+
 async function main(): Promise<void> {
-  const input = await Bun.stdin.text();
+  const input = await readStdin();
   let prompt: string;
   let resume: string | undefined;
   try {
@@ -57,11 +60,16 @@ async function main(): Promise<void> {
     const iter = query({
       prompt,
       options: {
-        // process.cwd() is the worktree (set by the parent's Bun.spawn cwd).
+        // process.cwd() is the worktree (set by the parent's spawn cwd).
         cwd: process.cwd(),
         allowedTools: ['Read', 'Edit', 'Write', 'Bash', 'Glob', 'Grep'],
         permissionMode: 'bypassPermissions',
         maxTurns: 25,
+        // Set when the daemon found a usable `claude` on PATH; omitted otherwise
+        // so the SDK falls back to its own vendored executable.
+        ...(process.env[CLAUDE_BINARY_ENV]
+          ? { pathToClaudeCodeExecutable: process.env[CLAUDE_BINARY_ENV] }
+          : {}),
         // Resume a prior session for follow-up messages (undefined → fresh run).
         ...(resume ? { resume } : {}),
       },

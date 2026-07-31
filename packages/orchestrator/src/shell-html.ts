@@ -18,7 +18,7 @@ export function shellHtml(mainPort: number): string {
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>localagents</title>
+    <title>iris</title>
     <style>
       * { box-sizing: border-box; }
       html, body { margin: 0; padding: 0; height: 100%; background: #0a0a0a; color: #f4f4f5; font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
@@ -64,7 +64,7 @@ export function shellHtml(mainPort: number): string {
   </head>
   <body>
     <header>
-      <span class="logo">localagents</span>
+      <span class="logo">iris</span>
       <span><span class="dot connecting" id="conn-dot"></span></span>
       <label style="display:flex; align-items:center; gap:6px; color:#a1a1aa;">
         viewport
@@ -137,7 +137,7 @@ export function shellHtml(mainPort: number): string {
         document.getElementById('ship-btn').addEventListener('click', async function() {
           var slug = selectEl.value;
           if (slug === 'main') return;
-          if (!confirm('Merge ' + slug + ' into main? This commits any pending changes in the worktree and runs git merge --no-ff.')) return;
+          if (!confirm('Merge ' + slug + ' into main? This commits any pending changes in the worktree, merges them into main, and then deletes the worktree.')) return;
           var btn = document.getElementById('ship-btn');
           btn.disabled = true; btn.textContent = 'shipping…';
           try {
@@ -155,7 +155,7 @@ export function shellHtml(mainPort: number): string {
         document.getElementById('discard-btn').addEventListener('click', async function() {
           var slug = selectEl.value;
           if (slug === 'main') return;
-          if (!confirm('Discard worktree ' + slug + '? This kills its dev server and removes the worktree directory. Branch ' + slug + ' is kept.')) return;
+          if (!confirm('Discard worktree ' + slug + '? This kills its dev server and deletes the worktree directory. Its branch lives inside that directory, so any uncommitted or unmerged work there is lost.')) return;
           try {
             await fetch(daemonOrigin + '/worktrees/' + encodeURIComponent(slug), { method: 'DELETE' });
           } catch (e) {

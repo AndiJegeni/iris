@@ -1,11 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { AuthMethod } from '@iris/shared';
 import { claudeSubscriptionLoggedIn, codexChatgptLoggedIn } from './credentials';
 
-export type AuthSource = 'flag' | 'env' | 'config' | 'oauth' | 'missing';
+export type { AuthMethod };
 
-/** How a provider authenticates: a pay-per-use API key, a subscription login, or nothing. */
-export type AuthMethod = 'api-key' | 'oauth' | 'none';
+export type AuthSource = 'flag' | 'env' | 'config' | 'oauth' | 'missing';
 
 export type ProviderAuth = {
   method: AuthMethod;
@@ -40,11 +40,20 @@ type ConfigShape = {
 };
 
 function configPath(repoRoot: string): string {
+  return join(repoRoot, '.iris', 'config.json');
+}
+
+/**
+ * Pre-rename config location. Read-only: we never write here, but honouring it
+ * means anyone who configured a key under the old name keeps working after
+ * upgrading instead of silently reverting to "not configured".
+ */
+function legacyConfigPath(repoRoot: string): string {
   return join(repoRoot, '.localagents', 'config.json');
 }
 
 function readConfig(repoRoot: string): ConfigShape {
-  const p = configPath(repoRoot);
+  const p = existsSync(configPath(repoRoot)) ? configPath(repoRoot) : legacyConfigPath(repoRoot);
   if (!existsSync(p)) return {};
   try {
     const parsed = JSON.parse(readFileSync(p, 'utf8')) as ConfigShape;
@@ -55,21 +64,50 @@ function readConfig(repoRoot: string): ConfigShape {
 }
 
 /**
- * Merge a partial update into `.localagents/config.json`. A key whose value is
- * `undefined` is removed from the stored config.
+ * Drop a `*` .gitignore inside `.iris/` so the directory ignores itself in the
+ * user's repo. This config can hold an API key, and it lands in whatever
+ * project Iris was pointed at — a project whose .gitignore we don't control and
+ * shouldn't edit. Self-ignoring covers every entry point (including a user who
+ * never ran `iris init`) without touching a file they own.
+ */
+function ignoreSelf(dir: string): void {
+  const p = join(dir, '.gitignore');
+  if (existsSync(p)) return;
+  try {
+    writeFileSync(p, '*\n');
+  } catch {
+    // Best-effort: a key that isn't ignored is still usable, and failing the
+    // write here would break saving credentials entirely.
+  }
+}
+
+/**
+ * Merge a partial update into `.iris/config.json`. A key whose value is
+ * `undefined` is removed from the stored config. Always writes to the current
+ * path — the first write migrates a legacy config forward, since readConfig()
+ * seeds the merge from whichever file exists.
+ *
+ * The file can hold API keys, so it is owner-only (0600 in a 0700 directory).
+ * The modes are set explicitly rather than left to the umask, and re-applied on
+ * every write so a file created before this was enforced gets tightened too.
  */
 export function writeConfig(
   repoRoot: string,
   patch: { [K in keyof ConfigShape]?: ConfigShape[K] | undefined },
 ): void {
-  const dir = join(repoRoot, '.localagents');
-  mkdirSync(dir, { recursive: true });
+  const dir = join(repoRoot, '.iris');
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  ignoreSelf(dir);
   const next: ConfigShape = { ...readConfig(repoRoot) };
   for (const [key, value] of Object.entries(patch) as [keyof ConfigShape, unknown][]) {
     if (value === undefined) delete next[key];
     else (next as Record<string, unknown>)[key] = value;
   }
-  writeFileSync(configPath(repoRoot), JSON.stringify(next, null, 2));
+  const p = configPath(repoRoot);
+  writeFileSync(p, JSON.stringify(next, null, 2), { mode: 0o600 });
+  // writeFileSync's mode only applies when it creates the file; an existing one
+  // keeps its old permissions, so tighten it unconditionally.
+  chmodSync(p, 0o600);
 }
 
 /**

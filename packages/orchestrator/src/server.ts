@@ -1,19 +1,23 @@
-import { Annotation } from '@localagents/shared';
+import { createServer } from 'node:net';
+import { type ServerType, serve } from '@hono/node-server';
+import { Annotation, type AuthStatus, type HealthResponse, VERSION } from '@iris/shared';
 import { Hono } from 'hono';
+import { WebSocketServer } from 'ws';
 import { getRunner } from './agents';
 import type { RunRequest } from './agents/types';
 import { type AuthState, resolveAuth, writeConfig } from './auth';
 import { backendProvider } from './auth-errors';
-import { EventBus, type WsClientData } from './events';
+import { type ClaudeBinary, resolveClaudeBinary } from './claude-binary';
+import { EventBus } from './events';
 import { loginAnthropic, loginOpenai, logoutAnthropic, logoutOpenai } from './login';
-import { bundleOverlay } from './overlay-bundle';
+import { getOverlayJs } from './overlay-bundle';
+import { isGitRepo } from './project';
 import { TaskQueue } from './queue';
 import { shellHtml } from './shell-html';
 import { WorktreeManager } from './worktrees';
 
-type BunServer = ReturnType<typeof Bun.serve>;
-
-export const VERSION = '0.0.1';
+// Re-exported so consumers (the CLI banner) keep importing it from here.
+export { VERSION };
 
 export type StartOptions = {
   repoRoot: string;
@@ -25,15 +29,47 @@ export type StartOptions = {
 };
 
 export type Orchestrator = {
-  server: BunServer;
   port: number;
   mainPort: number;
   auth: AuthState;
+  /** Which Claude Code executable agent runs will use. */
+  claudeBinary: ClaudeBinary;
   queue: TaskQueue;
   worktrees: WorktreeManager;
   bus: EventBus;
   stop: () => Promise<void>;
 };
+
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+/**
+ * Reject with the real listen error (EADDRINUSE / EACCES) if `port` can't be
+ * bound, so the caller can explain it instead of crashing mid-startup.
+ */
+function assertPortAvailable(port: number): Promise<void> {
+  return new Promise((resolvePort, rejectPort) => {
+    const probe = createServer();
+    probe.once('error', rejectPort);
+    probe.once('listening', () => probe.close(() => resolvePort()));
+    probe.listen(port, '127.0.0.1');
+  });
+}
+
+/**
+ * A localhost dev tool that can run code must not accept cross-site requests.
+ * Allow requests from any loopback origin (the user's app may run on any port);
+ * reject everything else. Requests without an Origin header are non-browser
+ * (curl / server-to-server) and are allowed — the daemon binds to loopback only.
+ */
+function isLoopbackOrigin(origin: string | undefined): boolean {
+  if (!origin) return false;
+  try {
+    const { hostname } = new URL(origin);
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+  } catch {
+    return false;
+  }
+}
 
 export async function start(opts: StartOptions): Promise<Orchestrator> {
   const port = opts.port ?? 4747;
@@ -60,7 +96,7 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
   // — so a run's 401 is what actually tells us the session is dead, and it
   // overrides the record until the user reconnects or a later run succeeds.
   const expired = new Set<'anthropic' | 'openai'>();
-  const authStatus = () => ({
+  const authStatus = (): AuthStatus => ({
     anthropic: {
       method: auth.anthropic.method,
       configured: auth.anthropic.method !== 'none',
@@ -86,20 +122,45 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
     devCmd: opts.devCmd,
   });
 
+  // Probed once at startup: a repo doesn't become a git repo mid-session, and
+  // re-shelling out to git on every /health would be wasteful.
+  const capabilities = { git: isGitRepo(opts.repoRoot) };
+
+  // Resolved once: shelling out to `claude --version` per run would add
+  // latency to every task for an answer that can't change mid-session.
+  const claudeBinary = resolveClaudeBinary();
+
   const app = new Hono();
 
   app.use('*', async (c, next) => {
+    const origin = c.req.header('Origin');
+    // Block cross-site state-changing requests (CSRF / drive-by from any page
+    // the user happens to be visiting). See isLoopbackOrigin.
+    if (MUTATING_METHODS.has(c.req.method) && origin && !isLoopbackOrigin(origin)) {
+      return c.json({ error: 'cross-origin request blocked' }, 403);
+    }
     await next();
-    c.header('Access-Control-Allow-Origin', '*');
+    if (isLoopbackOrigin(origin)) {
+      c.header('Access-Control-Allow-Origin', origin);
+      c.header('Vary', 'Origin');
+    }
     c.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
     c.header('Access-Control-Allow-Headers', 'Content-Type');
   });
   app.options('*', (c) => c.body(null, 204));
 
-  // Root: shell page with iframe + viewport switcher (M5).
+  // Root: shell page with iframe + viewport switcher.
   app.get('/', (c) => c.html(shellHtml(mainPort), 200, { 'Cache-Control': 'no-store' }));
 
-  app.get('/health', (c) => c.json({ ok: true as const, repo: opts.repoRoot, version: VERSION }));
+  app.get('/health', (c) => {
+    const body: HealthResponse = {
+      ok: true,
+      repo: opts.repoRoot,
+      version: VERSION,
+      capabilities,
+    };
+    return c.json(body);
+  });
 
   app.get('/auth/status', (c) => c.json(authStatus()));
 
@@ -164,18 +225,14 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
 
   app.get('/overlay.js', async (c) => {
     try {
-      const code = await bundleOverlay();
-      return new Response(code, {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/javascript; charset=utf-8',
-          'Cache-Control': 'no-store',
-          'Access-Control-Allow-Origin': '*',
-        },
+      const code = await getOverlayJs();
+      return c.body(code, 200, {
+        'Content-Type': 'application/javascript; charset=utf-8',
+        'Cache-Control': 'no-store',
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      return c.text(`/* localagents overlay bundle failed:\n${msg}\n*/`, 500, {
+      return c.text(`/* iris overlay bundle failed:\n${msg}\n*/`, 500, {
         'Content-Type': 'application/javascript; charset=utf-8',
       });
     }
@@ -183,6 +240,9 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
 
   app.get('/worktrees', (c) => c.json(worktrees.list()));
   app.post('/worktrees/spawn', async (c) => {
+    if (!capabilities.git) {
+      return c.json({ error: 'worktree mode needs a git repository' }, 409);
+    }
     try {
       const wt = await worktrees.spawnWorktree();
       return c.json({ worktree: wt });
@@ -214,13 +274,20 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
     }
     const annotation = parsed.data;
 
-    const runner = getRunner(annotation.backend, auth);
+    const runner = getRunner(annotation.backend, auth, claudeBinary);
     if (!runner) {
       return c.json({ error: `backend "${annotation.backend}" not available yet` }, 400);
     }
 
     let worktreeSlug = 'main';
     let worktreePath = opts.repoRoot;
+
+    if (annotation.worktreeMode === 'new' && !capabilities.git) {
+      return c.json(
+        { error: 'worktree mode needs a git repository — re-run in one, or pick "same".' },
+        409,
+      );
+    }
 
     if (annotation.worktreeMode === 'new') {
       try {
@@ -231,7 +298,7 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
         // agent run). Swallow its rejection so a slow/failed dev server can't
         // crash the daemon.
         worktrees.waitForReady(wt.slug).catch((err) => {
-          console.error(`[localagents] worktree ${wt.slug} dev server not ready:`, String(err));
+          console.error(`[iris] worktree ${wt.slug} dev server not ready:`, String(err));
         });
       } catch (err) {
         return c.json({ error: `worktree spawn failed: ${String(err)}` }, 500);
@@ -278,47 +345,57 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
     return c.json({ task: result.task });
   });
 
-  const server = Bun.serve<WsClientData, never>({
-    port,
-    // Subscription-login endpoints block while the user completes the browser
-    // OAuth flow (claude setup-token / codex login can take a minute-plus). The
-    // default 10s idle timeout would kill the request — and leave an orphaned
-    // CLI process — long before the user finishes. Bun caps this at 255s.
-    idleTimeout: 255,
-    fetch(req, srv) {
-      const url = new URL(req.url);
-      if (url.pathname === '/tasks' && req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
-        const upgraded = srv.upgrade(req, { data: { id: crypto.randomUUID() } as WsClientData });
-        if (upgraded) return undefined;
-        return new Response('upgrade failed', { status: 426 });
-      }
-      return app.fetch(req);
-    },
-    websocket: {
-      open(ws) {
-        bus.attach(ws);
-        bus.sendHello(ws, worktrees.list(), queue.list());
-      },
-      message() {
-        // No inbound messages in v0.
-      },
-      close(ws) {
-        bus.detach(ws);
-      },
-    },
+  // Bind to loopback only: the daemon runs agents that edit files and execute
+  // shell commands, so it must never be reachable from the LAN.
+  //
+  // Subscription-login endpoints block while the user completes the browser
+  // OAuth flow (claude setup-token / codex login can take a minute-plus).
+  // Node's default requestTimeout is 300s, comfortably above login.ts's
+  // 180s LOGIN_TIMEOUT_MS, so no override is needed here (Bun's 10s default
+  // did need one).
+  //
+  // Check the port before handing it to serve(). A failed bind surfaces
+  // asynchronously as an 'error' event on a server we don't own, which Node
+  // reports as an unhandled 'error' — the CLI would print a success banner and
+  // only then fall over. Failing here instead lets start() reject cleanly so
+  // the CLI can explain the collision. (Racy in principle; harmless for a
+  // single-user localhost daemon.)
+  await assertPortAvailable(port);
+  const server: ServerType = serve({ fetch: app.fetch, port, hostname: '127.0.0.1' });
+
+  // WebSocket for live task/worktree updates, sharing the HTTP server.
+  const wss = new WebSocketServer({ noServer: true });
+  server.on('upgrade', (req, socket, head) => {
+    let pathname = '/';
+    try {
+      pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
+    } catch {
+      // malformed URL; reject below
+    }
+    if (pathname !== '/tasks' || (req.headers.origin && !isLoopbackOrigin(req.headers.origin))) {
+      socket.destroy();
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      bus.attach(ws);
+      bus.sendHello(ws, worktrees.list(), queue.list(), capabilities);
+      ws.on('close', () => bus.detach(ws));
+    });
   });
 
   return {
-    server,
-    port: server.port ?? port,
+    port,
     mainPort,
     auth,
+    claudeBinary,
     queue,
     worktrees,
     bus,
     stop: async () => {
       await worktrees.cleanup();
-      server.stop(true);
+      for (const client of wss.clients) client.terminate();
+      wss.close();
+      await new Promise<void>((res) => server.close(() => res()));
     },
   };
 }
