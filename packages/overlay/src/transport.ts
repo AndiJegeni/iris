@@ -295,17 +295,24 @@ class Transport {
 let _transport: Transport | null = null;
 
 /**
- * Daemon URL inference. The overlay is loaded via `<script src="http://localhost:4747/overlay.js">`
- * by the `<Iris />` React component, so `import.meta.url` is the daemon URL.
+ * Daemon URL inference. The overlay is normally loaded via
+ * `<script src="http://localhost:4747/overlay.js">` by the `<Iris />` component,
+ * so `import.meta.url` IS the daemon origin. Only trust it when it's an http(s)
+ * URL: when the overlay is instead bundled by the host app (e.g. imported
+ * directly), the module id can be a `file://` URL — which `new URL()` parses fine
+ * but yields a bogus `file://` base, so a POST lands on `file:///annotate`. Fall
+ * back to the daemon's default port in that case.
  */
 function inferDaemonUrl(): string {
   try {
     const u = new URL(import.meta.url);
-    return `${u.protocol}//${u.host}`;
+    if (u.protocol === 'http:' || u.protocol === 'https:') {
+      return `${u.protocol}//${u.host}`;
+    }
   } catch {
-    if (typeof window !== 'undefined') return window.location.origin;
-    return 'http://localhost:4747';
+    // import.meta.url missing or unparseable — fall through to the default.
   }
+  return 'http://localhost:4747';
 }
 
 export function getTransport(): Transport {

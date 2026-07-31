@@ -8,6 +8,7 @@ import {
   resolveSource,
 } from './source-resolution';
 import { ElementOutline, type OutlineLabel } from './ui/element-outline';
+import { InteractionShield } from './ui/interaction-shield';
 import { PickedPopover } from './ui/picked-popover';
 import { Pill } from './ui/pill';
 import { SettingsPanel } from './ui/settings-panel';
@@ -40,6 +41,10 @@ const DRAG_THRESHOLD = 4;
 // Keep the pill this far from the viewport edges while dragging.
 const MARGIN = 8;
 const PILL_POS_KEY = 'iris:pill-pos';
+// "Block page interactions" survives reloads: it's a working mode you stay in
+// while annotating, and the page navigating out from under you would otherwise
+// silently drop it.
+const BLOCK_KEY = 'iris:block-interactions';
 // Pill circle diameter (mirrors CIRCLE in pill.tsx) and the gap a panel leaves
 // above the pill. The settings + chat panels open just above wherever the pill
 // currently sits, so these keep them tethered to it.
@@ -75,6 +80,14 @@ function savePillPos(p: PillPos): void {
   }
 }
 
+function loadBlockInteractions(): boolean {
+  try {
+    return localStorage.getItem(BLOCK_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 export function Overlay() {
   // `armed` is the sticky pill state; `selecting` is armed-or-Alt and drives hover outlines.
   const [armed, setArmed] = useState(false);
@@ -88,6 +101,9 @@ export function Overlay() {
   const [showSettings, setShowSettings] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [pillPos, setPillPos] = useState<PillPos | null>(loadPillPos);
+  // Makes the host page inert (see InteractionShield) so clicking around to
+  // annotate never triggers the app itself.
+  const [blockInteractions, setBlockInteractions] = useState(loadBlockInteractions);
   const dragRef = useRef<DragState | null>(null);
   const controllerRef = useRef<SelectModeController | null>(null);
   // Theme follows the host page's color scheme, but the Settings panel can
@@ -131,6 +147,25 @@ export function Overlay() {
   const closePopover = useCallback(() => {
     setPicked(null);
     controllerRef.current?.resume();
+  }, []);
+
+  // Report the resolved theme to the orchestrator shell when we're running in
+  // its iframe. The shell is a different origin, so it can't read our state and
+  // `prefers-color-scheme` alone would miss the manual sun/moon override — its
+  // top bar would sit dark above a light overlay. Harmless if there's no shell:
+  // the message just goes nowhere.
+  useEffect(() => {
+    if (typeof window === 'undefined' || window.parent === window) return;
+    window.parent.postMessage({ source: 'iris', type: 'theme', theme }, '*');
+  }, [theme]);
+
+  const toggleBlockInteractions = useCallback((next: boolean) => {
+    setBlockInteractions(next);
+    try {
+      localStorage.setItem(BLOCK_KEY, next ? '1' : '0');
+    } catch {
+      // ignore (private mode / disabled storage)
+    }
   }, []);
 
   // Esc-to-close is handled inside PickedPopover so it runs through the exit
@@ -247,6 +282,8 @@ export function Overlay() {
           50% { opacity: 0.4; }
         }
       `}</style>
+      {/* First child so every other piece of overlay chrome paints above it. */}
+      {blockInteractions ? <InteractionShield /> : null}
       <Pill
         active={armed}
         theme={theme}
@@ -308,6 +345,8 @@ export function Overlay() {
           anchorStyle={panelAnchorStyle}
           onClose={() => setShowSettings(false)}
           onToggleTheme={() => setThemeOverride(theme === 'dark' ? 'light' : 'dark')}
+          blockInteractions={blockInteractions}
+          onToggleBlockInteractions={toggleBlockInteractions}
           auth={state.auth}
           onLogin={login}
           onLogout={logout}

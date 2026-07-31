@@ -2,7 +2,7 @@
  * The iframe shell served at the orchestrator root (`:4747/`).
  *
  * Layout:
- *   ┌─ Top bar (32px): logo, viewport switcher dropdown, status pill ─┐
+ *   ┌─ Top bar (38px): "iris" wordmark left, viewport switcher hard right ─┐
  *   │                                                                  │
  *   │  ┌─────────────────────────────────────────────────────────┐   │
  *   │  │ <iframe src="http://localhost:300X/">  (the picked       │   │
@@ -20,61 +20,166 @@ export function shellHtml(mainPort: number): string {
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>iris</title>
     <style>
+      /*
+       * Theming. Dark is the base; the media query flips to light with the OS.
+       * The [data-theme] rules come last so they win: the overlay posts its own
+       * resolved theme up to us (see the message listener below), which is the
+       * only way to follow its manual sun/moon override — that's a choice made
+       * inside the iframe, invisible to prefers-color-scheme out here.
+       *
+       * Status hues (green/yellow/red dot, the Ship green) are intentionally
+       * shared across themes, mirroring the overlay's own tokens.
+       */
+      :root {
+        --bg: #0a0a0a;
+        --header-bg: #18181b;
+        --header-border: #27272a;
+        --text: #f4f4f5;
+        --logo: rgba(255, 255, 255, 0.4);
+        --muted: #a1a1aa;
+        --faint: #71717a;
+        --control-bg: #27272a;
+        --control-border: #3f3f46;
+        --code-bg: #18181b;
+        --code-text: #e4e4e7;
+        --accent: #3b82f6;
+        --danger: #f87171;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f4f4f5;
+          --header-bg: #ffffff;
+          --header-border: #e4e4e7;
+          --text: #18181b;
+          /* The dark-mode wordmark is white at 40%; on a white bar that would be
+             invisible, so light mode mirrors it as the foreground at 40%. */
+          --logo: rgba(0, 0, 0, 0.4);
+          --muted: #52525b;
+          --faint: #71717a;
+          --control-bg: #ffffff;
+          --control-border: #d4d4d8;
+          --code-bg: #e4e4e7;
+          --code-text: #27272a;
+          --danger: #dc2626;
+        }
+      }
+      :root[data-theme="dark"] {
+        --bg: #0a0a0a;
+        --header-bg: #18181b;
+        --header-border: #27272a;
+        --text: #f4f4f5;
+        --logo: rgba(255, 255, 255, 0.4);
+        --muted: #a1a1aa;
+        --faint: #71717a;
+        --control-bg: #27272a;
+        --control-border: #3f3f46;
+        --code-bg: #18181b;
+        --code-text: #e4e4e7;
+        --danger: #f87171;
+      }
+      :root[data-theme="light"] {
+        --bg: #f4f4f5;
+        --header-bg: #ffffff;
+        --header-border: #e4e4e7;
+        --text: #18181b;
+        --logo: rgba(0, 0, 0, 0.4);
+        --muted: #52525b;
+        --faint: #71717a;
+        --control-bg: #ffffff;
+        --control-border: #d4d4d8;
+        --code-bg: #e4e4e7;
+        --code-text: #27272a;
+        --danger: #dc2626;
+      }
+
       * { box-sizing: border-box; }
-      html, body { margin: 0; padding: 0; height: 100%; background: #0a0a0a; color: #f4f4f5; font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+      html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--text); font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
       body { display: flex; flex-direction: column; }
       header {
         height: 38px;
-        background: #18181b;
-        border-bottom: 1px solid #27272a;
+        background: var(--header-bg);
+        border-bottom: 1px solid var(--header-border);
         display: flex;
         align-items: center;
         padding: 0 12px;
         gap: 12px;
         font-size: 12px;
+        /* Matches the overlay's own dark/light crossfade rather than snapping. */
+        transition: background 120ms ease, border-color 120ms ease;
       }
-      .logo { font-weight: 600; letter-spacing: -0.01em; color: #e4e4e7; }
-      .dot { display: inline-block; width: 6px; height: 6px; border-radius: 999px; background: #22c55e; margin-right: 6px; vertical-align: 1px; }
-      .dot.connecting { background: #eab308; animation: pulse 1.2s ease-in-out infinite; }
-      .dot.disconnected { background: #ef4444; }
-      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+      .logo { font-weight: 300; letter-spacing: -0.01em; color: var(--logo); }
+      .viewport-label { display: flex; align-items: center; gap: 6px; color: var(--logo); }
+      /*
+       * The chevron is ours, not the native one: a platform <select> gives no
+       * control over where its arrow sits. appearance:none drops the native
+       * control, the SVG sibling is positioned over it, and asymmetric padding
+       * tucks the chevron close to the label with a wider gutter to its right.
+       */
+      .select-wrap { position: relative; display: inline-flex; align-items: center; }
+      .select-chevron {
+        position: absolute;
+        right: 12px;
+        color: var(--text);
+        /* Clicks belong to the <select> underneath. */
+        pointer-events: none;
+      }
       select {
-        background: #27272a;
-        color: #f4f4f5;
-        border: 1px solid #3f3f46;
+        appearance: none;
+        -webkit-appearance: none;
+        background: var(--control-bg);
+        color: var(--text);
+        border: 1px solid var(--control-border);
         border-radius: 6px;
-        padding: 3px 8px;
+        /* right = 12 (gutter) + 10 (chevron) + 6 (gap to the text) */
+        padding: 3px 28px 3px 8px;
         font-size: 12px;
         font-family: inherit;
         cursor: pointer;
         outline: none;
       }
-      select:focus { border-color: #3b82f6; }
-      .status { color: #71717a; font-size: 11px; margin-left: auto; }
+      select:focus { border-color: var(--accent); }
+      /* Silent while the daemon is reachable — it only ever speaks up to report
+         that it isn't. The margin-left:auto lives here rather than on the
+         switcher so the switcher still sits hard right when this span is empty. */
+      .status { color: var(--danger); font-size: 11px; margin-left: auto; }
       iframe { flex: 1; border: none; background: white; }
       .empty {
         flex: 1; display: flex; align-items: center; justify-content: center;
-        flex-direction: column; gap: 12px; color: #71717a; font-size: 13px;
+        flex-direction: column; gap: 12px; color: var(--faint); font-size: 13px;
       }
       .empty code {
-        background: #18181b; padding: 2px 6px; border-radius: 4px;
-        font-family: ui-monospace, monospace; color: #e4e4e7;
+        background: var(--code-bg); padding: 2px 6px; border-radius: 4px;
+        font-family: ui-monospace, monospace; color: var(--code-text);
+      }
+      .ship-btn {
+        background: #16a34a; color: #ffffff; border: none; border-radius: 6px;
+        padding: 4px 12px; font-size: 11px; font-weight: 600; cursor: pointer;
+        font-family: inherit;
+      }
+      .discard-btn {
+        background: transparent; color: var(--muted);
+        border: 1px solid var(--control-border); border-radius: 6px;
+        padding: 3px 10px; font-size: 11px; cursor: pointer; font-family: inherit;
       }
     </style>
   </head>
   <body>
     <header>
       <span class="logo">iris</span>
-      <span><span class="dot connecting" id="conn-dot"></span></span>
-      <label style="display:flex; align-items:center; gap:6px; color:#a1a1aa;">
+      <button id="ship-btn" class="ship-btn" type="button" style="display: none;" title="Merge this worktree's branch into main">Ship it</button>
+      <button id="discard-btn" class="discard-btn" type="button" style="display: none;" title="Tear down this worktree without merging">Discard</button>
+      <span class="status" id="status-text"></span>
+      <label class="viewport-label">
         viewport
-        <select id="viewport-switcher">
-          <option value="main" data-port="${mainPort}">main · :${mainPort}</option>
-        </select>
+        <span class="select-wrap">
+          <select id="viewport-switcher">
+            <option value="main" data-port="${mainPort}">main · :${mainPort}</option>
+          </select>
+          <svg class="select-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
       </label>
-      <button id="ship-btn" type="button" style="background: #16a34a; color: white; border: none; border-radius: 6px; padding: 4px 12px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit; display: none;" title="Merge this worktree's branch into main">Ship it</button>
-      <button id="discard-btn" type="button" style="background: transparent; color: #a1a1aa; border: 1px solid #3f3f46; border-radius: 6px; padding: 3px 10px; font-size: 11px; cursor: pointer; font-family: inherit; display: none;" title="Tear down this worktree without merging">Discard</button>
-      <span class="status" id="status-text">connecting to daemon…</span>
     </header>
     <iframe id="viewport" src="http://localhost:${mainPort}/" referrerpolicy="no-referrer-when-downgrade"></iframe>
     <div class="empty" id="empty" style="display:none">
@@ -87,18 +192,30 @@ export function shellHtml(mainPort: number): string {
         var wsUrl = daemonOrigin.replace(/^http/, 'ws') + '/tasks';
         var selectEl = document.getElementById('viewport-switcher');
         var iframeEl = document.getElementById('viewport');
-        var dotEl = document.getElementById('conn-dot');
         var statusEl = document.getElementById('status-text');
         var emptyEl = document.getElementById('empty');
 
         var worktrees = new Map();
         worktrees.set('main', { slug: 'main', port: ${mainPort}, devServerStatus: 'ready' });
 
+        // The overlay lives in the iframe, a different origin, so it reports its
+        // resolved theme up to us. Without this the top bar follows the OS but
+        // not the overlay's own light/dark override. Only ever sets an
+        // attribute, and only from a localhost frame — this is the one message
+        // channel into the shell, so it stays narrow on purpose.
+        window.addEventListener('message', function(ev) {
+          if (!/^https?:\\/\\/localhost(:\\d+)?$/.test(ev.origin)) return;
+          var d = ev.data;
+          if (!d || d.source !== 'iris' || d.type !== 'theme') return;
+          if (d.theme !== 'light' && d.theme !== 'dark') return;
+          document.documentElement.setAttribute('data-theme', d.theme);
+        });
+
+        // Healthy and still-connecting are both silent — a bar that permanently
+        // says "connected" is noise. Losing the daemon is the only state worth
+        // interrupting for, since nothing in the UI works without it.
         function setConn(state) {
-          dotEl.className = 'dot ' + state;
-          statusEl.textContent = state === 'connected' ? 'connected'
-            : state === 'connecting' ? 'connecting to daemon…'
-            : 'daemon disconnected — retrying';
+          statusEl.textContent = state === 'disconnected' ? 'daemon disconnected — retrying' : '';
         }
 
         function render() {
