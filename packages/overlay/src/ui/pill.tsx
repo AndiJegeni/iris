@@ -24,12 +24,16 @@ type PillProps = {
 type PillPalette = { surface: string; stroke: string; icon: string; shadow: string; hover: string };
 
 // The collapsed launcher is a circle carrying a single glyph; the active
-// toolbar uses 20px glyphs in 28px buttons (4px padding). Both states land on a
-// 40px height so arming doesn't change the pill's size.
+// toolbar uses 20px glyphs in 28px buttons (4px padding). Both states land on
+// the same height so arming doesn't change the pill's size.
 const ICON_SIZE = 20; // active toolbar glyph
 const STAR_SIZE = 20; // collapsed-launcher glyph (smaller than the circle for breathing room)
 const ICON_BTN = 28; // active toolbar button (20px glyph + 4px padding)
-const CIRCLE = 40; // collapsed launcher diameter (= toolbar height: 28px button + 6px top/bottom)
+// Collapsed launcher diameter, and the armed toolbar's height. 44 rather than
+// 40 so the pill matches the other floating dev tools it shares a page with
+// (vercila's agentation toolbar is a 44px circle); at 40 ours read as the
+// smaller, lesser one sitting next to them.
+const CIRCLE = 44;
 
 /**
  * The pill's two footprints, exported so siblings parked on the same row (the
