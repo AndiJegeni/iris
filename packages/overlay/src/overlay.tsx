@@ -10,9 +10,10 @@ import {
 import { ElementOutline, type OutlineLabel } from './ui/element-outline';
 import { InteractionShield } from './ui/interaction-shield';
 import { PickedPopover } from './ui/picked-popover';
-import { Pill } from './ui/pill';
+import { PILL_CIRCLE, PILL_TOOLBAR_W, Pill } from './ui/pill';
 import { SettingsPanel } from './ui/settings-panel';
 import { TaskPanel } from './ui/task-panel';
+import { CHAT_WIDTH } from './ui/task-panel.styles';
 import type { OverlayTheme } from './ui/theme';
 import { useTransport } from './use-transport';
 
@@ -45,14 +46,20 @@ const PILL_POS_KEY = 'iris:pill-pos';
 // while annotating, and the page navigating out from under you would otherwise
 // silently drop it.
 const BLOCK_KEY = 'iris:block-interactions';
-// Pill circle diameter (mirrors CIRCLE in pill.tsx) and the gap a panel leaves
-// above the pill. The settings + chat panels open just above wherever the pill
-// currently sits, so these keep them tethered to it.
-const PILL_SIZE = 40;
+// The gap a panel leaves above the pill. The settings + chat panels — and now
+// the task panel — open just above wherever the pill currently sits, so this
+// keeps them tethered to it. Pill dimensions come from pill.tsx itself.
 const PANEL_GAP = 8;
 // Widest panel (the chat composer) — used to keep a panel on-screen when the
-// pill has been dragged toward the left edge.
+// pill has been dragged toward the left edge. The task panel is wider still, so
+// it clamps against its own maximum (the chat view).
 const PANEL_MAX_W = 380;
+const TASKS_PANEL_MAX_W = CHAT_WIDTH;
+// Background Tasks launcher: a 40px circle that widens to carry a running count
+// beside the glyph (40 empty, ~57 with one digit, ~67 with two). Deliberately
+// over-estimated — this only decides which side of the pill it parks on, and
+// guessing wide just flips it a few pixels early.
+const TASKS_LAUNCHER_W = 68;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi));
 
@@ -100,6 +107,9 @@ export function Overlay() {
   // are mutually exclusive — opening one closes the other.
   const [showSettings, setShowSettings] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  // Background Tasks drawer — opened from the pill's tasks button, which only
+  // exists while tasks do. Mutually exclusive with the chat/settings panels.
+  const [tasksOpen, setTasksOpen] = useState(false);
   const [pillPos, setPillPos] = useState<PillPos | null>(loadPillPos);
   // Makes the host page inert (see InteractionShield) so clicking around to
   // annotate never triggers the app itself.
@@ -247,6 +257,9 @@ export function Overlay() {
     window.addEventListener('mouseup', onUp, true);
   }, []);
 
+  const pillRight = pillPos ? pillPos.right : 16;
+  const pillTopFromBottom = pillPos ? window.innerHeight - pillPos.top : 16 + PILL_CIRCLE;
+
   const pillPositionStyle = pillPos
     ? { top: `${pillPos.top}px`, right: `${pillPos.right}px`, left: 'auto', bottom: 'auto' }
     : undefined;
@@ -255,8 +268,6 @@ export function Overlay() {
   // track its dragged position (default: bottom-right). `right`/`bottom` mirror
   // the pill's own anchor; clamp `right` so a panel stays on-screen when the pill
   // is dragged toward the left edge.
-  const pillRight = pillPos ? pillPos.right : 16;
-  const pillTopFromBottom = pillPos ? window.innerHeight - pillPos.top : 16 + PILL_SIZE;
   const panelRight = Math.min(
     pillRight,
     Math.max(MARGIN, window.innerWidth - PANEL_MAX_W - MARGIN),
@@ -266,6 +277,42 @@ export function Overlay() {
     bottom: `${pillTopFromBottom + PANEL_GAP}px`,
     left: 'auto',
     top: 'auto',
+  };
+
+  // The launcher shares the pill's row, immediately to its left. The pill keeps
+  // a fixed right edge and grows leftward when armed, so offset by whichever
+  // width it currently has and reuse its morph timing — the circle slides in
+  // step with the toolbar instead of being jumped aside.
+  const pillWidth = armed ? PILL_TOOLBAR_W : PILL_CIRCLE;
+  const leftOfPill = pillRight + pillWidth + PANEL_GAP;
+  // Dragged against the left edge there's no room on that side and the circle
+  // would hang off-screen. Fall back to the pill's right flank, which by
+  // definition has space in that case.
+  const tasksRight =
+    window.innerWidth - leftOfPill - TASKS_LAUNCHER_W >= MARGIN
+      ? leftOfPill
+      : Math.max(MARGIN, pillRight - TASKS_LAUNCHER_W - PANEL_GAP);
+  const tasksLauncherStyle = {
+    right: `${tasksRight}px`,
+    bottom: `${pillTopFromBottom - PILL_CIRCLE}px`,
+    left: 'auto',
+    top: 'auto',
+    transition: 'right 320ms cubic-bezier(0.19, 1, 0.22, 1)',
+  };
+
+  // The drawer runs from the top edge down to just above the pill row, so it
+  // gets nearly the full height without ever sharing space with the toolbar.
+  // Right-aligned to the pill, clamped so its widest state (the chat view) still
+  // fits when the pill has been dragged toward the left edge.
+  const tasksPanelRight = Math.min(
+    pillRight,
+    Math.max(MARGIN, window.innerWidth - TASKS_PANEL_MAX_W - MARGIN),
+  );
+  const tasksPanelStyle = {
+    top: `${MARGIN}px`,
+    right: `${tasksPanelRight}px`,
+    bottom: `${pillTopFromBottom + PANEL_GAP}px`,
+    left: 'auto',
   };
 
   const hoverOutline =
@@ -316,8 +363,7 @@ export function Overlay() {
       ) : null}
       {/* Chat composer: the element-less mode of PickedPopover (no `element` →
           floats just above the pill, submits a general annotation). Opened by the
-          pill's chat button. The Background Tasks drawer below is separate and
-          self-manages via its own launcher. */}
+          pill's chat button. */}
       {chatOpen ? (
         <PickedPopover
           theme={theme}
@@ -335,9 +381,21 @@ export function Overlay() {
         transcripts={state.transcripts}
         theme={theme}
         onCancel={(id) => void cancel(id)}
-        onSendMessage={(id, text) => sendMessage(id, text)}
+        onSendMessage={(id, text, opts) => sendMessage(id, text, opts)}
         onOpenChat={(id) => void fetchTranscript(id)}
         onRetry={(id) => void retry(id)}
+        open={tasksOpen}
+        onOpenChange={(next) => {
+          // The drawer and the pill's panels are mutually exclusive — three
+          // surfaces stacked in the same corner is unreadable.
+          if (next) {
+            setChatOpen(false);
+            setShowSettings(false);
+          }
+          setTasksOpen(next);
+        }}
+        launcherStyle={tasksLauncherStyle}
+        anchorStyle={tasksPanelStyle}
       />
       {showSettings ? (
         <SettingsPanel

@@ -2,6 +2,7 @@ import {
   type Annotation,
   type AuthStatus,
   type Capabilities,
+  type ReasoningEffort,
   type Task,
   type TranscriptEntry,
   type Worktree,
@@ -209,12 +210,25 @@ class Transport {
     return this.sendAnnotation(annotation);
   }
 
-  /** Send a follow-up message to an existing task (resumes its session). */
-  async sendMessage(id: string, text: string): Promise<void> {
+  /**
+   * Send a follow-up message to an existing task (resumes its session).
+   *
+   * `opts` is the chat composer's model + reasoning picks for this turn; the
+   * daemon applies them to the resumed run and ignores a model belonging to a
+   * different backend than the task's.
+   */
+  async sendMessage(
+    id: string,
+    text: string,
+    opts?: { model: string; effort: ReasoningEffort },
+  ): Promise<void> {
     const res = await fetch(`${this.daemonUrl}/tasks/${encodeURIComponent(id)}/message`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({
+        text,
+        ...(opts ? { model: opts.model, reasoningEffort: opts.effort } : {}),
+      }),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');

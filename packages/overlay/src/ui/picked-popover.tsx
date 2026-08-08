@@ -16,12 +16,9 @@ import {
   ACCEPTED_IMAGE_TYPES,
   CLOSE_MS,
   EASE,
-  INK,
   OPEN_MS,
   PLACEHOLDER,
   POPOVER_WIDTH,
-  STROKE,
-  SURFACE,
   TEXTAREA_MAX_H,
   annotationConfidence,
   computeAnchor,
@@ -30,7 +27,7 @@ import {
   textarea,
   worktreePill,
 } from './picked-popover.styles';
-import { type OverlayTheme, type ThemeTokens, tokens } from './theme';
+import { type OverlayTheme, type ThemeTokens, popoverTokens } from './theme';
 
 type PickedPopoverProps = {
   /** The picked element, or omitted for the element-less "chat" composer. */
@@ -59,29 +56,12 @@ export function PickedPopover({
   anchorStyle,
   gitAvailable = true,
 }: PickedPopoverProps) {
-  // In light mode the message box is a fixed "ink on paper" surface — override the
-  // theme tokens with the #373734 palette in one place so every `t.*` color usage
-  // below picks it up. In dark mode it simply follows the overlay's dark tokens so
-  // it stays legible over a dark host page.
+  // In light mode the message box is a fixed "ink on paper" surface; in dark it
+  // follows the overlay's dark tokens so it stays legible over a dark host page.
+  // Both live in popoverTokens (theme.ts) — shared, because the chat and the task
+  // drawer now paint from the same palette and render the same picker.
   const isLight = theme === 'light';
-  const t: ThemeTokens = isLight
-    ? {
-        ...tokens(theme),
-        surfaceBg: SURFACE,
-        surfaceBorder: STROKE,
-        textPrimary: INK,
-        textMuted: INK,
-        textFaint: INK,
-        controlBorder: STROKE,
-        chipBg: STROKE,
-        chipText: INK,
-        link: INK,
-        accent: INK,
-        accentText: '#ffffff',
-        submitBg: INK,
-        submitText: '#ffffff',
-      }
-    : tokens(theme);
+  const t: ThemeTokens = popoverTokens(theme);
   // A few surfaces the popover paints outside the token set — themed by hand so the
   // dark variant doesn't fall back to the light ink palette.
   const placeholderColor = isLight ? PLACEHOLDER : 'rgba(245, 245, 245, 0.4)';

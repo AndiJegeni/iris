@@ -330,9 +330,12 @@ export function MoonIcon({ size = 16, ...props }: IconProps) {
 
 // ---------- background tasks ----------
 
-/** Two overlapping circles (vb 24×24, sw 1.8). Strokes a passed-in `color`
- *  rather than currentColor (the task button tints it with the accent). */
-export function BackgroundTasksIcon({ color, size = 18 }: { color: string; size?: number }) {
+/** Stacked layers (vb 24×24, sw 1.8). Inherits `currentColor` by default so the
+ *  task launcher can drive it from CSS — ink at rest, accent on hover. */
+export function BackgroundTasksIcon({
+  color = 'currentColor',
+  size = 18,
+}: { color?: string; size?: number }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -350,9 +353,35 @@ export function BackgroundTasksIcon({ color, size = 18 }: { color: string; size?
         stroke-linecap="round"
         stroke-linejoin="round"
       >
-        <path d="M12.6749 16.2962C15.0082 13.9629 15.0082 10.1797 12.6749 7.84634C10.3415 5.51296 6.55833 5.51296 4.22495 7.84634C1.89157 10.1797 1.89157 13.9629 4.22495 16.2962C6.55833 18.6296 10.3415 18.6296 12.6749 16.2962Z" />
-        <path d="M19.9176 16.2962C22.251 13.9629 22.251 10.1797 19.9176 7.84634C17.5843 5.51296 13.8011 5.51296 11.4677 7.84634C9.13435 10.1797 9.13435 13.9629 11.4677 16.2962C13.8011 18.6296 17.5843 18.6296 19.9176 16.2962Z" />
+        {/* Stacked layers — one sheet per queued task. Drawn back-to-front so the
+            top sheet's fill-free outline reads clearly over the two beneath. */}
+        <path d="M7 9.49958L2 11.9996L11.6422 16.8207C11.7734 16.8863 11.839 16.9191 11.9078 16.932C11.9687 16.9434 12.0313 16.9434 12.0922 16.932C12.161 16.9191 12.2266 16.8863 12.3578 16.8207L22 11.9996L17 9.49958" />
+        <path d="M7 14.4996L2 16.9996L11.6422 21.8207C11.7734 21.8863 11.839 21.9191 11.9078 21.932C11.9687 21.9434 12.0313 21.9434 12.0922 21.932C12.161 21.9191 12.2266 21.8863 12.3578 21.8207L22 16.9996L17 14.4996" />
+        <path d="M2 6.99958L11.6422 2.17846C11.7734 2.11287 11.839 2.08008 11.9078 2.06717C11.9687 2.05574 12.0313 2.05574 12.0922 2.06717C12.161 2.08008 12.2266 2.11287 12.3578 2.17846L22 6.99958L12.3578 11.8207C12.2266 11.8863 12.161 11.9191 12.0922 11.932C12.0313 11.9434 11.9687 11.9434 11.9078 11.932C11.839 11.9191 11.7734 11.8863 11.6422 11.8207L2 6.99958Z" />
       </g>
+    </svg>
+  );
+}
+
+// ---------- file ----------
+
+/** Document outline with a folded corner (vb 24×24) — the transcript's edit cards. */
+export function FileIcon({ size = 14, ...props }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+      {...props}
+    >
+      <path d="M14 3v5h5" />
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z" />
     </svg>
   );
 }
