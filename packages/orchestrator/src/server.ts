@@ -1,6 +1,12 @@
 import { createServer } from 'node:net';
 import { type ServerType, serve } from '@hono/node-server';
-import { Annotation, type AuthStatus, type HealthResponse, VERSION } from '@iris/shared';
+import {
+  Annotation,
+  type AuthStatus,
+  type HealthResponse,
+  ReasoningEffort,
+  VERSION,
+} from '@iris/shared';
 import { Hono } from 'hono';
 import { WebSocketServer } from 'ws';
 import { getRunner } from './agents';
@@ -313,6 +319,11 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
       text: annotation.nearbyText,
       images: annotation.images,
       cwd: worktreePath,
+      // The picker's values are already in each backend's own spelling, so the
+      // user's choice rides straight through to the runner. `model` defaults to
+      // '' (nothing picked) — omit it then so the backend keeps its default.
+      ...(annotation.model ? { model: annotation.model } : {}),
+      effort: annotation.reasoningEffort,
     };
 
     const task = queue.enqueue(annotation, runner, request, worktreeSlug);
@@ -334,10 +345,21 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
   // Follow-up message: resume the task's session with a new prompt.
   app.post('/tasks/:id/message', async (c) => {
     const id = c.req.param('id');
-    const raw = (await c.req.json().catch(() => null)) as { text?: unknown } | null;
+    const raw = (await c.req.json().catch(() => null)) as {
+      text?: unknown;
+      model?: unknown;
+      reasoningEffort?: unknown;
+    } | null;
     const text = typeof raw?.text === 'string' ? raw.text.trim() : '';
     if (!text) return c.json({ error: 'message text required' }, 400);
-    const result = queue.continue(id, text);
+    // The chat composer carries its own model + effort pickers, so a follow-up
+    // can change either mid-thread. Both are optional: an older client that
+    // sends only `text` keeps whatever the previous turn ran with.
+    const effort = ReasoningEffort.safeParse(raw?.reasoningEffort);
+    const result = queue.continue(id, text, {
+      ...(typeof raw?.model === 'string' && raw.model ? { model: raw.model } : {}),
+      ...(effort.success ? { effort: effort.data } : {}),
+    });
     if (!result.ok) {
       const status = result.error === 'task not found' ? 404 : 409;
       return c.json({ error: result.error }, status);

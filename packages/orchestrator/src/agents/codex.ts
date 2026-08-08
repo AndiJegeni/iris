@@ -24,6 +24,23 @@ const STDERR_TAIL_MAX = 4000;
  * OPENAI_API_KEY from the child env so an inherited key can't override the
  * subscription. For API-key auth we pass OPENAI_API_KEY through instead.
  */
+/**
+ * codex's `model_reasoning_effort` enum. Our shared ReasoningEffort is the
+ * union of the Claude and codex tiers, so the Claude-only top tier ("max") is
+ * a value codex rejects outright — the picker filters by provider, and this is
+ * the guard against a stale client killing the run on a bad config override.
+ */
+const CODEX_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'ultra']);
+
+function codexModelArgs(req: RunRequest): string[] {
+  const args: string[] = [];
+  if (req.model) args.push('-m', req.model);
+  if (req.effort && CODEX_EFFORTS.has(req.effort)) {
+    args.push('-c', `model_reasoning_effort="${req.effort}"`);
+  }
+  return args;
+}
+
 export function createCodexRunner(auth: ProviderAuth): AgentRunner {
   return async function* codexRunner(req: RunRequest): AsyncGenerator<RunEvent> {
     if (!commandExists('codex')) {
@@ -55,11 +72,20 @@ export function createCodexRunner(auth: ProviderAuth): AgentRunner {
     // session id, so a follow-up would otherwise arrive with no memory of the
     // turn it is continuing. Replay the conversation into the prompt instead.
     const prompt = req.priorTranscript?.length ? buildFollowUpPrompt(req) : buildPrompt(req);
-    const proc = spawn('codex', ['exec', prompt], {
+    // Model + reasoning ride in as CLI flags. `-m` takes the model id verbatim;
+    // effort has no flag of its own, so it goes through the generic config
+    // override for `model_reasoning_effort`. Both are omitted when unset, which
+    // leaves codex on whatever the user's ~/.codex/config.toml says.
+    const proc = spawn('codex', ['exec', ...codexModelArgs(req), prompt], {
       cwd: req.cwd,
       env: childEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    // `codex exec` appends stdin to the prompt, and it reads to EOF before it
+    // starts work — so an open pipe it never gets to close hangs the run
+    // forever ("Reading additional input from stdin..." and nothing after).
+    // We pass the whole prompt as an argument, so close it immediately.
+    proc.stdin?.end();
 
     // Drive an async queue between event handlers and the generator loop.
     const queue: RunEvent[] = [];

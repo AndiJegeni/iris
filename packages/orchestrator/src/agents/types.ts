@@ -1,7 +1,19 @@
-import type { AttachedImage, SourceLocation, TranscriptEntry } from '@iris/shared';
+import type { AttachedImage, ReasoningEffort, SourceLocation, TranscriptEntry } from '@iris/shared';
 
 export type RunRequest = {
   prompt: string;
+  /**
+   * The model the user picked, as its backend spells it (see MODELS in the
+   * shared protocol) — `claude-opus-5` for the SDK, `gpt-5.6-sol` for
+   * `codex --model`. Unset means "let the backend use its own default".
+   */
+  model?: string;
+  /**
+   * Reasoning effort for this run. The values are already what each backend
+   * accepts (SDK `effort`, codex `model_reasoning_effort`), so runners pass
+   * them straight through.
+   */
+  effort?: ReasoningEffort;
   source: SourceLocation | null;
   componentPath: string[];
   selector: string;

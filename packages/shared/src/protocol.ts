@@ -112,18 +112,28 @@ export type ModelSpec = {
  * picker, the task panel's label lookup, and the backend routing all read this,
  * so adding a model is a one-line change here. Claude legacy models are
  * intentionally omitted.
+ *
+ * `value` is the runner's real model identifier — `claude-*` as the Claude
+ * Agent SDK spells it, and whatever `codex --model` accepts for GPT — not a
+ * display slug. Today the value only rides through to the UI label (see
+ * queue.ts), but keeping it wire-accurate means passing the user's choice to
+ * the agent is a one-line change rather than a translation table.
+ *
+ * No 1M-context variant: on the Claude 5 family a 1M window is the default and
+ * the maximum, so it is no longer a separate choice.
  */
 export const MODELS: ModelSpec[] = [
-  { value: 'opus-4.8', label: 'Opus 4.8', provider: 'claude', backend: 'claude' },
-  { value: 'opus-4.8-1m', label: 'Opus 4.8 (1M context)', provider: 'claude', backend: 'claude' },
-  { value: 'sonnet-4.6', label: 'Sonnet 4.6', provider: 'claude', backend: 'claude' },
-  { value: 'haiku-4.5', label: 'Haiku 4.5', provider: 'claude', backend: 'claude' },
+  { value: 'claude-fable-5', label: 'Fable 5', provider: 'claude', backend: 'claude' },
+  { value: 'claude-opus-5', label: 'Opus 5', provider: 'claude', backend: 'claude' },
+  { value: 'claude-opus-4-8', label: 'Opus 4.8', provider: 'claude', backend: 'claude' },
+  { value: 'claude-sonnet-5', label: 'Sonnet 5', provider: 'claude', backend: 'claude' },
+  { value: 'claude-haiku-4-5', label: 'Haiku 4.5', provider: 'claude', backend: 'claude' },
+  { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', provider: 'gpt', backend: 'codex' },
   { value: 'gpt-5.4', label: 'GPT-5.4', provider: 'gpt', backend: 'codex' },
-  { value: 'gpt-5.5', label: 'GPT-5.5', provider: 'gpt', backend: 'codex' },
 ];
 
 /** Pre-selected model for a new task. */
-export const DEFAULT_MODEL = 'opus-4.8-1m';
+export const DEFAULT_MODEL = 'claude-opus-5';
 
 /** Stand-in when a stored model value is no longer in the catalog. */
 export const FALLBACK_MODEL: ModelSpec = MODELS[0] as ModelSpec;
@@ -133,9 +143,15 @@ export function modelLabel(value: string): string {
   return MODELS.find((m) => m.value === value)?.label ?? value;
 }
 
-// Reasoning effort. Claude exposes low→max; GPT (codex) tops out at extra-high
-// and has no "max" tier — the UI filters per provider.
-export const ReasoningEffort = z.enum(['low', 'medium', 'high', 'extra', 'max', 'extra-high']);
+/**
+ * Reasoning effort. Like `MODELS.value`, these are the runners' real wire
+ * values, not display slugs: the union is the Claude Agent SDK's `EffortLevel`
+ * (low|medium|high|xhigh|max) plus codex's `model_reasoning_effort` enum
+ * (low|medium|high|xhigh|ultra). The two overlap on the first four and diverge
+ * only at the top tier, so a selection rides straight through to the agent with
+ * no translation — and the UI filters the list per provider (see EFFORTS).
+ */
+export const ReasoningEffort = z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
 export type ReasoningEffort = z.infer<typeof ReasoningEffort>;
 
 /** Selectable effort tiers per model family, in display order. */
@@ -144,14 +160,15 @@ export const EFFORTS: Record<ModelProvider, { value: ReasoningEffort; label: str
     { value: 'low', label: 'Low' },
     { value: 'medium', label: 'Medium' },
     { value: 'high', label: 'High' },
-    { value: 'extra', label: 'Extra' },
+    { value: 'xhigh', label: 'Extra High' },
     { value: 'max', label: 'Max' },
   ],
   gpt: [
     { value: 'low', label: 'Low' },
     { value: 'medium', label: 'Medium' },
     { value: 'high', label: 'High' },
-    { value: 'extra-high', label: 'Extra High' },
+    { value: 'xhigh', label: 'Extra High' },
+    { value: 'ultra', label: 'Ultra' },
   ],
 };
 

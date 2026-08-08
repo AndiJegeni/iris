@@ -73,6 +73,8 @@ export function createClaudeRunner(auth: ProviderAuth, claudeBinary?: ClaudeBina
       JSON.stringify({
         prompt: workerPrompt,
         ...(req.resumeSessionId ? { resume: req.resumeSessionId } : {}),
+        ...(req.model ? { model: req.model } : {}),
+        ...(req.effort ? { effort: req.effort } : {}),
       }),
     );
     proc.stdin?.end();
