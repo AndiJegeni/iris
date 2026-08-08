@@ -1,7 +1,7 @@
 /** @jsxImportSource preact */
 import type { Task } from '@iris/shared';
 import { CloseSmallIcon, PlusThinIcon, ThinChevronLeftIcon } from './icons';
-import type { OverlayTheme, ThemeTokens } from './theme';
+import { type OverlayTheme, surfacePalette } from './theme';
 
 /** One open chat in the tab strip. */
 export type ChatTab = { id: string; title: string; status: Task['status'] };
@@ -10,7 +10,6 @@ export type ChatTab = { id: string; title: string; status: Task['status'] };
 export function ChatTabBar({
   tabs,
   activeId,
-  t,
   theme,
   onBack,
   onSelectTab,
@@ -18,19 +17,16 @@ export function ChatTabBar({
 }: {
   tabs: ChatTab[];
   activeId: string;
-  t: ThemeTokens;
   theme: OverlayTheme;
   onBack: () => void;
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
 }) {
-  // Flipped: the bar is the plain surface (white in light) and the *selected*
-  // tab carries the subtle gray.
-  const barBg = t.surfaceBg;
-  const selectedBg = theme === 'light' ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.07)';
+  // No bar fill and no bespoke selected tint — the bar sits on the panel and the
+  // selected tab uses the pill's hover ink, the chat's only fill.
   return (
-    <div style={{ ...tabBar(t), background: barBg }}>
-      <button type="button" style={tabBackBtn(t)} onClick={onBack} aria-label="Back to tasks">
+    <div style={tabBar(theme)}>
+      <button type="button" style={tabBackBtn(theme)} onClick={onBack} aria-label="Back to tasks">
         <ThinChevronLeftIcon />
       </button>
       <div style={tabsRow}>
@@ -39,7 +35,7 @@ export function ChatTabBar({
           return (
             <div
               key={tab.id}
-              style={active ? { ...activeTab(t), background: selectedBg } : inactiveTab(t)}
+              style={active ? activeTab(theme) : inactiveTab(theme)}
               title={tab.title}
             >
               <button
@@ -51,7 +47,7 @@ export function ChatTabBar({
               </button>
               <button
                 type="button"
-                style={tabClose(t)}
+                style={tabClose(theme)}
                 onClick={() => onCloseTab(tab.id)}
                 aria-label="Close chat"
               >
@@ -62,7 +58,7 @@ export function ChatTabBar({
         })}
       </div>
       <div style={tabActions}>
-        <button type="button" style={tabIconBtn(t)} onClick={onBack} aria-label="Back to tasks">
+        <button type="button" style={tabIconBtn(theme)} onClick={onBack} aria-label="Back to tasks">
           <PlusThinIcon />
         </button>
       </div>
@@ -72,13 +68,15 @@ export function ChatTabBar({
 
 // ---------- styles ----------
 
-const tabBar = (t: ThemeTokens) => ({
+const tabBar = (theme: OverlayTheme) => ({
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
   gap: '8px',
-  padding: '6px 8px',
-  background: t.controlBg,
+  padding: '8px',
+  // Same stroke as every container below it (see chatInk) so the divider is the
+  // same line, not a second grey.
+  borderBottom: `1px solid ${surfacePalette(theme).stroke}`,
   flexShrink: 0,
 });
 
@@ -92,7 +90,7 @@ const tabsRow = {
   scrollbarWidth: 'none' as const,
 };
 
-const tabBackBtn = (t: ThemeTokens) => ({
+const tabBackBtn = (theme: OverlayTheme) => ({
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -100,14 +98,14 @@ const tabBackBtn = (t: ThemeTokens) => ({
   height: '26px',
   background: 'transparent',
   border: 'none',
-  borderRadius: '6px',
-  color: t.textMuted,
+  borderRadius: '999px',
+  color: surfacePalette(theme).soft,
   cursor: 'pointer',
   padding: 0,
   flexShrink: 0,
 });
 
-const activeTab = (t: ThemeTokens) => ({
+const activeTab = (theme: OverlayTheme) => ({
   display: 'flex',
   alignItems: 'center',
   gap: '7px',
@@ -115,13 +113,15 @@ const activeTab = (t: ThemeTokens) => ({
   maxWidth: '180px',
   flexShrink: 0,
   padding: '6px 6px 6px 10px',
-  background: t.surfaceBg,
-  borderRadius: '8px',
-  color: t.textPrimary,
-  fontSize: '12px',
+  // Selection is carried by ink alone. A fill here made the row read as a
+  // browser tab strip — chrome competing with the transcript underneath.
+  background: 'transparent',
+  borderRadius: '6px',
+  color: surfacePalette(theme).ink,
+  fontSize: '13px',
 });
 
-const inactiveTab = (t: ThemeTokens) => ({
+const inactiveTab = (theme: OverlayTheme) => ({
   display: 'flex',
   alignItems: 'center',
   gap: '7px',
@@ -130,9 +130,9 @@ const inactiveTab = (t: ThemeTokens) => ({
   flexShrink: 0,
   padding: '6px 6px 6px 10px',
   background: 'transparent',
-  borderRadius: '8px',
-  color: t.textMuted,
-  fontSize: '12px',
+  borderRadius: '6px',
+  color: surfacePalette(theme).soft,
+  fontSize: '13px',
   cursor: 'pointer',
 });
 
@@ -160,7 +160,7 @@ const tabTitle = {
   minWidth: 0,
 };
 
-const tabClose = (t: ThemeTokens) => ({
+const tabClose = (theme: OverlayTheme) => ({
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -168,8 +168,8 @@ const tabClose = (t: ThemeTokens) => ({
   height: '16px',
   background: 'transparent',
   border: 'none',
-  borderRadius: '4px',
-  color: t.textMuted,
+  borderRadius: '999px',
+  color: surfacePalette(theme).soft,
   cursor: 'pointer',
   padding: 0,
   flexShrink: 0,
@@ -182,7 +182,7 @@ const tabActions = {
   flexShrink: 0,
 };
 
-const tabIconBtn = (t: ThemeTokens) => ({
+const tabIconBtn = (theme: OverlayTheme) => ({
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -190,8 +190,8 @@ const tabIconBtn = (t: ThemeTokens) => ({
   height: '26px',
   background: 'transparent',
   border: 'none',
-  borderRadius: '6px',
-  color: t.textMuted,
+  borderRadius: '999px',
+  color: surfacePalette(theme).soft,
   cursor: 'pointer',
   padding: 0,
 });

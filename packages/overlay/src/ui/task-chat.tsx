@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { type ChatTab, ChatTabBar } from './chat-tab-bar';
 import { PlusThinIcon, SendIcon, StopIcon } from './icons';
 import { DEFAULT_MODEL, EFFORTS, MODELS, ModelReasoningPicker } from './model-picker';
-import { Entry, WorkingRow, assistantText } from './task-chat.transcript';
-import { type OverlayTheme, type ThemeTokens, tokens } from './theme';
+import { Entry, WorkingRow, assistantText, chatInk, isQuietEntry } from './task-chat.transcript';
+import { type OverlayTheme, SURFACE_PAD, popoverTokens, surfacePalette } from './theme';
 
 export type { ChatTab };
 
@@ -22,7 +22,7 @@ type TaskChatProps = {
   onBack: () => void;
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
-  onSend: (text: string) => void | Promise<void>;
+  onSend: (text: string, opts: { model: string; effort: ReasoningEffort }) => void | Promise<void>;
   onCancel?: () => void;
 };
 
@@ -45,15 +45,28 @@ export function TaskChat({
   onSend,
   onCancel,
 }: TaskChatProps) {
-  const t = tokens(theme);
+  // Only the shared ModelReasoningPicker still takes a whole token set.
+  const t = popoverTokens(theme);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  // One line → compact pill; wrapped text → the two-row card. Derived from the
+  // textarea's real scrollHeight (not a character count) so soft wrapping counts.
+  const [multiline, setMultiline] = useState(false);
   // Model + reasoning for the follow-up — defaults to the task's model.
+  //
+  // Only same-backend models are offered: a follow-up resumes the task's
+  // existing agent session, which belongs to the backend that started it, so
+  // switching families mid-thread would mean handing a Claude session to codex.
+  // (The daemon rejects a cross-backend model too — see queue.continue.)
+  const models = MODELS.filter((m) => m.backend === task.backend);
+  const modelChoices = models.length > 0 ? models : MODELS;
   const [model, setModel] = useState<string>(
-    MODELS.some((m) => m.value === task.model) ? (task.model as string) : DEFAULT_MODEL,
+    modelChoices.some((m) => m.value === task.model)
+      ? (task.model as string)
+      : (modelChoices.find((m) => m.value === DEFAULT_MODEL) ?? modelChoices[0]!).value,
   );
   const [effort, setEffort] = useState<ReasoningEffort>('high');
-  const selectedModel = MODELS.find((m) => m.value === model) ?? MODELS[0]!;
+  const selectedModel = modelChoices.find((m) => m.value === model) ?? modelChoices[0]!;
   const effortOptions = EFFORTS[selectedModel.provider];
   const changeModel = (value: string) => {
     setModel(value);
@@ -70,13 +83,16 @@ export function TaskChat({
     if (el) el.scrollTop = el.scrollHeight;
   }, [entries.length, logsFallback.length, busy]);
 
-  // Grow the composer with its content up to 3 lines, then scroll.
+  // Grow the composer with its content up to 3 lines, then scroll — and flip
+  // between the one-line pill and the expanded card off the same measurement.
   // biome-ignore lint/correctness/useExhaustiveDependencies: resize when draft changes
   useEffect(() => {
     const el = inputRef.current;
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_H)}px`;
+    // One line measures ~18-24px; two lines ~36px. 30 splits them cleanly.
+    setMultiline(el.scrollHeight > 30);
   }, [draft]);
 
   const locked = busy || sending;
@@ -88,18 +104,17 @@ export function TaskChat({
     setDraft('');
     setSending(true);
     try {
-      await onSend(text);
+      await onSend(text, { model: selectedModel.value, effort });
     } finally {
       setSending(false);
     }
   };
 
   return (
-    <div style={shell(t)}>
+    <div style={shell(theme)}>
       <ChatTabBar
         tabs={tabs}
         activeId={task.id}
-        t={t}
         theme={theme}
         onBack={onBack}
         onSelectTab={onSelectTab}
@@ -108,24 +123,47 @@ export function TaskChat({
 
       <div ref={scrollRef} style={messageList}>
         {entries.length > 0
-          ? entries.map((e) => <Entry key={e.id} entry={e} t={t} theme={theme} />)
+          ? entries.map((e, i) => {
+              // Two consecutive quiet entries close ranks; anything else gets air.
+              // This grouping is what makes a run of tool calls read as one
+              // column instead of a stack of equally-loud lines.
+              const prev = i > 0 ? entries[i - 1] : undefined;
+              const tight = Boolean(prev && isQuietEntry(prev) && isQuietEntry(e));
+              return (
+                <div key={e.id} style={{ marginTop: i === 0 ? 0 : tight ? TIGHT : LOOSE }}>
+                  <Entry entry={e} theme={theme} />
+                </div>
+              );
+            })
           : logsFallback.map((line, i) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: log lines are positional
-              <div key={i} style={assistantText(t)}>
+              <div key={i} style={assistantText(theme)}>
                 {line}
               </div>
             ))}
-        {busy ? <WorkingRow t={t} /> : null}
+        {busy ? (
+          <div style={{ marginTop: entries.length ? TIGHT : 0 }}>
+            <WorkingRow theme={theme} />
+          </div>
+        ) : null}
       </div>
 
-      {/* Composer — mirrors the picked-popover card: input on top, a footer with
-          the model · effort picker on the left and attach · send on the right. */}
-      <div style={composerCard(t)}>
-        <style>
-          {'.la-pp-dim{opacity:0.6;transition:opacity 80ms}.la-pp-dim:hover{opacity:1}' +
-            '.la-pp-menu-row{background:transparent;transition:background 80ms}' +
-            '.la-pp-menu-row:hover{background:rgba(127,127,127,0.12)}'}
-        </style>
+      {/* Composer. One line: a single pill row — attach · input · model · send.
+          Wrapped text: the input takes a full row and everything else drops to a
+          footer beneath it (picker left, attach · send right). One DOM structure
+          for both, flipped with flex-wrap + `order`, so crossing the line
+          boundary never remounts the textarea and typing keeps its focus. */}
+      <div style={composerCard(theme, multiline)}>
+        <style>{chatCss(theme)}</style>
+        <button
+          type="button"
+          className="la-tc-icon"
+          style={{ ...attachBtn(), order: multiline ? 2 : 0 }}
+          onClick={() => inputRef.current?.focus()}
+          aria-label="Add"
+        >
+          <PlusThinIcon />
+        </button>
         <textarea
           ref={inputRef}
           value={draft}
@@ -139,11 +177,24 @@ export function TaskChat({
           rows={1}
           placeholder={busy ? 'Agent is working…' : 'Reply or ask a follow-up'}
           disabled={busy}
-          style={composerInput(t)}
+          style={{
+            ...composerInput(),
+            ...(multiline
+              ? { order: 0, flexBasis: '100%', width: '100%' }
+              : { order: 1, flex: 1, width: 'auto', minWidth: '60px' }),
+          }}
         />
-        <div style={composerFooter}>
+        <div
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            flexShrink: 0,
+            order: multiline ? 1 : 2,
+            ...(multiline ? { marginRight: 'auto' } : {}),
+          }}
+        >
           <ModelReasoningPicker
-            models={MODELS.map((m) => ({ value: m.value, label: m.label }))}
+            models={modelChoices.map((m) => ({ value: m.value, label: m.label }))}
             model={model}
             onModelSelect={changeModel}
             effortOptions={effortOptions}
@@ -153,33 +204,29 @@ export function TaskChat({
             effortLabel={effortOptions.find((e) => e.value === effort)?.label ?? effort}
             t={t}
           />
-          <div style={composerActions}>
-            <button
-              type="button"
-              className="la-pp-dim"
-              style={attachBtn(t)}
-              onClick={() => inputRef.current?.focus()}
-              aria-label="Add"
-            >
-              <PlusThinIcon />
-            </button>
-            {onCancel && busy ? (
-              <button type="button" style={sendBtn(t)} onClick={onCancel} aria-label="Stop">
-                <StopIcon />
-              </button>
-            ) : (
-              <button
-                type="button"
-                style={{ ...sendBtn(t), opacity: canSend ? 1 : 0.3 }}
-                disabled={!canSend}
-                onClick={() => void submit()}
-                aria-label="Send"
-              >
-                <SendIcon />
-              </button>
-            )}
-          </div>
         </div>
+        {onCancel && busy ? (
+          <button
+            type="button"
+            className="la-tc-send"
+            style={{ ...sendBtn(theme), order: 3 }}
+            onClick={onCancel}
+            aria-label="Stop"
+          >
+            <StopIcon />
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="la-tc-send"
+            style={{ ...sendBtn(theme), order: 3, opacity: canSend ? 1 : 0.3 }}
+            disabled={!canSend}
+            onClick={() => void submit()}
+            aria-label="Send"
+          >
+            <SendIcon />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -187,49 +234,100 @@ export function TaskChat({
 
 // ---------- styles ----------
 
-const shell = (t: ThemeTokens) => ({
+// Mirrors the transcript's scale (see task-chat.transcript.tsx) so the composer
+// and the messages above it are visibly the same system.
+const SIZE_META = 13;
+const RADIUS = 6;
+/** Within a run of agent activity. */
+const TIGHT = '3px';
+/** Between blocks — prompt, prose, file cards. */
+const LOOSE = '14px';
+
+/**
+ * Interaction ink for the chat, lifted from the pill: a hover fill plus a
+ * matching 4px box-shadow so the halo reads as a circle around the glyph rather
+ * than pushing the layout. Kept in CSS (not inline) because inline styles
+ * outrank rules and would kill every :hover here.
+ */
+const chatCss = (theme: OverlayTheme): string => {
+  const p = surfacePalette(theme);
+  return [
+    '.la-pp-dim{opacity:0.6;transition:opacity 80ms}.la-pp-dim:hover{opacity:1}',
+    '.la-pp-menu-row{background:transparent;transition:background 80ms}',
+    `.la-pp-menu-row:hover{background:${p.hover}}`,
+    '.la-tc-icon{background:transparent;transition:background 90ms,box-shadow 90ms}',
+    `.la-tc-icon:hover{background:${p.hover};box-shadow:0 0 0 2px ${p.hover}}`,
+    '.la-tc-send:hover:not(:disabled){transform:scale(1.06)}',
+    // Activity rows are full-width, so a hover *fill* would re-draw the boxes
+    // this layout exists to remove. A dip in opacity reads as pressable without
+    // adding a container.
+    '.la-tc-act{transition:opacity 90ms}',
+    '.la-tc-hit:hover{opacity:0.68}',
+  ].join('');
+};
+
+// One ink for the whole subtree; anything quieter opts into `muted` explicitly.
+//
+// It paints its own surface rather than inheriting whatever it's dropped into.
+// Inside the drawer that's a no-op (the panel is already this colour), but the
+// chat used to be transparent, so a host that framed it — the gallery did,
+// with a hand-picked #161619 — silently showed it on a lighter, bluer card than
+// the popover's. A component that owns its background can't be mis-framed.
+const shell = (theme: OverlayTheme) => ({
   display: 'flex',
   flexDirection: 'column' as const,
   height: '100%',
   minHeight: 0,
-  color: t.textPrimary,
+  background: surfacePalette(theme).surface,
+  color: chatInk(theme).ink,
 });
 
 const messageList = {
   flex: 1,
   minHeight: 0,
   overflowY: 'auto' as const,
-  padding: '14px 16px',
+  // Same gutter as the popover's card (12px), not the old 16px.
+  padding: `16px ${SURFACE_PAD}px`,
   display: 'flex',
   flexDirection: 'column' as const,
-  gap: '10px',
+  // No uniform gap: spacing is decided per-entry above, because a run of quiet
+  // rows and a pair of prose blocks want very different rhythms.
 };
 
 // 12px font × 1.5 line-height × 3 lines — composer grows to here, then scrolls.
 const COMPOSER_MAX_H = 54;
 
-const composerCard = (t: ThemeTokens) => ({
+// Bordered like the prompt block and the file cards — the transcript's three
+// containers are the same object at different jobs. Fully round while it's a
+// single row; the corner squares off to match the other containers only once
+// the input wraps and the card gains a second row.
+const composerCard = (theme: OverlayTheme, multiline: boolean) => ({
   display: 'flex',
-  flexDirection: 'column' as const,
-  margin: '10px 12px 12px',
-  padding: '12px 12px 8px',
-  background: t.surfaceBg,
-  border: `1px solid ${t.controlBorder}`,
-  borderRadius: '12px',
+  flexWrap: 'wrap' as const,
+  alignItems: 'center',
+  gap: '8px 6px',
+  margin: `10px ${SURFACE_PAD}px 10px`,
+  padding: multiline ? '12px 12px 8px' : '7px 8px',
+  border: `1px solid ${chatInk(theme).stroke}`,
+  borderRadius: multiline ? `${RADIUS}px` : '999px',
+  transition: 'border-radius 160ms ease, padding 160ms ease',
   flexShrink: 0,
 });
 
-const composerInput = (t: ThemeTokens) => ({
+const composerInput = () => ({
   width: '100%',
-  minHeight: '24px',
+  // Exactly one line box (13px × 1.5). A taller minimum leaves dead space
+  // below the top-aligned text, floating the placeholder above the row's
+  // centre next to the picker labels.
+  minHeight: '20px',
   maxHeight: `${COMPOSER_MAX_H}px`,
   background: 'transparent',
   border: 'none',
-  color: t.textPrimary,
+  color: 'inherit',
   padding: 0,
   margin: 0,
   fontFamily: 'inherit',
-  fontSize: '12px',
+  fontSize: `${SIZE_META}px`,
   lineHeight: 1.5,
   resize: 'none' as const,
   overflowY: 'auto' as const,
@@ -237,48 +335,36 @@ const composerInput = (t: ThemeTokens) => ({
   boxSizing: 'border-box' as const,
 });
 
-const composerFooter = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  marginTop: '8px',
-  gap: '8px',
-};
-
-const composerActions = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: '6px',
-  flexShrink: 0,
-};
-
-const attachBtn = (t: ThemeTokens) => ({
+// Round hit targets, like the toolbar's icon buttons — the old 4px/5px squares
+// were the only sharp corners left in the panel. `.la-tc-icon` paints the hover
+// halo (no inline background, or it would outrank the rule).
+const attachBtn = () => ({
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  width: '23px',
-  height: '23px',
+  width: '26px',
+  height: '26px',
   flexShrink: 0,
-  background: 'transparent',
   border: 'none',
-  borderRadius: '4px',
-  color: t.textPrimary,
+  borderRadius: '999px',
+  color: 'inherit',
   cursor: 'pointer',
   padding: 0,
 });
 
-// Solid send square (mirrors the picked-popover send button).
-const sendBtn = (t: ThemeTokens) => ({
+// The popover's send button — inverted against the surface, same as there.
+const sendBtn = (theme: OverlayTheme) => ({
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  width: '23px',
-  height: '23px',
+  width: '26px',
+  height: '26px',
   flexShrink: 0,
-  background: t.submitBg,
+  background: surfacePalette(theme).submitBg,
   border: 'none',
-  borderRadius: '5px',
-  color: t.submitText,
+  borderRadius: '999px',
+  color: surfacePalette(theme).submitText,
   cursor: 'pointer',
   padding: 0,
+  transition: 'opacity 120ms, transform 120ms',
 });

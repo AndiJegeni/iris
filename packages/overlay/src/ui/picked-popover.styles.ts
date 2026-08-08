@@ -1,12 +1,16 @@
 import type { AttachedImage, ImageMediaType, SourceConfidence, WorktreeMode } from '@iris/shared';
 import type { Resolution } from '../source-resolution';
-import type { ThemeTokens } from './theme';
+import { SURFACE_PALETTE, type ThemeTokens } from './theme';
 
 // Fixed "ink on paper" palette for the message box (matches the pill).
-export const INK = '#373734'; // all text + icons
-export const STROKE = 'rgba(55, 55, 52, 0.1)'; // #373734 @ 10% — borders / dividers
-export const PLACEHOLDER = 'rgba(55, 55, 52, 0.5)'; // #373734 @ 50% — empty input text
-export const SURFACE = '#ffffff';
+//
+// Re-exported from SURFACE_PALETTE rather than restated: the task drawer and the
+// chat now paint from the same values, and two copies of a hex would drift the
+// moment one of them was tuned.
+export const INK = SURFACE_PALETTE.light.ink; // all text + icons
+export const STROKE = SURFACE_PALETTE.light.stroke; // #373734 @ 10% — borders / dividers
+export const PLACEHOLDER = SURFACE_PALETTE.light.soft; // #373734 @ 50% — empty input text
+export const SURFACE = SURFACE_PALETTE.light.surface;
 
 // Open/close motion. Keyframe animations (not transitions) so the enter always
 // plays on mount without depending on a follow-up rAF tick to flip state — a

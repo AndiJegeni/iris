@@ -90,8 +90,13 @@ const menuPanel = (t: ThemeTokens) =>
     // backdrop blur as the message-input modal above.
     background: t.surfaceBg,
     border: `1px solid ${t.surfaceBorder}`,
-    borderRadius: '14px',
-    boxShadow: t.surfaceShadow,
+    borderRadius: '10px',
+    // Deliberately tighter than `surfaceShadow` (0 20px 50px @ 20%). This menu
+    // opens *on top of* an already-white panel rather than over the host page,
+    // and a 50px blur at 20% black threw a grey halo across the panel around it
+    // — which reads as the menu being whiter than its background, when in fact
+    // both resolve to #ffffff.
+    boxShadow: '0 6px 20px rgba(0, 0, 0, 0.10)',
     backdropFilter: 'blur(10px)',
     padding: '8px',
   }) as const;

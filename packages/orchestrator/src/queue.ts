@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import {
   type Annotation,
   type Backend,
+  MODELS,
+  type ReasoningEffort,
   type Task,
   type TaskStatus,
   type TranscriptEntry,
@@ -24,6 +26,11 @@ export type ContinueResult = { ok: true; task: Task } | { ok: false; error: stri
 
 function isRunnable(status: TaskStatus): boolean {
   return status === 'queued' || status === 'running' || status === 'editing';
+}
+
+/** Which runner a model value belongs to, or undefined if it's not in the catalog. */
+function modelBackend(value: string): Backend | undefined {
+  return MODELS.find((m) => m.value === value)?.backend;
 }
 
 /**
@@ -110,11 +117,25 @@ export class TaskQueue {
   /**
    * Send a follow-up message to an existing task, resuming its backend session
    * so the agent keeps full context. Rejected while the task is still running.
+   *
+   * `opts` carries the chat composer's model/effort pickers, so a thread can
+   * change either between turns. A model from a *different* backend is ignored:
+   * the entry's runner and its resumable session both belong to the original
+   * backend, so honouring the switch would resume a Claude session with codex.
+   * (The composer only offers same-backend models — this is the guard.)
    */
-  continue(taskId: string, text: string): ContinueResult {
+  continue(
+    taskId: string,
+    text: string,
+    opts: { model?: string; effort?: ReasoningEffort } = {},
+  ): ContinueResult {
     const entry = this.byId.get(taskId);
     if (!entry) return { ok: false, error: 'task not found' };
     if (isRunnable(entry.task.status)) return { ok: false, error: 'task is still running' };
+
+    const model =
+      opts.model && modelBackend(opts.model) === entry.task.backend ? opts.model : undefined;
+    if (model) entry.task.model = model;
 
     // Snapshot the conversation before appending the new message: it's the
     // context for this turn, and a backend that can't resume its own session
@@ -129,6 +150,8 @@ export class TaskQueue {
       prompt: text,
       ...(entry.sessionId ? { resumeSessionId: entry.sessionId } : {}),
       ...(priorTranscript.length > 0 ? { priorTranscript } : {}),
+      ...(model ? { model } : {}),
+      ...(opts.effort ? { effort: opts.effort } : {}),
     };
     this.updateStatus(entry, 'queued');
 

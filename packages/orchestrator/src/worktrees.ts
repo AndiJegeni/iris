@@ -108,7 +108,7 @@ export class WorktreeManager {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    // Symlink node_modules from main so the dev server starts without install.
+    // Copy node_modules from main so the dev server starts without install.
     this.linkNodeModules(path);
 
     // Carry main's UNCOMMITTED changes into the clone (clone only has committed
@@ -295,20 +295,67 @@ export class WorktreeManager {
   }
 
   /**
-   * Symlink node_modules from main into worktree (root level + every nested
-   * package or example that has its own). Walks one level deep for monorepos.
+   * Give the worktree a node_modules without running an install (root level +
+   * every nested package or example that has its own). Walks one level deep for
+   * monorepos.
+   *
+   * This must produce a REAL directory, not a symlink to main's. Turbopack
+   * treats the project directory as a filesystem root and refuses to compile
+   * anything reached through it:
+   *
+   *   FATAL: Symlink [project]/node_modules is invalid, it points out of the
+   *          filesystem root
+   *
+   * It panics *after* binding the port and printing "Ready", so the symlink
+   * showed up as a dev server that started and then died. Symlinking the
+   * individual entries inside a real node_modules fails the same way — the
+   * constraint is on the files' location, not on the shape of the link.
+   *
+   * So copy, cheaply: `cp -c` (macOS/APFS) and `--reflink=auto` (Linux/btrfs,
+   * xfs) are copy-on-write clones that share blocks with the original, so a
+   * 443MB node_modules costs ~9MB and a few seconds. Where the filesystem
+   * can't clone, the flag is ignored (Linux) or the command fails and we retry
+   * as a plain recursive copy — correct, just slower.
    */
   private linkNodeModules(worktreePath: string): void {
+    const copyTree = (src: string, dst: string): void => {
+      // `cp -c` errors rather than falling back when the FS can't clone, so try
+      // the cheap form first and drop to a plain copy if it's unavailable.
+      const attempts =
+        process.platform === 'darwin'
+          ? [`cp -Rc ${quote(src)} ${quote(dst)}`, `cp -R ${quote(src)} ${quote(dst)}`]
+          : [
+              `cp -R --reflink=auto ${quote(src)} ${quote(dst)}`,
+              `cp -R ${quote(src)} ${quote(dst)}`,
+            ];
+
+      for (const cmd of attempts) {
+        try {
+          execSync(cmd, { stdio: ['ignore', 'ignore', 'pipe'] });
+          return;
+        } catch {
+          // A partial copy would shadow main's modules with an incomplete tree,
+          // which fails far more confusingly than having none at all.
+          rmSync(dst, { recursive: true, force: true });
+        }
+      }
+
+      // Last resort: the old symlink. Wrong for Turbopack, but vite/webpack
+      // projects resolve through it fine, so it beats no node_modules at all.
+      try {
+        symlinkSync(src, dst, 'dir');
+      } catch {
+        // ignore — the dev server will report the missing dependency itself
+      }
+    };
+
     const tryLink = (subdir: string): void => {
       const src = join(this.repoRoot, subdir, 'node_modules');
       if (!existsSync(src)) return;
       const dst = join(worktreePath, subdir, 'node_modules');
       if (existsSync(dst)) return;
-      try {
-        symlinkSync(src, dst, 'dir');
-      } catch {
-        // ignore
-      }
+      mkdirSync(dirname(dst), { recursive: true });
+      copyTree(src, dst);
     };
 
     tryLink('.');

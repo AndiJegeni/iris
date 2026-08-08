@@ -8,8 +8,9 @@
  * parallel tasks (each its own process) never clobber each other's cwd.
  *
  * Protocol:
- *   - stdin:  one JSON line `{ prompt: string, resume?: string }`
- *             (`resume` is a prior SDK session id, for follow-up messages)
+ *   - stdin:  one JSON line `{ prompt, resume?, model?, effort? }`
+ *             (`resume` is a prior SDK session id, for follow-up messages;
+ *             `model`/`effort` are the user's picks, already in SDK spelling)
  *   - stdout: JSON-line RunEvents — besides the legacy `log`/`edit`/`status`/
  *             `done`/`error`, we now emit structured `entry` events (one per
  *             assistant text / thinking block / tool call) and a `session`
@@ -43,14 +44,31 @@ function readStdin(): Promise<string> {
   });
 }
 
+/**
+ * The SDK's own `EffortLevel`. Our shared ReasoningEffort is the union of the
+ * Claude and codex tiers, so the GPT-only top tier ("ultra") is a value this
+ * backend would reject — the picker filters by provider, and this is the
+ * belt-and-braces so a stale client can't 400 the run.
+ */
+const SDK_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+
 async function main(): Promise<void> {
   const input = await readStdin();
   let prompt: string;
   let resume: string | undefined;
+  let model: string | undefined;
+  let effort: string | undefined;
   try {
-    const parsed = JSON.parse(input) as { prompt: string; resume?: string };
+    const parsed = JSON.parse(input) as {
+      prompt: string;
+      resume?: string;
+      model?: string;
+      effort?: string;
+    };
     prompt = parsed.prompt;
     resume = parsed.resume;
+    model = parsed.model;
+    effort = parsed.effort && SDK_EFFORTS.has(parsed.effort) ? parsed.effort : undefined;
   } catch {
     emit({ kind: 'error', message: 'worker: invalid input' });
     return;
@@ -72,6 +90,10 @@ async function main(): Promise<void> {
           : {}),
         // Resume a prior session for follow-up messages (undefined → fresh run).
         ...(resume ? { resume } : {}),
+        // The user's picks. Omitted entirely when unset so the SDK keeps its
+        // own defaults rather than being handed an empty string.
+        ...(model ? { model } : {}),
+        ...(effort ? { effort: effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max' } : {}),
       },
     });
 

@@ -1,11 +1,11 @@
 /** @jsxImportSource preact */
-import type { Task, TranscriptEntry } from '@iris/shared';
+import type { ReasoningEffort, Task, TranscriptEntry } from '@iris/shared';
 import { useEffect, useState } from 'preact/hooks';
 import { BackgroundTasksIcon, CloseThinIcon } from './icons';
+import { PILL_PALETTE } from './pill';
 import { TaskChat } from './task-chat';
 import {
   CHAT_WIDTH,
-  DRAWER_MARGIN,
   DRAWER_WIDTH,
   buttonStyle,
   clearBtn,
@@ -16,7 +16,7 @@ import {
   sectionHeader,
 } from './task-panel.styles';
 import { TaskRow, isRunning } from './task-row';
-import { type OverlayTheme, tokens } from './theme';
+import { type OverlayTheme, SURFACE_PAD, surfacePalette } from './theme';
 
 type TaskPanelProps = {
   tasks: Task[];
@@ -25,8 +25,15 @@ type TaskPanelProps = {
   transcripts?: Record<string, TranscriptEntry[]>;
   theme?: OverlayTheme;
   onCancel: (id: string) => void;
-  /** Send a follow-up message to a task (resumes its session). */
-  onSendMessage?: (id: string, text: string) => void | Promise<void>;
+  /**
+   * Send a follow-up message to a task (resumes its session). `opts` carries
+   * the chat composer's model + reasoning pickers for that turn.
+   */
+  onSendMessage?: (
+    id: string,
+    text: string,
+    opts: { model: string; effort: ReasoningEffort },
+  ) => void | Promise<void>;
   /** Called when a task's chat is opened (e.g. to load its full transcript). */
   onOpenChat?: (id: string) => void;
   /** Re-run a failed task (re-submits its original prompt as a fresh task). */
@@ -35,13 +42,22 @@ type TaskPanelProps = {
   open?: boolean;
   /** Fired when the panel wants to open/close — pairs with `open` for control. */
   onOpenChange?: (open: boolean) => void;
+  /** Seed for the self-managed open state (uncontrolled use, e.g. the gallery). */
+  defaultOpen?: boolean;
+  /** Where the launcher circle parks — left of the pill (see overlay.tsx). */
+  launcherStyle?: Record<string, string> | undefined;
+  /** Where the drawer sits — top edge down to just above the pill row (overlay.tsx). */
+  anchorStyle?: Record<string, string> | undefined;
 };
 
 /**
- * Top-right "Background tasks" button (icon + running count) that opens a
- * Conductor-style panel: Running section with Stop + transcript, Finished
- * section with Clear. Clicking a task's "View transcript" swaps the panel into
- * a full chat view (see TaskChat). Theme-aware (dark/light).
+ * Conductor-style Background Tasks drawer: Running section with Stop +
+ * transcript, Finished section with Clear. Clicking a task's "View chat" swaps
+ * the panel into a full chat view (see TaskChat). Theme-aware (dark/light).
+ *
+ * Its launcher is a 40px circle parked to the left of the pill, on the same row.
+ * It only exists once there's work to show: with no tasks the overlay is just
+ * the pill, and the circle animates in when the first task is queued.
  */
 export function TaskPanel({
   tasks,
@@ -54,10 +70,17 @@ export function TaskPanel({
   onRetry,
   open: openProp,
   onOpenChange,
+  defaultOpen = false,
+  launcherStyle,
+  anchorStyle,
 }: TaskPanelProps) {
-  const t = tokens(theme);
-  // Controlled when `open` is provided (pill chat button), else self-managed.
-  const [openSelf, setOpenSelf] = useState(false);
+  const p = surfacePalette(theme);
+  // The launcher circle sits on the pill row, so it keeps the pill's palette —
+  // it is chrome, not part of the drawer's surface.
+  const pill = PILL_PALETTE[theme];
+  // Controlled when `open` is provided (the overlay's pill button), else
+  // self-managed — the gallery seeds `defaultOpen` since there's no launcher.
+  const [openSelf, setOpenSelf] = useState(defaultOpen);
   const open = openProp ?? openSelf;
   const setOpen = (next: boolean | ((o: boolean) => boolean)) => {
     const value = typeof next === 'function' ? next(open) : next;
@@ -86,8 +109,7 @@ export function TaskPanel({
     if (chatTaskId && !chatTask) setChatTaskId(null);
   }, [chatTaskId, chatTask]);
 
-  // With no tasks the floating launcher button is pointless — but when the pill
-  // drives us open (controlled), still render so the panel (empty state) shows.
+  // Nothing queued and nothing open → the overlay is just the pill.
   if (tasks.length === 0 && !open) return null;
 
   const width = chatTask ? CHAT_WIDTH : DRAWER_WIDTH;
@@ -114,28 +136,34 @@ export function TaskPanel({
 
   return (
     <>
-      <style>{'.la-tp-dim{opacity:0.5;transition:opacity 80ms}.la-tp-dim:hover{opacity:1}'}</style>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        style={{
-          ...buttonStyle(t),
-          // In light mode, match the message-box modal: white fill, hairline ink border.
-          ...(theme === 'light'
-            ? { background: '#ffffff', border: '1px solid rgba(55, 55, 52, 0.1)' }
-            : null),
-          right: open ? `${width + DRAWER_MARGIN + 10}px` : '14px',
-        }}
-        title="Background tasks"
-      >
-        <BackgroundTasksIcon color={t.accent} />
-        {running.length > 0 ? (
-          <span style={{ ...countStyle, color: t.accent }}>{running.length}</span>
-        ) : null}
-      </button>
-
+      {/* Glyph ink lives in the class, not inline, so :hover can win. The mount
+          animation pops the circle in on the pill's own expo curve, so a task
+          arriving reads as one gesture rather than a button blinking into
+          existence. */}
+      <style>
+        {[
+          '.la-tp-dim{opacity:0.5;transition:opacity 80ms}.la-tp-dim:hover{opacity:1}',
+          `.la-tp-soft{color:${p.soft};transition:color 80ms}.la-tp-soft:hover{color:${p.ink}}`,
+          `.la-tp-launcher{color:${pill.icon};background:${pill.surface};transition:background 90ms,box-shadow 90ms}`,
+          `.la-tp-launcher:hover{background:${pill.hover};box-shadow:0 0 0 2px ${pill.hover}}`,
+          '.la-tp-launcher-in{animation:la-tasks-in 360ms cubic-bezier(0.19,1,0.22,1) both}',
+          '@keyframes la-tasks-in{from{opacity:0;transform:scale(0.4)}to{opacity:1;transform:scale(1)}}',
+        ].join('')}
+      </style>
+      {tasks.length > 0 ? (
+        <button
+          type="button"
+          className="la-tp-launcher la-tp-launcher-in"
+          onClick={() => setOpen((o) => !o)}
+          style={{ ...buttonStyle(theme), ...launcherStyle }}
+          title="Background tasks"
+        >
+          <BackgroundTasksIcon />
+          {running.length > 0 ? <span style={countStyle()}>{running.length}</span> : null}
+        </button>
+      ) : null}
       {open ? (
-        <div style={{ ...panelStyle(t, theme), width: `${width}px` }}>
+        <div style={{ ...panelStyle(theme), ...anchorStyle, width: `${width}px` }}>
           {chatTask ? (
             <TaskChat
               task={chatTask}
@@ -147,36 +175,42 @@ export function TaskPanel({
               onBack={() => setChatTaskId(null)}
               onSelectTab={openChat}
               onCloseTab={closeTab}
-              onSend={(text) => onSendMessage?.(chatTask.id, text)}
+              onSend={(text, opts) => onSendMessage?.(chatTask.id, text, opts)}
               {...(isRunning(chatTask) ? { onCancel: () => onCancel(chatTask.id) } : {})}
             />
           ) : (
             <>
-              <div style={panelHeader(t)}>
-                <span style={{ fontWeight: 500, fontSize: '12px', opacity: 0.5 }}>
+              <div style={panelHeader()}>
+                <span style={{ fontWeight: 500, fontSize: '12px', color: p.soft }}>
                   Background Tasks
                 </span>
                 <button
                   type="button"
                   onClick={() => setOpen(false)}
-                  style={iconBtn(t)}
+                  style={iconBtn(theme)}
                   aria-label="Close"
                 >
                   <CloseThinIcon />
                 </button>
               </div>
 
-              <div style={{ flex: 1, overflowY: 'auto', padding: '4px 16px 16px' }}>
+              <div
+                style={{
+                  flex: 1,
+                  overflowY: 'auto',
+                  padding: `4px ${SURFACE_PAD}px ${SURFACE_PAD}px`,
+                }}
+              >
                 {running.length > 0 ? (
                   <>
-                    <div style={sectionHeader(t)}>
+                    <div style={sectionHeader(theme)}>
                       <span>Running</span>
                     </div>
                     {running.map((task) => (
                       <TaskRow
                         key={task.id}
                         task={task}
-                        t={t}
+                        theme={theme}
                         hasTranscript={
                           (logs[task.id]?.length ?? 0) > 0 ||
                           (transcripts?.[task.id]?.length ?? 0) > 0
@@ -192,14 +226,14 @@ export function TaskPanel({
                   <>
                     <div
                       style={{
-                        ...sectionHeader(t),
+                        ...sectionHeader(theme),
                         marginTop: running.length > 0 ? '14px' : '4px',
                       }}
                     >
                       <span>Finished</span>
                       <button
                         type="button"
-                        style={clearBtn(t)}
+                        style={clearBtn()}
                         onClick={() => setCleared(new Set(tasks.map((task) => task.id)))}
                       >
                         Clear
@@ -209,7 +243,7 @@ export function TaskPanel({
                       <TaskRow
                         key={task.id}
                         task={task}
-                        t={t}
+                        theme={theme}
                         hasTranscript={
                           (logs[task.id]?.length ?? 0) > 0 ||
                           (transcripts?.[task.id]?.length ?? 0) > 0
@@ -222,7 +256,7 @@ export function TaskPanel({
                 ) : null}
 
                 {running.length === 0 && finished.length === 0 ? (
-                  <div style={{ color: t.textFaint, fontSize: '12px', padding: '12px 0' }}>
+                  <div style={{ color: p.faint, fontSize: '12px', padding: '12px 0' }}>
                     No tasks yet.
                   </div>
                 ) : null}

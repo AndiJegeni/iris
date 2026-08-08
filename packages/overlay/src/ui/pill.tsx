@@ -31,6 +31,18 @@ const STAR_SIZE = 20; // collapsed-launcher glyph (smaller than the circle for b
 const ICON_BTN = 28; // active toolbar button (20px glyph + 4px padding)
 const CIRCLE = 40; // collapsed launcher diameter (= toolbar height: 28px button + 6px top/bottom)
 
+/**
+ * The pill's two footprints, exported so siblings parked on the same row (the
+ * Background Tasks launcher) can sit beside it without overlapping. It keeps a
+ * fixed right edge and grows leftward, so a neighbour offsets by whichever
+ * width is current.
+ *
+ * Expanded width is derived from its parts so it tracks the layout below:
+ * pad-l 8 · chat 28 · gap 6 · ml 2 · settings 28 · gap 6 · divider 1 · gap 6 · ml 2 · close 28 · pad-r 6.
+ */
+export const PILL_CIRCLE = CIRCLE;
+export const PILL_TOOLBAR_W = 8 + ICON_BTN + 6 + 2 + ICON_BTN + 6 + 1 + 6 + 2 + ICON_BTN + 6;
+
 // Theme accent blue (mirrors theme.ts `accent`) for the keyboard focus ring on
 // the pill's icon buttons — replaces the host browser's default yellow outline.
 const ACCENT = '#3b82f6';
@@ -40,9 +52,18 @@ const ACCENT = '#3b82f6';
 // while the two layers crossfade, so the launcher glyph dissolves into the
 // icons instead of snapping. Both states share the height + right edge, so the
 // pill grows leftward from a fixed anchor and never jumps.
+// Deliberately width-only: `right` is what dragging writes on every mousemove,
+// so easing it would make the pill lag the cursor.
 const MORPH = 'width 320ms cubic-bezier(0.19, 1, 0.22, 1)';
 
-const PILL: Record<OverlayTheme, PillPalette> = {
+/**
+ * Exported so the Background Tasks launcher — which parks on this row and must
+ * read as the same physical chip — paints from the same palette. The theme's
+ * `controlBg` is NOT a substitute: it's a near-transparent tint meant for
+ * controls sitting *inside* a panel, so on a dark page it renders as a pale
+ * blob next to the dark pill.
+ */
+export const PILL_PALETTE: Record<OverlayTheme, PillPalette> = {
   light: {
     surface: '#ffffff',
     stroke: 'rgba(55, 55, 52, 0.1)', // #373734 @ 10%
@@ -69,7 +90,7 @@ export function Pill({
   positionStyle,
   onDragStart,
 }: PillProps) {
-  const p = PILL[theme];
+  const p = PILL_PALETTE[theme];
   const baseSurface = {
     position: 'fixed' as const,
     bottom: '16px',
@@ -101,9 +122,7 @@ export function Pill({
     cursor: 'pointer',
   };
 
-  // Expanded-toolbar width, derived from its parts so it tracks the layout below:
-  // pad-l 8 · chat 28 · gap 6 · ml 2 · settings 28 · gap 6 · divider 1 · gap 6 · ml 2 · close 28 · pad-r 6.
-  const TOOLBAR_W = 8 + ICON_BTN + 6 + 2 + ICON_BTN + 6 + 1 + 6 + 2 + ICON_BTN + 6;
+  const TOOLBAR_W = PILL_TOOLBAR_W;
 
   return (
     <div
@@ -128,7 +147,7 @@ export function Pill({
           launcher fills the clipped container, so its ring is inset to avoid being
           cut off; the toolbar buttons sit inside the padding so theirs can sit out. */}
       <style>
-        {`.la-pill-btn{background:transparent;outline:none;transition:background 90ms,box-shadow 90ms}.la-pill-btn:hover{background:${p.hover};box-shadow:0 0 0 4px ${p.hover}}.la-pill-btn:focus-visible{outline:none;box-shadow:0 0 0 2px ${ACCENT}}.la-pill-layer{transition:opacity 180ms ease}.la-pill-launcher{outline:none}.la-pill-launcher:focus-visible{box-shadow:inset 0 0 0 2px ${ACCENT}}`}
+        {`.la-pill-btn{background:transparent;outline:none;transition:background 90ms,box-shadow 90ms}.la-pill-btn:hover{background:${p.hover};box-shadow:0 0 0 2px ${p.hover}}.la-pill-btn:focus-visible{outline:none;box-shadow:0 0 0 2px ${ACCENT}}.la-pill-layer{transition:opacity 180ms ease}.la-pill-launcher{outline:none}.la-pill-launcher:focus-visible{box-shadow:inset 0 0 0 2px ${ACCENT}}`}
       </style>
 
       {/* Parked launcher: the star, pinned to the right CIRCLE px so it sits
