@@ -1,4 +1,4 @@
-import { PILL_PALETTE } from './pill';
+import { PILL_CIRCLE, PILL_PALETTE } from './pill';
 import {
   type OverlayTheme,
   SURFACE_PAD,
@@ -14,8 +14,8 @@ export const CHAT_WIDTH = SURFACE_WIDTH;
 export const DRAWER_MARGIN = 8;
 
 /**
- * The Background Tasks launcher: its own 40px circle parked to the left of the
- * pill, matching the pill's diameter so the two read as one row of chrome.
+ * The Background Tasks launcher: its own circle parked to the left of the pill,
+ * sized from PILL_CIRCLE so the two are one row of chrome by construction.
  *
  * Painted from PILL_PALETTE, not the theme's control tokens — `controlBg` is a
  * near-transparent tint meant for controls *inside* a panel, so on a dark page
@@ -25,19 +25,24 @@ export const DRAWER_MARGIN = 8;
  * position); the offsets here are the un-dragged resting spot so the button
  * still places itself when rendered standalone.
  */
+/** Glyph the launcher carries; see BackgroundTasksIcon's default size. */
+const LAUNCHER_GLYPH = 18;
+/** Side padding that makes the idle button exactly PILL_CIRCLE across. */
+const LAUNCHER_FLANK = (PILL_CIRCLE - LAUNCHER_GLYPH - 2) / 2;
+
 export const buttonStyle = (theme: OverlayTheme) => ({
   position: 'fixed' as const,
   bottom: '16px',
-  // = pill's 16px inset + its 40px collapsed width + the 8px gap.
-  right: `${16 + 40 + 8}px`,
-  height: '40px',
-  // A 40px circle with no count, widening to hold one beside the glyph.
-  minWidth: '40px',
-  // Asymmetric on purpose: 11px on the left is what makes the idle button an
-  // exact circle (18px icon + two 11px flanks = 40, and min-width holds it
-  // there), while the count gets 2px more room on the right than the flank
-  // would otherwise give it.
-  padding: '0 13px 0 11px',
+  // = pill's 16px inset + its collapsed width + the 8px gap.
+  right: `${16 + PILL_CIRCLE + 8}px`,
+  height: `${PILL_CIRCLE}px`,
+  // A circle with no count, widening to hold one beside the glyph. The flanks
+  // are derived, not typed in: with border-box sizing the idle width is the
+  // 18px glyph + two flanks + the 1px border each side, and that has to land
+  // exactly on PILL_CIRCLE or the "circle" is a subtly wrong oval — which is
+  // what it was when the flanks were hand-tuned to 11 and 13.
+  minWidth: `${PILL_CIRCLE}px`,
+  padding: `0 ${LAUNCHER_FLANK}px`,
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -73,7 +78,11 @@ export const buttonStyle = (theme: OverlayTheme) => ({
 export const countStyle = () => ({
   display: 'inline-flex',
   alignItems: 'center',
-  height: '18px',
+  height: `${LAUNCHER_GLYPH}px`,
+  // The extra breathing room on the right rides here rather than on the
+  // button's padding: the flanks have to stay symmetric or the idle circle
+  // (which has no count in it) turns into an oval.
+  marginRight: '2px',
   fontSize: '15px',
   fontWeight: 500,
   lineHeight: 1,
@@ -97,8 +106,8 @@ export const panelStyle = (theme: OverlayTheme) => ({
   position: 'fixed' as const,
   top: `${DRAWER_MARGIN}px`,
   right: '16px',
-  // Clears the pill row: its 16px inset + 40px height + the 8px gap.
-  bottom: `${16 + 40 + 8}px`,
+  // Clears the pill row: its 16px inset + the pill's height + the 8px gap.
+  bottom: `${16 + PILL_CIRCLE + 8}px`,
   // The popover's exact surface — near-opaque over a backdrop blur, rather than
   // the flat #0f0f0f this used to paint. At 98% alpha it is still effectively
   // solid; the blur is what makes it the same material as the popover.
