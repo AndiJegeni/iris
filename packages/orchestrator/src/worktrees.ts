@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import type { Worktree } from '@iris/shared';
 import type { EventBus } from './events';
 import { defaultDevCmd, detectPackageManager } from './project';
+import { type PullRequestOutcome, openPullRequest } from './pull-request';
 import { sleep } from './util';
 
 const WORKTREE_DIR_NAME = '.iris-worktrees';
@@ -59,6 +60,8 @@ export type WorktreeManagerOptions = {
 
 export class WorktreeManager {
   private worktrees = new Map<string, ManagedWorktree>();
+  /** In-flight createPullRequest calls, keyed by slug. See that method. */
+  private pullRequests = new Map<string, Promise<PullRequestOutcome>>();
   private nextSlugNum = 1;
   private readonly worktreeRoot: string;
   /** Resolved dev command, exposed so the CLI banner can print it up front. */
@@ -211,6 +214,37 @@ export class WorktreeManager {
   }
 
   /**
+   * `git add -A` in a worktree, then commit if that staged anything. Shared by
+   * "Ship it" and "Create PR", which both need the agent's edits to be a commit
+   * before they can do anything with them.
+   */
+  private commitPending(
+    path: string,
+    message: string,
+  ): { ok: true; committed: boolean } | { ok: false; error: string } {
+    try {
+      execSync('git add -A', { cwd: path, stdio: ['ignore', 'pipe', 'pipe'] });
+      // Empty index → `git commit` would error. Check first.
+      let hasChanges = true;
+      try {
+        execSync('git diff --cached --quiet', { cwd: path });
+        hasChanges = false;
+      } catch {
+        hasChanges = true;
+      }
+      if (hasChanges) {
+        execSync(`git commit -m ${quote(message)}`, {
+          cwd: path,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+      }
+      return { ok: true, committed: hasChanges };
+    } catch (err) {
+      return { ok: false, error: `commit failed: ${String(err)}` };
+    }
+  }
+
+  /**
    * Merge a worktree's branch into main and tear down the worktree. Used by
    * the "Ship it" button.
    */
@@ -219,25 +253,8 @@ export class WorktreeManager {
     const m = this.worktrees.get(slug);
     if (!m) return { ok: false, error: `unknown worktree ${slug}` };
 
-    // Commit any pending changes in the worktree first.
-    try {
-      execSync('git add -A', { cwd: m.worktree.path });
-      // Empty index → `git commit` would error. Check first.
-      let hasChanges = true;
-      try {
-        execSync('git diff --cached --quiet', { cwd: m.worktree.path });
-        hasChanges = false;
-      } catch {
-        hasChanges = true;
-      }
-      if (hasChanges) {
-        execSync(`git commit -m ${quote(`iris: changes from ${slug}`)}`, {
-          cwd: m.worktree.path,
-        });
-      }
-    } catch (err) {
-      return { ok: false, error: `commit failed: ${String(err)}` };
-    }
+    const committed = this.commitPending(m.worktree.path, `iris: changes from ${slug}`);
+    if (!committed.ok) return committed;
 
     // The agent branch lives in the CLONE (a separate repo), so fetch+merge it
     // into main from the clone's path rather than a local `git merge`.
@@ -255,6 +272,45 @@ export class WorktreeManager {
 
     await this.remove(slug);
     return { ok: true };
+  }
+
+  /**
+   * Push this worktree's branch to the real remote and open a pull request.
+   *
+   * Unlike `shipIt`, the worktree and its dev server SURVIVE: a PR is a
+   * checkpoint you keep iterating on, not the end of the work. Pushing again
+   * after more commits fast-forwards the same branch and updates the open PR.
+   *
+   * Concurrent calls for one slug share a single in-flight promise — a
+   * double-clicked button must not run two pushes at once.
+   */
+  async createPullRequest(
+    slug: string,
+    opts: { title?: string | undefined; body?: string | undefined } = {},
+  ): Promise<PullRequestOutcome> {
+    if (slug === 'main') return { ok: false, error: 'cannot open a PR from main' };
+    const m = this.worktrees.get(slug);
+    if (!m) return { ok: false, error: `unknown worktree ${slug}` };
+
+    const inFlight = this.pullRequests.get(slug);
+    if (inFlight) return inFlight;
+
+    const run = (async (): Promise<PullRequestOutcome> => {
+      const committed = this.commitPending(m.worktree.path, `iris: changes from ${slug}`);
+      if (!committed.ok) return committed;
+      return openPullRequest({
+        repoRoot: this.repoRoot,
+        clonePath: m.worktree.path,
+        branch: m.worktree.branch,
+        slug,
+        ...opts,
+      });
+    })().finally(() => {
+      this.pullRequests.delete(slug);
+    });
+
+    this.pullRequests.set(slug, run);
+    return run;
   }
 
   /** Kill every spawned dev server. Called on daemon shutdown. */

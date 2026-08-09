@@ -1,6 +1,12 @@
 import { execSync } from 'node:child_process';
 import { resolve } from 'node:path';
-import { VERSION, describeClaudeBinary, isGitRepo, start } from '@iris/orchestrator';
+import {
+  VERSION,
+  describeClaudeBinary,
+  isGitRepo,
+  resolveRemoteName,
+  start,
+} from '@iris/orchestrator';
 import { isWired, runInit } from './init';
 
 /** Kept in sync with the orchestrator's default; used for pre-start messages. */
@@ -174,6 +180,7 @@ async function main(): Promise<void> {
   }
 
   const git = isGitRepo(repoRoot);
+  const remote = git ? resolveRemoteName(repoRoot) !== null : false;
 
   process.stdout.write(
     [
@@ -190,6 +197,11 @@ async function main(): Promise<void> {
       ...(git
         ? []
         : ['  \x1b[33mnot a git repo\x1b[0m — worktree mode is off; agents edit in place']),
+      // Without this, "Create PR" is simply absent from both UIs with no stated
+      // reason — and a missing remote is a one-command fix.
+      ...(git && !remote
+        ? ['  \x1b[33mno git remote\x1b[0m — worktree tasks can ship, but not open PRs']
+        : []),
       describeAuth(
         'claude',
         orchestrator.auth.anthropic.method,

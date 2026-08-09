@@ -60,6 +60,7 @@ No API key required. Open the overlay's Settings and **Connect** with your Claud
 | **Runtime** | Node ≥ 18 |
 | **git** | Needed for worktree mode. Without it the worktree toggle is disabled and agents edit in place. |
 | **Backends** | Claude (needs the `claude` CLI for subscription login) · Codex (needs `codex`) · an API key needs neither |
+| **Pull requests** | Any git remote works — Iris pushes the branch. With the GitHub CLI (`gh`) installed and signed in it opens the PR too; without it you get a compare link to finish in the browser. No token is stored. |
 
 **The first run downloads ~300 MB.** Almost all of it is the Claude Agent SDK's platform executable, which npm fetches as an optional dependency whether or not you already have Claude Code installed. Subsequent runs are cached. If a matching `claude` is already on your PATH, Iris runs that one instead of the vendored copy — the startup banner's `agent:` line tells you which.
 
@@ -97,7 +98,8 @@ browser overlay  ──HTTP/WebSocket──►  iris daemon (:4747)
 
 `<Iris/>` pings the daemon in dev and, if it's up, injects the overlay — a self-contained Preact bundle served from `/overlay.js`, mounted in a shadow root so it can't collide with your styles. It also hands the overlay a handle on React's internal dispatcher, which is how Iris resolves a clicked element back to `file:line` even on Next.js + SWC, where `_debugSource` has been stripped.
 
-When you submit a request the daemon spawns an agent — optionally in a fresh git worktree with its own dev server — streams the transcript back over WebSocket, and lets you ship or discard the result.
+When you submit a request the daemon spawns an agent — optionally in a fresh git worktree with its own dev server — streams the transcript back over WebSocket, and lets you ship the result into your
+checkout, open a pull request for it, or discard it.
 
 ## Security
 
@@ -111,6 +113,10 @@ Understand the inherent risks before running it:
 - The agent runs with broad permissions: it can **read, edit, and write files and run shell commands** in the target directory, with no per-action confirmation.
 - Page content the overlay captures (nearby text, source hints) is fed into the agent prompt — point it only at **trusted pages**. Untrusted page content is a prompt-injection vector.
 - Prefer **worktree mode** so the agent works in an isolated clone instead of your working tree.
+- **"Create PR" publishes whatever the worktree contains.** A worktree is seeded with your
+  *uncommitted* changes so the agent sees your work in progress — and opening a PR commits and
+  pushes all of it, not just the agent's edits. Check the branch before you push it anywhere
+  others can read. "Ship it" is unaffected: it merges locally and never leaves your machine.
 
 See [SECURITY.md](SECURITY.md) for the full threat model and how to report vulnerabilities.
 
