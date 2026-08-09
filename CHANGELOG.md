@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Create PR** — push a worktree's branch to your git remote and open a pull
+  request for it, from the task drawer in the overlay or the top bar at
+  `localhost:4747`. With the GitHub CLI (`gh`) installed and signed in, Iris
+  opens the PR; without it you get a compare link. No token is ever stored.
+  Unlike Ship it, the worktree and its dev server survive, so you can keep
+  iterating and push again — a second Create PR updates the same PR.
+- The overlay's task drawer now has **Ship it** and **Discard** on finished
+  rows. Both actions existed, but only in the shell page at `localhost:4747` —
+  so anyone working in their own app tab had no way to land an agent's work.
+
 ### Changed
 - The Background Tasks button moved out of the overlay's floating pill row and
   into the shell's top bar, immediately left of the viewport switcher. The
@@ -15,6 +26,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   viewport switcher are now bare label-and-glyph, hovering to full-strength ink.
   The switcher also sizes to the worktree it is showing rather than to the
   longest name in the list.
+
+### Fixed
+- The shell's "Ship it" button didn't URL-encode the worktree slug, unlike its
+  "Discard" neighbour.
+- Every control at `localhost:4747` — the viewport switcher, Ship it, Create PR,
+  Discard, the theme sync and the daemon connection — was dead: an escape in the
+  Create PR handler emitted a real newline into the page's inline script, leaving
+  a string unterminated so the whole script failed to parse. The shell's script
+  is now parsed by a test, since nothing else typechecks it.
 
 ## [0.1.0]
 

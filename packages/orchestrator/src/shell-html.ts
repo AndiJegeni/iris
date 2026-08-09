@@ -225,12 +225,22 @@ export function shellHtml(mainPort: number): string {
         border: 1px solid var(--control-border); border-radius: 6px;
         padding: 3px 10px; font-size: 11px; cursor: pointer; font-family: inherit;
       }
+      /* Outlined, not a second green: shipping into your checkout and opening a
+         PR are alternatives, and only one of them should read as THE action. */
+      .pr-btn {
+        background: transparent; color: var(--text);
+        border: 1px solid var(--control-border); border-radius: 6px;
+        padding: 3px 10px; font-size: 11px; font-weight: 500; cursor: pointer;
+        font-family: inherit;
+      }
+      .ship-btn:disabled, .pr-btn:disabled { opacity: 0.6; cursor: default; }
     </style>
   </head>
   <body>
     <header>
       <span class="logo">iris</span>
       <button id="ship-btn" class="ship-btn" type="button" style="display: none;" title="Merge this worktree's branch into main">Ship it</button>
+      <button id="pr-btn" class="pr-btn" type="button" style="display: none;" title="Push this branch and open a pull request">Create PR</button>
       <button id="discard-btn" class="discard-btn" type="button" style="display: none;" title="Tear down this worktree without merging">Discard</button>
       <span class="status" id="status-text"></span>
       <button id="tasks-btn" class="tasks-btn" type="button" title="Background tasks" aria-pressed="false">
@@ -287,6 +297,9 @@ export function shellHtml(mainPort: number): string {
         }
 
         var worktrees = new Map();
+        // What the daemon can do on this machine, from the hello frame. Null
+        // until it arrives, which is why Create PR starts hidden.
+        var caps = null;
         worktrees.set('main', { slug: 'main', port: ${mainPort}, devServerStatus: 'ready' });
 
         // Post down into the overlay. Addressed at the frame's own origin rather
@@ -381,6 +394,9 @@ export function shellHtml(mainPort: number): string {
           var isAgent = selectEl.value !== 'main';
           document.getElementById('ship-btn').style.display = isAgent ? '' : 'none';
           document.getElementById('discard-btn').style.display = isAgent ? '' : 'none';
+          // Stays hidden without a remote — there'd be nowhere to push.
+          document.getElementById('pr-btn').style.display =
+            isAgent && caps && caps.remote ? '' : 'none';
         }
 
         selectEl.addEventListener('change', function() {
@@ -396,7 +412,7 @@ export function shellHtml(mainPort: number): string {
           var btn = document.getElementById('ship-btn');
           btn.disabled = true; btn.textContent = 'shipping…';
           try {
-            var res = await fetch(daemonOrigin + '/worktrees/' + slug + '/ship', { method: 'POST' });
+            var res = await fetch(daemonOrigin + '/worktrees/' + encodeURIComponent(slug) + '/ship', { method: 'POST' });
             var json = await res.json();
             if (!res.ok) throw new Error(json.error || 'ship failed');
             // On success the daemon broadcasts worktree:removed and the dropdown switches to main.
@@ -404,6 +420,34 @@ export function shellHtml(mainPort: number): string {
             alert('Ship failed: ' + (e && e.message ? e.message : String(e)));
           } finally {
             btn.disabled = false; btn.textContent = 'Ship it';
+          }
+        });
+
+        // No confirm(): unlike Ship and Discard this destroys nothing — the
+        // worktree and its dev server survive so you can keep iterating.
+        document.getElementById('pr-btn').addEventListener('click', async function() {
+          var slug = selectEl.value;
+          if (slug === 'main') return;
+          var btn = document.getElementById('pr-btn');
+          btn.disabled = true; btn.textContent = 'opening…';
+          try {
+            var res = await fetch(daemonOrigin + '/worktrees/' + encodeURIComponent(slug) + '/pr', { method: 'POST' });
+            var json = await res.json();
+            if (!res.ok) throw new Error(json.error || 'create PR failed');
+            // A popup opened after an await can be blocked, so the URL is also
+            // spelled out — never leave the user without a way to reach it.
+            var opened = json.url ? window.open(json.url, '_blank', 'noopener') : null;
+            // The escape is doubled on purpose. This file is one big template
+            // literal, so a single one is consumed right here and emits a real
+            // newline into the browser's source, leaving the string unterminated
+            // and killing the whole inline script. Same reason the origin-check
+            // regex above doubles its slashes.
+            if (json.url && !opened) alert('Pushed ' + json.branch + '. Open:\\n' + json.url);
+            else if (!json.url) alert(json.note || ('Pushed ' + json.branch + '.'));
+          } catch (e) {
+            alert('Create PR failed: ' + (e && e.message ? e.message : String(e)));
+          } finally {
+            btn.disabled = false; btn.textContent = 'Create PR';
           }
         });
 
@@ -427,10 +471,12 @@ export function shellHtml(mainPort: number): string {
           ws.addEventListener('message', function(ev) {
             try { var msg = JSON.parse(ev.data); } catch (e) { return; }
             if (msg.type === 'hello') {
+              caps = msg.capabilities || null;
               worktrees.clear();
               (msg.worktrees || []).forEach(function(w) { worktrees.set(w.slug, w); });
               if (!worktrees.has('main')) worktrees.set('main', { slug: 'main', port: ${mainPort}, devServerStatus: 'ready' });
               render();
+              updateShipButtons();
             } else if (msg.type === 'worktree:created' || msg.type === 'worktree:updated') {
               worktrees.set(msg.worktree.slug, msg.worktree);
               render();

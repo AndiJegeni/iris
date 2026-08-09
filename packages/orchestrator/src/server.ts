@@ -3,6 +3,7 @@ import { type ServerType, serve } from '@hono/node-server';
 import {
   Annotation,
   type AuthStatus,
+  type Capabilities,
   type HealthResponse,
   ReasoningEffort,
   VERSION,
@@ -17,7 +18,7 @@ import { type ClaudeBinary, resolveClaudeBinary } from './claude-binary';
 import { EventBus } from './events';
 import { loginAnthropic, loginOpenai, logoutAnthropic, logoutOpenai } from './login';
 import { getOverlayJs } from './overlay-bundle';
-import { isGitRepo } from './project';
+import { hasGhCli, isGitRepo, resolveRemoteName } from './project';
 import { TaskQueue } from './queue';
 import { shellHtml } from './shell-html';
 import { WorktreeManager } from './worktrees';
@@ -130,7 +131,11 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
 
   // Probed once at startup: a repo doesn't become a git repo mid-session, and
   // re-shelling out to git on every /health would be wasteful.
-  const capabilities = { git: isGitRepo(opts.repoRoot) };
+  const capabilities: Capabilities = {
+    git: isGitRepo(opts.repoRoot),
+    remote: resolveRemoteName(opts.repoRoot) !== null,
+    gh: hasGhCli(),
+  };
 
   // Resolved once: shelling out to `claude --version` per run would add
   // latency to every task for an answer that can't change mid-session.
@@ -268,6 +273,27 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
     const result = await worktrees.shipIt(slug);
     if (result.ok) return c.json({ ok: true });
     return c.json({ error: result.error }, 400);
+  });
+  app.post('/worktrees/:slug/pr', async (c) => {
+    if (!capabilities.git) {
+      return c.json({ error: 'pull requests need a git repository' }, 409);
+    }
+    if (!capabilities.remote) {
+      return c.json(
+        { error: 'no git remote configured — add one with `git remote add origin <url>`' },
+        409,
+      );
+    }
+    // Optional `{ title, body }` overrides. No body is the normal case: the
+    // title then falls back to the branch's head commit subject.
+    const raw = await c.req.json().catch(() => null);
+    const body = raw && typeof raw === 'object' ? (raw as { title?: unknown; body?: unknown }) : {};
+    const result = await worktrees.createPullRequest(c.req.param('slug'), {
+      ...(typeof body.title === 'string' && body.title.trim() ? { title: body.title.trim() } : {}),
+      ...(typeof body.body === 'string' ? { body: body.body } : {}),
+    });
+    if (!result.ok) return c.json({ error: result.error }, 400);
+    return c.json(result);
   });
   app.delete('/worktrees/:slug', async (c) => {
     const slug = c.req.param('slug');

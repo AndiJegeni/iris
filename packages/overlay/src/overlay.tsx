@@ -131,8 +131,20 @@ export function Overlay() {
   const systemTheme = usePrefersColorScheme();
   const [themeOverride, setThemeOverride] = useState<OverlayTheme | null>(null);
   const theme = themeOverride ?? systemTheme;
-  const { state, send, cancel, retry, sendMessage, fetchTranscript, login, logout, saveApiKey } =
-    useTransport();
+  const {
+    state,
+    send,
+    cancel,
+    retry,
+    sendMessage,
+    fetchTranscript,
+    login,
+    logout,
+    saveApiKey,
+    ship,
+    createPr,
+    discard,
+  } = useTransport();
 
   useEffect(() => {
     const controller = startSelectMode({
@@ -447,6 +459,11 @@ export function Overlay() {
         onSendMessage={(id, text, opts) => sendMessage(id, text, opts)}
         onOpenChat={(id) => void fetchTranscript(id)}
         onRetry={(id) => void retry(id)}
+        worktrees={state.worktrees}
+        remoteAvailable={state.capabilities?.remote ?? true}
+        onShip={ship}
+        onCreatePr={(slug) => createPr(slug)}
+        onDiscard={discard}
         open={tasksOpen}
         onOpenChange={openTasksPanel}
         showLauncher={!inShell}

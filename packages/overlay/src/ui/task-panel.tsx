@@ -1,5 +1,11 @@
 /** @jsxImportSource preact */
-import type { ReasoningEffort, Task, TranscriptEntry } from '@iris/shared';
+import type {
+  PullRequestResult,
+  ReasoningEffort,
+  Task,
+  TranscriptEntry,
+  Worktree,
+} from '@iris/shared';
 import { useEffect, useState } from 'preact/hooks';
 import { BackgroundTasksIcon, CloseThinIcon } from './icons';
 import { PILL_PALETTE } from './pill';
@@ -15,7 +21,7 @@ import {
   panelStyle,
   sectionHeader,
 } from './task-panel.styles';
-import { TaskRow, isRunning } from './task-row';
+import { TaskRow, type WorktreeAction, isRunning } from './task-row';
 import { type OverlayTheme, SURFACE_PAD, surfacePalette } from './theme';
 
 type TaskPanelProps = {
@@ -38,6 +44,16 @@ type TaskPanelProps = {
   onOpenChat?: (id: string) => void;
   /** Re-run a failed task (re-submits its original prompt as a fresh task). */
   onRetry?: (id: string) => void | Promise<void>;
+  /**
+   * Live worktrees, used to decide which finished rows still have something to
+   * ship, PR, or discard. Optional — the gallery renders rows without them.
+   */
+  worktrees?: Worktree[];
+  /** False when the repo has no git remote, which disables Create PR alone. */
+  remoteAvailable?: boolean;
+  onShip?: (slug: string) => Promise<void>;
+  onCreatePr?: (slug: string) => Promise<PullRequestResult>;
+  onDiscard?: (slug: string) => Promise<void>;
   /** Controlled open state (e.g. driven by the pill's chat button). Optional. */
   open?: boolean;
   /** Fired when the panel wants to open/close — pairs with `open` for control. */
@@ -55,6 +71,24 @@ type TaskPanelProps = {
   showLauncher?: boolean;
   /** Where the drawer sits — top edge down to just above the pill row (overlay.tsx). */
   anchorStyle?: Record<string, string> | undefined;
+};
+
+/** Per-row state for the ship / PR / discard controls. */
+type WorktreeRowState = {
+  pending: boolean;
+  prUrl: string | null;
+  /** Undefined until a PR call returns a URL worth labelling. */
+  prLabel: string | undefined;
+  note: string | null;
+  error: string | null;
+};
+
+const IDLE_ROW: WorktreeRowState = {
+  pending: false,
+  prUrl: null,
+  prLabel: undefined,
+  note: null,
+  error: null,
 };
 
 /**
@@ -77,6 +111,11 @@ export function TaskPanel({
   onSendMessage,
   onOpenChat,
   onRetry,
+  worktrees = [],
+  remoteAvailable = true,
+  onShip,
+  onCreatePr,
+  onDiscard,
   open: openProp,
   onOpenChange,
   defaultOpen = false,
@@ -98,6 +137,9 @@ export function TaskPanel({
     onOpenChange?.(value);
   };
   const [cleared, setCleared] = useState<Set<string>>(() => new Set());
+  // Keyed by TASK id, not worktree slug: a follow-up message reuses one
+  // worktree, so two rows can share a slug and each wants its own spinner.
+  const [wtState, setWtState] = useState<Record<string, WorktreeRowState>>({});
   const [chatTaskId, setChatTaskId] = useState<string | null>(null);
   const [, setTick] = useState(0);
 
@@ -127,6 +169,58 @@ export function TaskPanel({
   const openChat = (id: string) => {
     setChatTaskId(id);
     onOpenChat?.(id);
+  };
+
+  const bySlug = new Map(worktrees.map((w) => [w.slug, w]));
+
+  const patchRow = (taskId: string, patch: Partial<WorktreeRowState>) =>
+    setWtState((prev) => ({ ...prev, [taskId]: { ...IDLE_ROW, ...prev[taskId], ...patch } }));
+
+  /** Wrap a worktree call with this row's pending/error bookkeeping. */
+  const runAction = (taskId: string, fn: () => Promise<void>) => {
+    patchRow(taskId, { pending: true, error: null });
+    void fn()
+      .catch((err: unknown) => {
+        patchRow(taskId, { error: err instanceof Error ? err.message : String(err) });
+      })
+      .finally(() => {
+        patchRow(taskId, { pending: false });
+      });
+  };
+
+  /**
+   * The ship/PR/discard controls for a finished row, or undefined when there's
+   * no worktree to act on — a task that ran in the user's own checkout ("main"),
+   * or one whose worktree has since been shipped or discarded.
+   */
+  const worktreeAction = (task: Task): WorktreeAction | undefined => {
+    if (!onShip || !onCreatePr || !onDiscard) return undefined;
+    const slug = task.worktreeSlug;
+    if (slug === 'main' || !bySlug.has(slug)) return undefined;
+    const row = wtState[task.id];
+    return {
+      available: true,
+      canCreatePr: remoteAvailable,
+      pending: row?.pending ?? false,
+      prUrl: row?.prUrl ?? null,
+      ...(row?.prLabel ? { prLabel: row.prLabel } : {}),
+      note: row?.note ?? null,
+      error: row?.error ?? null,
+      onShip: () => runAction(task.id, () => onShip(slug)),
+      onDiscard: () => runAction(task.id, () => onDiscard(slug)),
+      onCreatePr: () =>
+        runAction(task.id, async () => {
+          const res = await onCreatePr(slug);
+          patchRow(task.id, {
+            prUrl: res.url,
+            // "View PR" only when one actually exists; a compare page is a form
+            // the user still has to fill in, and saying otherwise would lie.
+            prLabel: res.url ? (res.created ? 'View PR' : 'Open PR') : undefined,
+            note: res.note ?? null,
+            error: null,
+          });
+        }),
+    };
   };
 
   // Every chat shown as a tab in the chat header (stable order, cleared hidden).
@@ -260,6 +354,10 @@ export function TaskPanel({
                         }
                         onOpenChat={() => openChat(task.id)}
                         {...(onRetry ? { onRetry: () => onRetry(task.id) } : {})}
+                        {...(() => {
+                          const wt = worktreeAction(task);
+                          return wt ? { worktree: wt } : {};
+                        })()}
                       />
                     ))}
                   </>
