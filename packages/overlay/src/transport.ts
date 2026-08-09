@@ -2,6 +2,7 @@ import {
   type Annotation,
   type AuthStatus,
   type Capabilities,
+  type PullRequestResult,
   type ReasoningEffort,
   type Task,
   type TranscriptEntry,
@@ -184,6 +185,36 @@ class Transport {
     await fetch(`${this.daemonUrl}/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
 
+  /** Merge a worktree's branch into the user's checkout and tear the worktree down. */
+  async shipWorktree(slug: string): Promise<void> {
+    const res = await fetch(`${this.daemonUrl}/worktrees/${encodeURIComponent(slug)}/ship`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error(await errorText(res));
+  }
+
+  /**
+   * Push a worktree's branch and open a pull request for it. The worktree
+   * survives, so this can be called again after more work to update the PR.
+   */
+  async createPullRequest(slug: string, title?: string): Promise<PullRequestResult> {
+    const res = await fetch(`${this.daemonUrl}/worktrees/${encodeURIComponent(slug)}/pr`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(title ? { title } : {}),
+    });
+    if (!res.ok) throw new Error(await errorText(res));
+    return (await res.json()) as PullRequestResult;
+  }
+
+  /** Kill a worktree's dev server and delete its clone. Unmerged work there is lost. */
+  async discardWorktree(slug: string): Promise<void> {
+    const res = await fetch(`${this.daemonUrl}/worktrees/${encodeURIComponent(slug)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error(await errorText(res));
+  }
+
   /**
    * Re-run a failed task by re-submitting its original prompt as a fresh task.
    * The stored Task only carries prompt/source/backend/model (not the full
@@ -335,4 +366,19 @@ export function getTransport(): Transport {
     _transport.connect();
   }
   return _transport;
+}
+
+/**
+ * The daemon always reports failures as `{ error }`. Prefer that message over
+ * the raw body, which would otherwise surface as JSON noise in the UI.
+ */
+async function errorText(res: Response): Promise<string> {
+  const body = await res.text().catch(() => '');
+  try {
+    const json = JSON.parse(body) as { error?: unknown };
+    if (typeof json.error === 'string' && json.error) return json.error;
+  } catch {
+    // not JSON; fall through to the raw body
+  }
+  return body || res.statusText;
 }

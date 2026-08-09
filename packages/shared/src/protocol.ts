@@ -17,6 +17,13 @@ export const VERSION = '0.1.0';
 export const Capabilities = z.object({
   /** Worktree mode clones the repo — false outside a git work tree. */
   git: z.boolean(),
+  /** A git remote is configured, so a branch has somewhere to be pushed. */
+  remote: z.boolean().default(false),
+  /**
+   * The GitHub CLI is on PATH. Without it Iris still pushes the branch, but
+   * hands back a compare URL instead of opening the PR itself.
+   */
+  gh: z.boolean().default(false),
 });
 export type Capabilities = z.infer<typeof Capabilities>;
 
@@ -203,6 +210,21 @@ export const Worktree = z.object({
   devServerStatus: DevServerStatus,
 });
 export type Worktree = z.infer<typeof Worktree>;
+
+/** Result of `POST /worktrees/:slug/pr`. Failures use the plain `{ error }` shape. */
+export const PullRequestResult = z.object({
+  ok: z.literal(true),
+  /** The branch reached the remote. True even when PR creation itself fell back. */
+  pushed: z.literal(true),
+  /** A new PR was opened. False = one already existed, or `url` is a compare page. */
+  created: z.boolean(),
+  /** PR, existing-PR, or compare URL. Null when there's none to name (non-GitHub host). */
+  url: z.string().nullable(),
+  branch: z.string(),
+  /** Why we fell back, when we did — shown to the user verbatim. */
+  note: z.string().optional(),
+});
+export type PullRequestResult = z.infer<typeof PullRequestResult>;
 
 // ---------- Task ----------
 

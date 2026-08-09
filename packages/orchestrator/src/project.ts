@@ -80,3 +80,69 @@ export function isGitRepo(dir: string): boolean {
     return false;
   }
 }
+
+/**
+ * The remote we'd push a worktree branch to: "origin" if it exists, else the
+ * first remote configured, else null.
+ *
+ * Returns a *name*, not a URL, because that's what `git push` should be given —
+ * a name lets git apply the user's `url.<base>.insteadOf` rewrites and the
+ * credential config attached to that remote. Callers wanting owner/repo should
+ * pass the name to `remoteUrl` and parse the result.
+ */
+export function resolveRemoteName(dir: string): string | null {
+  try {
+    const out = execFileSync('git', ['remote'], {
+      cwd: dir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const names = out
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (names.length === 0) return null;
+    return names.includes('origin') ? 'origin' : names[0]!;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * URL of a named remote. Used only to derive owner/repo — never to push to.
+ *
+ * `git remote get-url` (unlike `git config --get remote.<n>.url`) applies the
+ * user's `url.<base>.insteadOf` rewrites, so this reports where a push actually
+ * lands rather than what was typed. That's what we want: someone whose origin
+ * is `git@github.com:o/r` but who rewrites SSH to HTTPS still resolves to
+ * github.com, and the PR is opened against the host that really receives it.
+ */
+export function remoteUrl(dir: string, name: string): string | null {
+  try {
+    const out = execFileSync('git', ['remote', 'get-url', name], {
+      cwd: dir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return out.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether the GitHub CLI is on PATH.
+ *
+ * Deliberately NOT `gh auth status`: that makes a network round trip to GitHub,
+ * and this runs during daemon startup. Being logged out isn't fatal anyway —
+ * PR creation falls back to a compare URL — so "binary present" is the right
+ * granularity for a capability flag, and auth is resolved at call time.
+ */
+export function hasGhCli(): boolean {
+  try {
+    execFileSync('gh', ['--version'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}

@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Create PR** — push a worktree's branch to your git remote and open a pull
+  request for it, from the task drawer in the overlay or the top bar at
+  `localhost:4747`. With the GitHub CLI (`gh`) installed and signed in, Iris
+  opens the PR; without it you get a compare link. No token is ever stored.
+  Unlike Ship it, the worktree and its dev server survive, so you can keep
+  iterating and push again — a second Create PR updates the same PR.
+- The overlay's task drawer now has **Ship it** and **Discard** on finished
+  rows. Both actions existed, but only in the shell page at `localhost:4747` —
+  so anyone working in their own app tab had no way to land an agent's work.
+
+### Fixed
+- The shell's "Ship it" button didn't URL-encode the worktree slug, unlike its
+  "Discard" neighbour.
+
 ## [0.1.0]
 
 Initial public release.
