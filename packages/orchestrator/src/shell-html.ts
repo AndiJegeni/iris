@@ -163,22 +163,29 @@ export function shellHtml(mainPort: number): string {
         display: none;
         align-items: center;
         gap: 5px;
+        /* Still the select's height, so the hover fill lines up with the control
+           beside it even though nothing is drawn around the glyph at rest. */
         height: 24px;
-        padding: 0 8px;
-        background: var(--control-bg);
-        color: var(--text);
-        border: 1px solid var(--control-border);
+        padding: 0 6px;
+        background: transparent;
+        /* Muted at rest, like the wordmark and the "viewport" label: with no chip
+           around it, full-strength ink would make this the loudest thing in a bar
+           that is otherwise all quiet text. Hover brings it up to full. */
+        color: var(--muted);
+        border: none;
         border-radius: 6px;
         font-size: 12px;
         font-family: inherit;
         cursor: pointer;
         outline: none;
-        transition: background 90ms ease, border-color 90ms ease, color 90ms ease;
+        transition: background 90ms ease, color 90ms ease;
       }
-      .tasks-btn:hover { background: var(--control-hover); }
-      .tasks-btn:focus-visible { border-color: var(--accent); }
-      /* Open drawer — the same accent the select wears when focused. */
-      .tasks-btn[data-open="true"] { border-color: var(--accent); color: var(--accent); }
+      .tasks-btn:hover { background: var(--control-hover); color: var(--text); }
+      /* No border to tint, so the keyboard ring is drawn outside the box —
+         same shape the overlay's own pill buttons use. */
+      .tasks-btn:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+      /* Open drawer — the accent the select wears when focused, on the ink. */
+      .tasks-btn[data-open="true"] { color: var(--accent); }
       /* Running count, the glyph's peer rather than a badge on it: same ink,
          same size as the bar's text, tabular so it doesn't jitter at 9→10. */
       .tasks-count { font-variant-numeric: tabular-nums; line-height: 1; }
