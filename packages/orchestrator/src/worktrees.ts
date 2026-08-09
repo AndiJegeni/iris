@@ -13,6 +13,23 @@ const MAX_PORT = 3199;
 const READY_TIMEOUT_MS = 60_000;
 const READY_POLL_INTERVAL_MS = 400;
 
+/** Longest slug we'll produce, suffixes included. Keeps branch/dir names sane. */
+const MAX_SLUG_LEN = 40;
+/** How many prompt words survive into the slug. */
+const MAX_SLUG_WORDS = 4;
+
+/**
+ * Filler that carries no information about *what* the task is about. Dropping
+ * these is what turns "change the landing text to blue" into "landing-text-blue"
+ * rather than "change-the-landing-text".
+ */
+const STOPWORDS = new Set(
+  (
+    'a an and are can change could do for i in is it make my of on our please pls ' +
+    'set the this to u update with you your'
+  ).split(' '),
+);
+
 type ManagedWorktree = {
   worktree: Worktree;
   proc: ChildProcess | null;
@@ -23,9 +40,9 @@ type ManagedWorktree = {
  * Owns the lifecycle of git worktrees and the dev servers running inside them.
  *
  * The "main" worktree is the user's repo at `repoRoot` with their own external
- * dev server (we don't manage it). Additional worktrees ("agent-1", "agent-2"…)
- * are created on demand for parallel tasks; each gets its own `next dev` on a
- * dedicated port (3001, 3002, …).
+ * dev server (we don't manage it). Additional worktrees, named after the task
+ * that spawned them ("landing-text-blue"), are created on demand for parallel
+ * tasks; each gets its own `next dev` on a dedicated port (3001, 3002, …).
  *
  * Worktrees themselves are created under `<repoParent>/.iris-worktrees/`
  * (sibling to the repo) to keep the user's repo directory tidy.
@@ -78,13 +95,16 @@ export class WorktreeManager {
    * Create a new worktree + dev server. Returns immediately with the worktree
    * record (status="booting"); the dev server boots asynchronously. Use
    * `waitForReady(slug)` to await readiness before enqueueing tasks.
+   *
+   * `nameHint` is usually the task prompt — it's slugified into the worktree's
+   * name so the shell dropdown and branch list say what each one is doing.
    */
-  async spawnWorktree(): Promise<Worktree> {
+  async spawnWorktree(nameHint?: string): Promise<Worktree> {
     if (!existsSync(this.worktreeRoot)) {
       mkdirSync(this.worktreeRoot, { recursive: true });
     }
 
-    const slug = this.allocateSlug();
+    const slug = this.allocateSlug(nameHint);
     const branch = `la/${slug}`;
     const path = join(this.worktreeRoot, slug);
     const port = await this.allocatePort();
@@ -374,7 +394,30 @@ export class WorktreeManager {
     }
   }
 
-  private allocateSlug(): string {
+  /**
+   * Pick the worktree's name. A usable hint becomes the slug itself (suffixed
+   * on collision); anything else falls back to the `agent-N` counter.
+   */
+  private allocateSlug(hint?: string): string {
+    const base = hint ? slugifyPrompt(hint) : null;
+    if (!base) return this.allocateNumberedSlug();
+
+    // "main" is always a key in the map, so this also covers the reserved name:
+    // a prompt that slugifies to "main" gets "main-2".
+    if (!this.worktrees.has(base)) return base;
+
+    for (let n = 2; n < 1000; n++) {
+      const suffix = `-${n}`;
+      // The suffix has to survive the length cap, so trim the base instead.
+      const trimmed = trimHyphens(base.slice(0, MAX_SLUG_LEN - suffix.length));
+      if (!trimmed) break;
+      const candidate = trimmed + suffix;
+      if (!this.worktrees.has(candidate)) return candidate;
+    }
+    return this.allocateNumberedSlug();
+  }
+
+  private allocateNumberedSlug(): string {
     while (true) {
       const candidate = `agent-${this.nextSlugNum++}`;
       if (!this.worktrees.has(candidate)) return candidate;
@@ -435,4 +478,30 @@ function isPortFree(port: number): Promise<boolean> {
 /** Wrap a path in quotes for shell-safe command execution. */
 function quote(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
+function trimHyphens(s: string): string {
+  return s.replace(/^-+/, '').replace(/-+$/, '');
+}
+
+/**
+ * Turn a task prompt into a short, descriptive worktree name — the slug is the
+ * worktree's whole identity (map key, directory, `la/` branch, URL param), so
+ * the output alphabet is deliberately the intersection of what git refs,
+ * filenames and URL path segments all accept: `[a-z0-9-]`, no edge hyphens.
+ *
+ * Returns null when the prompt has nothing nameable left in it ("do it", a
+ * non-Latin prompt); the caller then uses `agent-N`.
+ */
+export function slugifyPrompt(prompt: string): string | null {
+  const words = prompt
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .split(/\s+/)
+    .filter((w) => w && !STOPWORDS.has(w))
+    .slice(0, MAX_SLUG_WORDS);
+
+  const slug = trimHyphens(words.join('-').replace(/-+/g, '-')).slice(0, MAX_SLUG_LEN);
+  // Truncation can leave a trailing hyphen behind, which isn't a legal ref end.
+  return trimHyphens(slug) || null;
 }

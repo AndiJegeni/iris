@@ -249,8 +249,15 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
     if (!capabilities.git) {
       return c.json({ error: 'worktree mode needs a git repository' }, 409);
     }
+    // Optional `{ prompt }` names the worktree after the task. No body (or an
+    // unparseable one) is fine — that's an unnamed spawn, as before.
+    const body = await c.req.json().catch(() => null);
+    const prompt =
+      body && typeof body === 'object' && typeof (body as { prompt?: unknown }).prompt === 'string'
+        ? (body as { prompt: string }).prompt
+        : undefined;
     try {
-      const wt = await worktrees.spawnWorktree();
+      const wt = await worktrees.spawnWorktree(prompt);
       return c.json({ worktree: wt });
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
@@ -297,7 +304,7 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
 
     if (annotation.worktreeMode === 'new') {
       try {
-        const wt = await worktrees.spawnWorktree();
+        const wt = await worktrees.spawnWorktree(annotation.prompt);
         worktreeSlug = wt.slug;
         worktreePath = wt.path;
         // Readiness is best-effort (only affects preview availability, not the
