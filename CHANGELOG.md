@@ -11,6 +11,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   into the shell's top bar, immediately left of the viewport switcher. The
   drawer is unchanged. Running Iris without the shell (visiting the dev server
   directly) still gets the floating launcher beside the pill.
+- The top bar's controls lost their outlines and fills: the tasks button and the
+  viewport switcher are now bare label-and-glyph, hovering to full-strength ink.
+  The switcher also sizes to the worktree it is showing rather than to the
+  longest name in the list.
 
 ## [0.1.0]
 

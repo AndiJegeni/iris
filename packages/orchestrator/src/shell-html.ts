@@ -44,9 +44,7 @@ export function shellHtml(mainPort: number): string {
         --logo: rgba(255, 255, 255, 0.4);
         --muted: #a1a1aa;
         --faint: #71717a;
-        --control-bg: #27272a;
         --control-border: #3f3f46;
-        --control-hover: rgba(255, 255, 255, 0.06);
         --code-bg: #18181b;
         --code-text: #e4e4e7;
         --accent: #3b82f6;
@@ -63,9 +61,7 @@ export function shellHtml(mainPort: number): string {
           --logo: rgba(0, 0, 0, 0.4);
           --muted: #52525b;
           --faint: #71717a;
-          --control-bg: #ffffff;
           --control-border: #d4d4d8;
-          --control-hover: rgba(0, 0, 0, 0.04);
           --code-bg: #e4e4e7;
           --code-text: #27272a;
           --danger: #dc2626;
@@ -79,9 +75,7 @@ export function shellHtml(mainPort: number): string {
         --logo: rgba(255, 255, 255, 0.4);
         --muted: #a1a1aa;
         --faint: #71717a;
-        --control-bg: #27272a;
         --control-border: #3f3f46;
-        --control-hover: rgba(255, 255, 255, 0.06);
         --code-bg: #18181b;
         --code-text: #e4e4e7;
         --danger: #f87171;
@@ -94,9 +88,7 @@ export function shellHtml(mainPort: number): string {
         --logo: rgba(0, 0, 0, 0.4);
         --muted: #52525b;
         --faint: #71717a;
-        --control-bg: #ffffff;
         --control-border: #d4d4d8;
-        --control-hover: rgba(0, 0, 0, 0.04);
         --code-bg: #e4e4e7;
         --code-text: #27272a;
         --danger: #dc2626;
@@ -126,9 +118,19 @@ export function shellHtml(mainPort: number): string {
        * tucks the chevron close to the label with a wider gutter to its right.
        */
       .select-wrap { position: relative; display: inline-flex; align-items: center; }
+      /* Off-screen twin of the selected label, in the select's own type — see
+         sizeSelect() below for why the width has to be measured. */
+      .select-measure {
+        position: absolute;
+        visibility: hidden;
+        white-space: pre;
+        font-size: 12px;
+        font-family: inherit;
+        pointer-events: none;
+      }
       .select-chevron {
         position: absolute;
-        right: 12px;
+        right: 4px;
         color: var(--text);
         /* Clicks belong to the <select> underneath. */
         pointer-events: none;
@@ -136,12 +138,12 @@ export function shellHtml(mainPort: number): string {
       select {
         appearance: none;
         -webkit-appearance: none;
-        background: var(--control-bg);
+        background: transparent;
         color: var(--text);
-        border: 1px solid var(--control-border);
+        border: none;
         border-radius: 6px;
-        /* right = 12 (gutter) + 10 (chevron) + 6 (gap to the text) */
-        padding: 3px 28px 3px 8px;
+        /* right = 4 (gutter) + 10 (chevron) + 6 (gap to the text) */
+        padding: 0 20px 0 4px;
         /* Stated rather than intrinsic so the Background Tasks button beside it
            can land on the same height — two controls sharing a row read as
            misaligned at a 1px difference. */
@@ -151,7 +153,16 @@ export function shellHtml(mainPort: number): string {
         cursor: pointer;
         outline: none;
       }
-      select:focus { border-color: var(--accent); }
+      /* The border used to carry focus; with none to tint, the ring goes outside
+         the box. :focus-visible rather than :focus so a plain click doesn't leave
+         a blue ring sitting on the bar afterwards. */
+      select:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+      /*
+       * The platform paints the open dropdown from the select's own colors, and
+       * a transparent select leaves that list unreadable — so the options carry
+       * the bar's surface explicitly.
+       */
+      option { background: var(--header-bg); color: var(--text); }
       /*
        * Background Tasks: the drawer itself lives in the overlay (inside the
        * iframe), but its button is chrome for the whole viewport, so it sits up
@@ -178,9 +189,11 @@ export function shellHtml(mainPort: number): string {
         font-family: inherit;
         cursor: pointer;
         outline: none;
-        transition: background 90ms ease, color 90ms ease;
+        transition: color 90ms ease;
       }
-      .tasks-btn:hover { background: var(--control-hover); color: var(--text); }
+      /* Nothing is drawn around the glyph, hovered or not — the ink coming up to
+         full is the whole affordance. */
+      .tasks-btn:hover { color: var(--text); }
       /* No border to tint, so the keyboard ring is drawn outside the box —
          same shape the overlay's own pill buttons use. */
       .tasks-btn:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
@@ -238,6 +251,7 @@ export function shellHtml(mainPort: number): string {
           <select id="viewport-switcher">
             <option value="main" data-port="${mainPort}">main · :${mainPort}</option>
           </select>
+          <span class="select-measure" id="select-measure" aria-hidden="true"></span>
           <svg class="select-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
@@ -259,6 +273,18 @@ export function shellHtml(mainPort: number): string {
         var emptyEl = document.getElementById('empty');
         var tasksBtn = document.getElementById('tasks-btn');
         var tasksCountEl = document.getElementById('tasks-count');
+        var measureEl = document.getElementById('select-measure');
+
+        // A <select> is as wide as its widest option, not its current one. The
+        // chip used to absorb that slack; bare, it strands the chevron a worktree
+        // name's distance from the value it belongs to. So the width is measured
+        // off the selected label and pinned — 24 = the select's own 4 + 20 of
+        // horizontal padding.
+        function sizeSelect() {
+          var opt = selectEl.options[selectEl.selectedIndex];
+          measureEl.textContent = opt ? opt.textContent : '';
+          selectEl.style.width = (measureEl.offsetWidth + 24) + 'px';
+        }
 
         var worktrees = new Map();
         worktrees.set('main', { slug: 'main', port: ${mainPort}, devServerStatus: 'ready' });
@@ -341,6 +367,7 @@ export function shellHtml(mainPort: number): string {
             selectEl.appendChild(opt);
           });
           if (worktrees.has(prev)) selectEl.value = prev;
+          sizeSelect();
         }
 
         function switchTo(slug) {
@@ -359,6 +386,7 @@ export function shellHtml(mainPort: number): string {
         selectEl.addEventListener('change', function() {
           switchTo(selectEl.value);
           updateShipButtons();
+          sizeSelect();
         });
 
         document.getElementById('ship-btn').addEventListener('click', async function() {
