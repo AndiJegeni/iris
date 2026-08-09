@@ -2,7 +2,7 @@
  * The iframe shell served at the orchestrator root (`:4747/`).
  *
  * Layout:
- *   ┌─ Top bar (38px): "iris" wordmark left, viewport switcher hard right ─┐
+ *   ┌─ Top bar (38px): "iris" left; tasks button + viewport switcher right ┐
  *   │                                                                  │
  *   │  ┌─────────────────────────────────────────────────────────┐   │
  *   │  │ <iframe src="http://localhost:300X/">  (the picked       │   │
@@ -11,6 +11,12 @@
  *   └──────────────────────────────────────────────────────────────────┘
  *
  * Dropdown options update live from WS worktree:created/updated/removed events.
+ *
+ * The Background Tasks button is the overlay's launcher lifted up here: the
+ * drawer belongs to the overlay, but the button is chrome for the whole
+ * viewport rather than for the page inside it. Since the two sit on different
+ * origins, they talk by postMessage — counts up, toggle down (see the handshake
+ * in the script below and its other half in packages/overlay/src/overlay.tsx).
  */
 export function shellHtml(mainPort: number): string {
   return `<!doctype html>
@@ -40,6 +46,7 @@ export function shellHtml(mainPort: number): string {
         --faint: #71717a;
         --control-bg: #27272a;
         --control-border: #3f3f46;
+        --control-hover: rgba(255, 255, 255, 0.06);
         --code-bg: #18181b;
         --code-text: #e4e4e7;
         --accent: #3b82f6;
@@ -58,6 +65,7 @@ export function shellHtml(mainPort: number): string {
           --faint: #71717a;
           --control-bg: #ffffff;
           --control-border: #d4d4d8;
+          --control-hover: rgba(0, 0, 0, 0.04);
           --code-bg: #e4e4e7;
           --code-text: #27272a;
           --danger: #dc2626;
@@ -73,6 +81,7 @@ export function shellHtml(mainPort: number): string {
         --faint: #71717a;
         --control-bg: #27272a;
         --control-border: #3f3f46;
+        --control-hover: rgba(255, 255, 255, 0.06);
         --code-bg: #18181b;
         --code-text: #e4e4e7;
         --danger: #f87171;
@@ -87,6 +96,7 @@ export function shellHtml(mainPort: number): string {
         --faint: #71717a;
         --control-bg: #ffffff;
         --control-border: #d4d4d8;
+        --control-hover: rgba(0, 0, 0, 0.04);
         --code-bg: #e4e4e7;
         --code-text: #27272a;
         --danger: #dc2626;
@@ -132,12 +142,46 @@ export function shellHtml(mainPort: number): string {
         border-radius: 6px;
         /* right = 12 (gutter) + 10 (chevron) + 6 (gap to the text) */
         padding: 3px 28px 3px 8px;
+        /* Stated rather than intrinsic so the Background Tasks button beside it
+           can land on the same height — two controls sharing a row read as
+           misaligned at a 1px difference. */
+        height: 24px;
         font-size: 12px;
         font-family: inherit;
         cursor: pointer;
         outline: none;
       }
       select:focus { border-color: var(--accent); }
+      /*
+       * Background Tasks: the drawer itself lives in the overlay (inside the
+       * iframe), but its button is chrome for the whole viewport, so it sits up
+       * here beside the viewport switcher. Hidden until the overlay reports work
+       * to show — mirroring the launcher it replaces, and keeping the bar clear
+       * of a button that would do nothing when the framed page has no overlay.
+       */
+      .tasks-btn {
+        display: none;
+        align-items: center;
+        gap: 5px;
+        height: 24px;
+        padding: 0 8px;
+        background: var(--control-bg);
+        color: var(--text);
+        border: 1px solid var(--control-border);
+        border-radius: 6px;
+        font-size: 12px;
+        font-family: inherit;
+        cursor: pointer;
+        outline: none;
+        transition: background 90ms ease, border-color 90ms ease, color 90ms ease;
+      }
+      .tasks-btn:hover { background: var(--control-hover); }
+      .tasks-btn:focus-visible { border-color: var(--accent); }
+      /* Open drawer — the same accent the select wears when focused. */
+      .tasks-btn[data-open="true"] { border-color: var(--accent); color: var(--accent); }
+      /* Running count, the glyph's peer rather than a badge on it: same ink,
+         same size as the bar's text, tabular so it doesn't jitter at 9→10. */
+      .tasks-count { font-variant-numeric: tabular-nums; line-height: 1; }
       /* Silent while the daemon is reachable — it only ever speaks up to report
          that it isn't. The margin-left:auto lives here rather than on the
          switcher so the switcher still sits hard right when this span is empty. */
@@ -169,6 +213,18 @@ export function shellHtml(mainPort: number): string {
       <button id="ship-btn" class="ship-btn" type="button" style="display: none;" title="Merge this worktree's branch into main">Ship it</button>
       <button id="discard-btn" class="discard-btn" type="button" style="display: none;" title="Tear down this worktree without merging">Discard</button>
       <span class="status" id="status-text"></span>
+      <button id="tasks-btn" class="tasks-btn" type="button" title="Background tasks" aria-pressed="false">
+        <!-- Stacked sheets, one per queued task — the overlay's BackgroundTasksIcon
+             at the bar's scale (see packages/overlay/src/ui/icons.tsx). -->
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <g stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M7 9.49958L2 11.9996L11.6422 16.8207C11.7734 16.8863 11.839 16.9191 11.9078 16.932C11.9687 16.9434 12.0313 16.9434 12.0922 16.932C12.161 16.9191 12.2266 16.8863 12.3578 16.8207L22 11.9996L17 9.49958" />
+            <path d="M7 14.4996L2 16.9996L11.6422 21.8207C11.7734 21.8863 11.839 21.9191 11.9078 21.932C11.9687 21.9434 12.0313 21.9434 12.0922 21.932C12.161 21.9191 12.2266 21.8863 12.3578 21.8207L22 16.9996L17 14.4996" />
+            <path d="M2 6.99958L11.6422 2.17846C11.7734 2.11287 11.839 2.08008 11.9078 2.06717C11.9687 2.05574 12.0313 2.05574 12.0922 2.06717C12.161 2.08008 12.2266 2.11287 12.3578 2.17846L22 6.99958L12.3578 11.8207C12.2266 11.8863 12.161 11.9191 12.0922 11.932C12.0313 11.9434 11.9687 11.9434 11.9078 11.932C11.839 11.9191 11.7734 11.8863 11.6422 11.8207L2 6.99958Z" />
+          </g>
+        </svg>
+        <span class="tasks-count" id="tasks-count"></span>
+      </button>
       <label class="viewport-label">
         viewport
         <span class="select-wrap">
@@ -194,21 +250,68 @@ export function shellHtml(mainPort: number): string {
         var iframeEl = document.getElementById('viewport');
         var statusEl = document.getElementById('status-text');
         var emptyEl = document.getElementById('empty');
+        var tasksBtn = document.getElementById('tasks-btn');
+        var tasksCountEl = document.getElementById('tasks-count');
 
         var worktrees = new Map();
         worktrees.set('main', { slug: 'main', port: ${mainPort}, devServerStatus: 'ready' });
 
-        // The overlay lives in the iframe, a different origin, so it reports its
-        // resolved theme up to us. Without this the top bar follows the OS but
-        // not the overlay's own light/dark override. Only ever sets an
-        // attribute, and only from a localhost frame — this is the one message
-        // channel into the shell, so it stays narrow on purpose.
+        // Post down into the overlay. Addressed at the frame's own origin rather
+        // than '*' so a page that has navigated elsewhere never receives it.
+        function postToOverlay(msg) {
+          var win = iframeEl.contentWindow;
+          if (!win) return;
+          try { win.postMessage(msg, new URL(iframeEl.src).origin); } catch (e) {}
+        }
+
+        // Whether the framed page has answered with an overlay. Cleared on every
+        // navigation: the next page gets its own handshake, and until it speaks
+        // the tasks button stays hidden rather than showing the old page's count.
+        var overlayLinked = false;
+
+        // The overlay lives in the iframe, a different origin, so it reports up
+        // to us: its resolved theme (the top bar would otherwise follow the OS
+        // but not the overlay's own light/dark override) and its task counts
+        // (which drive the Background Tasks button above). Only ever sets an
+        // attribute or paints that button, and only from a localhost frame —
+        // this is the one message channel into the shell, so it stays narrow on
+        // purpose.
         window.addEventListener('message', function(ev) {
           if (!/^https?:\\/\\/localhost(:\\d+)?$/.test(ev.origin)) return;
           var d = ev.data;
-          if (!d || d.source !== 'iris' || d.type !== 'theme') return;
-          if (d.theme !== 'light' && d.theme !== 'dark') return;
-          document.documentElement.setAttribute('data-theme', d.theme);
+          if (!d || d.source !== 'iris') return;
+          if (d.type === 'theme') {
+            if (d.theme !== 'light' && d.theme !== 'dark') return;
+            document.documentElement.setAttribute('data-theme', d.theme);
+          } else if (d.type === 'tasks') {
+            renderTasks(d);
+          } else {
+            return;
+          }
+          // Either side may come up first, so the overlay's first message is also
+          // our cue to introduce ourselves — that's what tells it to drop its own
+          // floating launcher in favour of the button up here.
+          if (!overlayLinked) {
+            overlayLinked = true;
+            postToOverlay({ source: 'iris-shell', type: 'shell:hello' });
+          }
+        });
+
+        // Same rule the overlay's launcher followed: the button exists only once
+        // there's work to show. The count is running tasks; the accent border
+        // mirrors the drawer being open, since the drawer itself is out of sight
+        // below the bar.
+        function renderTasks(d) {
+          var total = typeof d.total === 'number' ? d.total : 0;
+          var running = typeof d.running === 'number' ? d.running : 0;
+          tasksBtn.style.display = total > 0 ? 'inline-flex' : 'none';
+          tasksCountEl.textContent = running > 0 ? String(running) : '';
+          tasksBtn.setAttribute('data-open', d.open ? 'true' : 'false');
+          tasksBtn.setAttribute('aria-pressed', d.open ? 'true' : 'false');
+        }
+
+        tasksBtn.addEventListener('click', function() {
+          postToOverlay({ source: 'iris-shell', type: 'tasks:toggle' });
         });
 
         // Healthy and still-connecting are both silent — a bar that permanently
@@ -317,7 +420,14 @@ export function shellHtml(mainPort: number): string {
           // can't tell from no-cors HEAD reliably; only show banner if iframe never loads
         });
         var iframeLoaded = false;
-        iframeEl.addEventListener('load', function() { iframeLoaded = true; emptyEl.style.display = 'none'; iframeEl.style.display = ''; });
+        iframeEl.addEventListener('load', function() {
+          iframeLoaded = true; emptyEl.style.display = 'none'; iframeEl.style.display = '';
+          // Fresh page: forget the last one's overlay and re-open the handshake.
+          // The button stays hidden until this page reports tasks of its own.
+          overlayLinked = false;
+          renderTasks({ total: 0, running: 0, open: false });
+          postToOverlay({ source: 'iris-shell', type: 'shell:hello' });
+        });
         setTimeout(function() {
           if (!iframeLoaded) { iframeEl.style.display = 'none'; emptyEl.style.display = 'flex'; }
         }, 5000);

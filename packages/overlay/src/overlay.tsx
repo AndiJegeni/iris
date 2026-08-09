@@ -14,6 +14,7 @@ import { PILL_CIRCLE, PILL_TOOLBAR_W, Pill } from './ui/pill';
 import { SettingsPanel } from './ui/settings-panel';
 import { TaskPanel } from './ui/task-panel';
 import { CHAT_WIDTH } from './ui/task-panel.styles';
+import { isRunning } from './ui/task-row';
 import type { OverlayTheme } from './ui/theme';
 import { useTransport } from './use-transport';
 
@@ -58,7 +59,8 @@ const TASKS_PANEL_MAX_W = CHAT_WIDTH;
 // Background Tasks launcher: a 40px circle that widens to carry a running count
 // beside the glyph (40 empty, ~57 with one digit, ~67 with two). Deliberately
 // over-estimated — this only decides which side of the pill it parks on, and
-// guessing wide just flips it a few pixels early.
+// guessing wide just flips it a few pixels early. Only drawn when we're standing
+// on our own: under the orchestrator shell the button lives in its top bar.
 const TASKS_LAUNCHER_W = 68;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi));
@@ -107,9 +109,17 @@ export function Overlay() {
   // are mutually exclusive — opening one closes the other.
   const [showSettings, setShowSettings] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
-  // Background Tasks drawer — opened from the pill's tasks button, which only
-  // exists while tasks do. Mutually exclusive with the chat/settings panels.
+  // Background Tasks drawer — opened from the tasks button, which only exists
+  // while tasks do. Mutually exclusive with the chat/settings panels.
   const [tasksOpen, setTasksOpen] = useState(false);
+  // Counts the orchestrator shell's pings. Non-zero means the shell is there and
+  // owns the Background Tasks button (top bar, left of the viewport switcher),
+  // so we drop our own floating launcher. It's a counter rather than a flag
+  // because the shell re-pings on every navigation, having cleared what it knew
+  // about us — each ping has to pull a fresh report back out. See the handshake
+  // below.
+  const [shellPings, setShellPings] = useState(0);
+  const inShell = shellPings > 0;
   const [pillPos, setPillPos] = useState<PillPos | null>(loadPillPos);
   // Makes the host page inert (see InteractionShield) so clicking around to
   // annotate never triggers the app itself.
@@ -168,6 +178,59 @@ export function Overlay() {
     if (typeof window === 'undefined' || window.parent === window) return;
     window.parent.postMessage({ source: 'iris', type: 'theme', theme }, '*');
   }, [theme]);
+
+  // The drawer and the pill's panels are mutually exclusive — three surfaces
+  // stacked in the same corner is unreadable.
+  const openTasksPanel = useCallback((next: boolean) => {
+    if (next) {
+      setChatOpen(false);
+      setShowSettings(false);
+    }
+    setTasksOpen(next);
+  }, []);
+  // Read by the shell's toggle message, whose listener is registered once.
+  const tasksOpenRef = useRef(tasksOpen);
+  tasksOpenRef.current = tasksOpen;
+
+  // Two-way handshake with the orchestrator shell, which hosts the Background
+  // Tasks button in its top bar. It's a different origin, so it can neither read
+  // our task list nor call into the drawer: we post the counts up, it posts a
+  // toggle back. Either side may come up first — the shell pings on iframe load,
+  // and answers our first report with the same ping — so `shell:hello` is what
+  // establishes the connection rather than any particular ordering.
+  useEffect(() => {
+    if (typeof window === 'undefined' || window.parent === window) return;
+    const onMessage = (ev: MessageEvent) => {
+      // Only our own embedder, and only the two messages it may send.
+      if (ev.source !== window.parent) return;
+      const data = ev.data as { source?: string; type?: string } | null;
+      if (!data || data.source !== 'iris-shell') return;
+      if (data.type !== 'shell:hello' && data.type !== 'tasks:toggle') return;
+      setShellPings((n) => n + 1);
+      if (data.type === 'tasks:toggle') openTasksPanel(!tasksOpenRef.current);
+    };
+    window.addEventListener('message', onMessage);
+    return () => {
+      window.removeEventListener('message', onMessage);
+    };
+  }, [openTasksPanel]);
+
+  // Report the drawer's state upward so the shell's button can mirror it: shown
+  // only while there's work (same rule the floating launcher follows), carrying
+  // the running count, and lit while the drawer is open. Re-sent on every ping
+  // as well as on every change, so a shell that has just reset itself gets the
+  // current picture rather than waiting for the next task event. Harmless if
+  // there's no shell — the message just goes nowhere.
+  const taskCount = state.tasks.length;
+  const runningCount = state.tasks.filter(isRunning).length;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: shellPings is the point, not a stale read — a new ping means a shell that has forgotten our counts and needs them re-sent.
+  useEffect(() => {
+    if (typeof window === 'undefined' || window.parent === window) return;
+    window.parent.postMessage(
+      { source: 'iris', type: 'tasks', total: taskCount, running: runningCount, open: tasksOpen },
+      '*',
+    );
+  }, [taskCount, runningCount, tasksOpen, shellPings]);
 
   const toggleBlockInteractions = useCallback((next: boolean) => {
     setBlockInteractions(next);
@@ -385,15 +448,8 @@ export function Overlay() {
         onOpenChat={(id) => void fetchTranscript(id)}
         onRetry={(id) => void retry(id)}
         open={tasksOpen}
-        onOpenChange={(next) => {
-          // The drawer and the pill's panels are mutually exclusive — three
-          // surfaces stacked in the same corner is unreadable.
-          if (next) {
-            setChatOpen(false);
-            setShowSettings(false);
-          }
-          setTasksOpen(next);
-        }}
+        onOpenChange={openTasksPanel}
+        showLauncher={!inShell}
         launcherStyle={tasksLauncherStyle}
         anchorStyle={tasksPanelStyle}
       />

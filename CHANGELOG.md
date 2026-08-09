@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- The Background Tasks button moved out of the overlay's floating pill row and
+  into the shell's top bar, immediately left of the viewport switcher. The
+  drawer is unchanged. Running Iris without the shell (visiting the dev server
+  directly) still gets the floating launcher beside the pill.
+
 ## [0.1.0]
 
 Initial public release.
