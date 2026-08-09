@@ -62,6 +62,13 @@ type TaskPanelProps = {
   defaultOpen?: boolean;
   /** Where the launcher circle parks — left of the pill (see overlay.tsx). */
   launcherStyle?: Record<string, string> | undefined;
+  /**
+   * Draw the launcher circle. False when something else owns the Background
+   * Tasks button — the orchestrator shell puts it in its top bar, next to the
+   * viewport switcher, and two copies of the same control would be one too many.
+   * The drawer is then opened purely through `open`/`onOpenChange`.
+   */
+  showLauncher?: boolean;
   /** Where the drawer sits — top edge down to just above the pill row (overlay.tsx). */
   anchorStyle?: Record<string, string> | undefined;
 };
@@ -91,7 +98,9 @@ const IDLE_ROW: WorktreeRowState = {
  *
  * Its launcher is a 40px circle parked to the left of the pill, on the same row.
  * It only exists once there's work to show: with no tasks the overlay is just
- * the pill, and the circle animates in when the first task is queued.
+ * the pill, and the circle animates in when the first task is queued. Under the
+ * orchestrator shell the launcher is suppressed (`showLauncher={false}`) and the
+ * drawer is driven from the button in the shell's top bar instead.
  */
 export function TaskPanel({
   tasks,
@@ -111,6 +120,7 @@ export function TaskPanel({
   onOpenChange,
   defaultOpen = false,
   launcherStyle,
+  showLauncher = true,
   anchorStyle,
 }: TaskPanelProps) {
   const p = surfacePalette(theme);
@@ -244,7 +254,7 @@ export function TaskPanel({
           '@keyframes la-tasks-in{from{opacity:0;transform:scale(0.4)}to{opacity:1;transform:scale(1)}}',
         ].join('')}
       </style>
-      {tasks.length > 0 ? (
+      {showLauncher && tasks.length > 0 ? (
         <button
           type="button"
           className="la-tp-launcher la-tp-launcher-in"
