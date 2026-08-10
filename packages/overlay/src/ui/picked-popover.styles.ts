@@ -103,12 +103,31 @@ export const iconBtn = (t: ThemeTokens) => ({
 // screenshot); idle = outlined pill (1px border keeps the text in the same spot),
 // no check. Text color comes from the .la-pp-soft class (so :hover can darken it
 // — inline color would outrank the stylesheet).
-export const worktreePill = (t: ThemeTokens, active: boolean, fill: string) => ({
+//
+// The border colour is handed over as custom properties for exactly that reason:
+// the stroke darkens with the text on hover, and an inline `border-color` (which
+// the `border` shorthand sets) beats any stylesheet rule short of !important, so
+// the hover would silently do nothing. Width and style stay inline — nothing
+// animates them. When the pill is filled both values are transparent, so hovering
+// an already-on toggle doesn't sprout a ring around the fill.
+//
+// `strokeHover` is the label's *resting* colour (50% ink), not full ink: on hover
+// the stroke rises to where the text sits at rest while the text goes to full, so
+// both move without a 1px ring turning black and shouting over its own label.
+export const worktreePill = (
+  t: ThemeTokens,
+  active: boolean,
+  fill: string,
+  strokeHover: string,
+) => ({
   display: 'inline-flex',
   alignItems: 'center',
   gap: '3px',
   background: active ? fill : 'transparent',
-  border: `1px solid ${active ? 'transparent' : t.controlBorder}`,
+  borderWidth: '1px',
+  borderStyle: 'solid',
+  '--la-wt-stroke': active ? 'transparent' : t.controlBorder,
+  '--la-wt-stroke-hover': active ? 'transparent' : strokeHover,
   borderRadius: '999px',
   padding: '2px 8px',
   margin: 0,

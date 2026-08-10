@@ -335,7 +335,7 @@ export function PickedPopover({
       {/* Scoped placeholder color + control hover states + the open/close
           keyframes (a soft scale-up + rise that eases in, and its reverse). */}
       <style>
-        {`.la-pp-ta::placeholder{color:var(--la-ph);opacity:1}@keyframes la-pp-in{from{opacity:0;transform:translateY(6px) scale(0.96)}to{opacity:1;transform:none}}@keyframes la-pp-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(6px) scale(0.96)}}.la-pp-menu-row{background:transparent;transition:background 80ms}.la-pp-menu-row:hover{background:${t.controlBg}}.la-pp-wt{transition:background 80ms,border-color 80ms}.la-pp-soft{color:${placeholderColor};transition:color 80ms}.la-pp-soft:hover{color:${t.textPrimary}}.la-pp-send{transition:opacity 80ms}.la-pp-ta{scrollbar-width:thin;scrollbar-color:${scrollThumb} transparent}.la-pp-ta::-webkit-scrollbar{width:4px}.la-pp-ta::-webkit-scrollbar-thumb{background:${scrollThumb};border-radius:4px}.la-pp-ta::-webkit-scrollbar-track{background:transparent}`}
+        {`.la-pp-ta::placeholder{color:var(--la-ph);opacity:1}@keyframes la-pp-in{from{opacity:0;transform:translateY(6px) scale(0.96)}to{opacity:1;transform:none}}@keyframes la-pp-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(6px) scale(0.96)}}.la-pp-menu-row{background:transparent;transition:background 80ms}.la-pp-menu-row:hover{background:${t.controlBg}}.la-pp-wt{border-color:var(--la-wt-stroke);transition:background 80ms,border-color 80ms}.la-pp-wt:not(:disabled):hover{border-color:var(--la-wt-stroke-hover)}.la-pp-soft{color:${placeholderColor};transition:color 80ms}.la-pp-soft:hover{color:${t.textPrimary}}.la-pp-send{transition:opacity 80ms}.la-pp-ta{scrollbar-width:thin;scrollbar-color:${scrollThumb} transparent}.la-pp-ta::-webkit-scrollbar{width:4px}.la-pp-ta::-webkit-scrollbar-thumb{background:${scrollThumb};border-radius:4px}.la-pp-ta::-webkit-scrollbar-track{background:transparent}`}
       </style>
 
       {dragOver ? <DragOverlay t={t} theme={theme} /> : null}
@@ -397,7 +397,7 @@ export function PickedPopover({
               setWorktreeMode((m) => (m === 'same' ? 'new' : 'same'));
             }}
             style={{
-              ...worktreePill(t, worktree, pillFill),
+              ...worktreePill(t, worktree, pillFill, placeholderColor),
               ...(gitAvailable ? {} : { opacity: 0.45, cursor: 'not-allowed' }),
             }}
             title={
