@@ -153,10 +153,17 @@ export function ModelReasoningPicker({
         setOpen(false);
       }
     };
-    document.addEventListener('mousedown', onDoc);
+    // Capture phase, like the popover's own outside-click handler. The overlay
+    // stops presses at the shadow root so they can't reach the host page (see
+    // containPresses in index.tsx), and a bubble-phase listener on `document`
+    // sits beyond that wall: it would stop seeing every press that originates
+    // inside the overlay, so clicking the composer with this menu open would
+    // leave the menu stuck open. Capture runs on the way *down*, before the
+    // containment, so it still sees them.
+    document.addEventListener('mousedown', onDoc, true);
     document.addEventListener('keydown', onKey);
     return () => {
-      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('mousedown', onDoc, true);
       document.removeEventListener('keydown', onKey);
     };
   }, [open]);

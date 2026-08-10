@@ -34,7 +34,7 @@ export function shellHtml(mainPort: number): string {
   <body>
     <header>
       <span class="logo">iris</span>
-      <button id="ship-btn" class="ship-btn" type="button" style="display: none;" title="Merge this worktree's branch into main">Ship it</button>
+      <button id="ship-btn" class="ship-btn" type="button" style="display: none;" title="Merge this worktree's branch into your checkout and delete it">Merge locally</button>
       <button id="pr-btn" class="pr-btn" type="button" style="display: none;" title="Push this branch and open a pull request">Create PR</button>
       <button id="discard-btn" class="discard-btn" type="button" style="display: none;" title="Tear down this worktree without merging">Discard</button>
       <span class="status" id="status-text"></span>
@@ -203,22 +203,28 @@ export function shellHtml(mainPort: number): string {
         document.getElementById('ship-btn').addEventListener('click', async function() {
           var slug = selectEl.value;
           if (slug === 'main') return;
-          if (!confirm('Merge ' + slug + ' into main? This commits any pending changes in the worktree, merges them into main, and then deletes the worktree.')) return;
+          if (!confirm('Merge ' + slug + ' into your checkout? Any uncommitted changes of yours that clash are replaced by the agent\\'s version (recoverable via git stash), and the worktree is deleted.')) return;
           var btn = document.getElementById('ship-btn');
           btn.disabled = true; btn.textContent = 'shipping…';
           try {
             var res = await fetch(daemonOrigin + '/worktrees/' + encodeURIComponent(slug) + '/ship', { method: 'POST' });
             var json = await res.json();
-            if (!res.ok) throw new Error(json.error || 'ship failed');
+            if (!res.ok) throw new Error(json.error || 'merge failed');
+            // Merging overwrites uncommitted files that stand in its way. They are
+            // recoverable, but only if we say so — otherwise the work looks lost.
+            if (json.replaced && json.replaced.length) {
+              alert('Merged. Your uncommitted changes to ' + json.replaced.join(', ') +
+                ' were replaced by the agent\\'s version.\\n\\nThe old contents are saved — run "git stash pop" to get them back.');
+            }
             // On success the daemon broadcasts worktree:removed and the dropdown switches to main.
           } catch (e) {
-            alert('Ship failed: ' + (e && e.message ? e.message : String(e)));
+            alert('Merge failed: ' + (e && e.message ? e.message : String(e)));
           } finally {
-            btn.disabled = false; btn.textContent = 'Ship it';
+            btn.disabled = false; btn.textContent = 'Merge locally';
           }
         });
 
-        // No confirm(): unlike Ship and Discard this destroys nothing — the
+        // No confirm(): unlike Merge and Discard this destroys nothing — the
         // worktree and its dev server survive so you can keep iterating.
         document.getElementById('pr-btn').addEventListener('click', async function() {
           var slug = selectEl.value;

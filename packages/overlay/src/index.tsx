@@ -54,6 +54,44 @@ function isOurTextField(node: EventTarget | undefined): boolean {
   return tag === 'TEXTAREA' || tag === 'INPUT' || node.isContentEditable;
 }
 
+/**
+ * The same containment for presses on our own chrome.
+ *
+ * A shadow root encapsulates DOM and styles, not events: UI events are
+ * `composed`, so they cross the boundary and bubble to `window` — merely
+ * retargeted, so the page sees our host `<div>` rather than the button pressed.
+ * Page code that delegates off the element (`e.target.closest('.menu')`)
+ * harmlessly no-ops, but anything listening unconditionally still fires. On
+ * vercila that is InkCanvas, whose pointerdown handler has no target check at
+ * all — so dragging our pill drew a pen stroke across the page.
+ *
+ * The page cannot reasonably defend against this: all it sees is an opaque div.
+ * So a press that lands on our UI stops being the page's business here.
+ *
+ * The event list is the interaction shield's (see interaction-shield.tsx), which
+ * closes this same gap for the blocker element and has the reasoning in full.
+ * The two exclusions carry over and both matter: `mousemove` is absent because
+ * select mode's hover tracking listens for it on window in the bubble phase, and
+ * bubble phase is used throughout because select mode picks from a window
+ * *capture* click handler that runs before any of this.
+ */
+const PRESS_EVENTS = [
+  'click',
+  'dblclick',
+  'contextmenu',
+  'mousedown',
+  'mouseup',
+  'pointerdown',
+  'pointerup',
+] as const;
+
+function containPresses(shadow: ShadowRoot): void {
+  const contain = (e: Event) => e.stopPropagation();
+  for (const type of PRESS_EVENTS) {
+    shadow.addEventListener(type, contain);
+  }
+}
+
 function containKeystrokes(shadow: ShadowRoot): void {
   const contain = (e: KeyboardEvent) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -77,6 +115,7 @@ function mount(): void {
 
   const shadow = host.attachShadow({ mode: 'open' });
   containKeystrokes(shadow);
+  containPresses(shadow);
 
   const style = document.createElement('style');
   style.textContent = SHADOW_RESET;
