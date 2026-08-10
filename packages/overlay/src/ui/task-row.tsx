@@ -125,22 +125,34 @@ export function TaskRow({
         ) : null}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 500, fontSize: '12px', color: p.ink }}>{task.prompt}</div>
-          <div style={{ color: p.soft, fontSize: '12px', marginTop: '2px' }}>
-            {statusLine(task)} <span style={{ color: p.faint }}>· {elapsed(task)}</span>
+          {/* "View chat" rides the status line, just past the elapsed time. It
+              reads the task rather than acting on it, so it stays off the row
+              of buttons below — down there it looked like a fourth control. */}
+          <div
+            style={{
+              color: p.soft,
+              fontSize: '12px',
+              marginTop: '2px',
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: '8px',
+              flexWrap: 'wrap',
+            }}
+          >
+            <span>
+              {statusLine(task)} <span style={{ color: p.faint }}>· {elapsed(task)}</span>
+            </span>
+            {hasTranscript ? (
+              <button
+                type="button"
+                className="la-tp-soft"
+                style={viewChatLink()}
+                onClick={onOpenChat}
+              >
+                View chat
+              </button>
+            ) : null}
           </div>
-          {/* "View chat" gets its own line above the buttons. It's a quiet text
-              link that reads the task rather than acting on it, and sharing a
-              line with the button pills made it look like a fourth control. */}
-          {hasTranscript ? (
-            <button
-              type="button"
-              className="la-tp-soft"
-              style={viewChatLink()}
-              onClick={onOpenChat}
-            >
-              View chat
-            </button>
-          ) : null}
           {/* Failed rows show Retry — a clear way to re-run. Finished rows show
               the ways to land the worktree's work, which until now existed only
               in the shell page at :4747. The ones that keep the work sit
@@ -269,9 +281,11 @@ const viewChatLink = () => ({
   fontSize: '12px',
   cursor: 'pointer',
   padding: 0,
-  marginTop: '8px',
-  // Sits left-aligned under the status line.
-  display: 'block',
+  margin: 0,
+  // Sits inline on the status line, after the elapsed time — so no block
+  // display and no top margin of its own; the line's flex gap does the spacing.
+  display: 'inline',
+  lineHeight: 'inherit',
   fontFamily: 'inherit',
 });
 
