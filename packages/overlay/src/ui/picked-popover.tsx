@@ -259,12 +259,21 @@ export function PickedPopover({
     }
   };
 
+  /**
+   * Enter sends; Shift+Enter is the newline. This is a chat composer — the
+   * common case by far is one line and off, so the unmodified key belongs to
+   * the common case. ⌘/Ctrl+Enter keeps working because it used to be the only
+   * way to send, and it's what the chat composer downstairs accepts too.
+   *
+   * `isComposing` guards IME input: typing Japanese or Chinese uses Enter to
+   * accept the candidate, and submitting there would send half a word.
+   */
   // biome-ignore lint/suspicious/noExplicitAny: Preact event typed against root React types here
   const handleKeyDown = (e: any) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-      e.preventDefault();
-      void submit();
-    }
+    if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
+    if (e.shiftKey) return; // deliberate newline
+    e.preventDefault();
+    void submit();
   };
 
   const worktree = worktreeMode === 'new';
