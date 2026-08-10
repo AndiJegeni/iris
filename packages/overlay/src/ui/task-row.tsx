@@ -107,6 +107,9 @@ export function TaskRow({
   // A finished task has something to land; a failed one only has a worktree to
   // clean up. Running rows never get the prop in the first place.
   const canLand = wt != null && task.status === 'done';
+  // Whether there's a button row at all — it owns the gap above it, so an empty
+  // one would be 16px of dead space under a running task's status line.
+  const hasActions = (failed && onRetry != null) || wt != null;
   return (
     <div style={cardStyle(theme)}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '9px' }}>
@@ -125,14 +128,23 @@ export function TaskRow({
         ) : null}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 500, fontSize: '12px', color: p.ink }}>{task.prompt}</div>
-          <div style={{ color: p.soft, fontSize: '12px', marginTop: '2px' }}>
-            {statusLine(task)} <span style={{ color: p.faint }}>· {elapsed(task)}</span>
-          </div>
-          {/* Failed rows show Retry alongside View chat — a clear way to re-run.
-              Finished rows add the ways to land the worktree's work, which
-              until now existed only in the shell page at :4747. Wraps because
-              five controls don't fit the card's width on one line. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          {/* "View chat" rides the status line, just past the elapsed time. It
+              reads the task rather than acting on it, so it stays off the row
+              of buttons below — down there it looked like a fourth control. */}
+          <div
+            style={{
+              color: p.soft,
+              fontSize: '12px',
+              marginTop: '2px',
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: '8px',
+              flexWrap: 'wrap',
+            }}
+          >
+            <span>
+              {statusLine(task)} <span style={{ color: p.faint }}>· {elapsed(task)}</span>
+            </span>
             {hasTranscript ? (
               <button
                 type="button"
@@ -143,66 +155,87 @@ export function TaskRow({
                 View chat
               </button>
             ) : null}
-            {failed && onRetry ? (
-              <button type="button" style={retryBtn(theme)} onClick={onRetry}>
-                Retry
-              </button>
-            ) : null}
-            {canLand && wt ? (
-              <>
+          </div>
+          {/* Failed rows show Retry — a clear way to re-run. Finished rows show
+              the ways to land the worktree's work, which until now existed only
+              in the shell page at :4747. The ones that keep the work sit
+              together on the left in descending weight; Discard is pushed to
+              the far right (see discardBtn), away from them.
+
+              The 16px above the row is the container's, not each button's, so
+              the gap is one number rather than four — and a row with nothing in
+              it (a task still running) adds no space at all. */}
+          {hasActions ? (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                flexWrap: 'wrap',
+                marginTop: '16px',
+              }}
+            >
+              {failed && onRetry ? (
+                <button type="button" style={retryBtn(theme)} onClick={onRetry}>
+                  Retry
+                </button>
+              ) : null}
+              {canLand && wt ? (
+                <>
+                  <button
+                    type="button"
+                    style={prBtn(theme)}
+                    disabled={wt.pending || !wt.canCreatePr}
+                    onClick={wt.onCreatePr}
+                    title={
+                      wt.canCreatePr
+                        ? 'Push this branch and open a pull request'
+                        : 'Unavailable — this repository has no git remote'
+                    }
+                  >
+                    {wt.pending ? 'Working…' : 'Create PR'}
+                  </button>
+                  <button
+                    type="button"
+                    style={mergeBtn(theme)}
+                    disabled={wt.pending}
+                    onClick={() => {
+                      if (confirming === 'merge') {
+                        setConfirming(null);
+                        wt.onShip();
+                      } else {
+                        setConfirming('merge');
+                      }
+                    }}
+                    onBlur={() => setConfirming((c) => (c === 'merge' ? null : c))}
+                    title="Merge this worktree into your checkout and delete it"
+                  >
+                    {confirming === 'merge' ? 'Sure?' : 'Merge locally'}
+                  </button>
+                </>
+              ) : null}
+              {wt ? (
                 <button
                   type="button"
-                  style={mergeBtn(theme)}
+                  className="la-tp-dim"
+                  style={discardBtn(theme)}
                   disabled={wt.pending}
                   onClick={() => {
-                    if (confirming === 'merge') {
+                    if (confirming === 'discard') {
                       setConfirming(null);
-                      wt.onShip();
+                      wt.onDiscard();
                     } else {
-                      setConfirming('merge');
+                      setConfirming('discard');
                     }
                   }}
-                  onBlur={() => setConfirming((c) => (c === 'merge' ? null : c))}
-                  title="Merge this worktree into your checkout and delete it"
+                  onBlur={() => setConfirming((c) => (c === 'discard' ? null : c))}
+                  title="Delete this worktree without merging it"
                 >
-                  {confirming === 'merge' ? 'Sure?' : 'Merge locally'}
+                  {confirming === 'discard' ? 'Sure?' : 'Discard'}
                 </button>
-                <button
-                  type="button"
-                  style={prBtn(theme)}
-                  disabled={wt.pending || !wt.canCreatePr}
-                  onClick={wt.onCreatePr}
-                  title={
-                    wt.canCreatePr
-                      ? 'Push this branch and open a pull request'
-                      : 'Unavailable — this repository has no git remote'
-                  }
-                >
-                  {wt.pending ? 'Working…' : 'Create PR'}
-                </button>
-              </>
-            ) : null}
-            {wt ? (
-              <button
-                type="button"
-                className="la-tp-dim"
-                style={stopBtn(theme)}
-                disabled={wt.pending}
-                onClick={() => {
-                  if (confirming === 'discard') {
-                    setConfirming(null);
-                    wt.onDiscard();
-                  } else {
-                    setConfirming('discard');
-                  }
-                }}
-                onBlur={() => setConfirming((c) => (c === 'discard' ? null : c))}
-                title="Delete this worktree without merging it"
-              >
-                {confirming === 'discard' ? 'Sure?' : 'Discard'}
-              </button>
-            ) : null}
-          </div>
+              ) : null}
+            </div>
+          ) : null}
           {/* A link, not an auto-opened window: the popup would fire after an
               await, outside the click gesture, and get blocked. It also lets
               the user come back to the PR later. */}
@@ -265,63 +298,79 @@ const viewChatLink = () => ({
   fontSize: '12px',
   cursor: 'pointer',
   padding: 0,
-  marginTop: '8px',
-  // Sits left-aligned under the status line.
-  display: 'block',
+  margin: 0,
+  // Sits inline on the status line, after the elapsed time — so no block
+  // display and no top margin of its own; the line's flex gap does the spacing.
+  display: 'inline',
+  lineHeight: 'inherit',
   fontFamily: 'inherit',
 });
+
+// Every button in a row is a pill, borrowing the popover's control shape: the
+// worktree chip and the send button are both 999px, so a 6px-rounded rectangle
+// in the drawer was the one square corner in the whole overlay.
+const PILL_RADIUS = '999px';
 
 // Failed-row "Retry" — the primary recovery action, so it borrows the popover's
 // primary control: the send button's inverted fill, not a blue accent.
 const retryBtn = (theme: OverlayTheme) => ({
   background: surfacePalette(theme).submitBg,
   border: 'none',
-  borderRadius: '6px',
+  borderRadius: PILL_RADIUS,
   color: surfacePalette(theme).submitText,
   fontSize: '12px',
   fontWeight: 500,
   cursor: 'pointer',
-  padding: '4px 10px',
-  marginTop: '8px',
+  padding: '4px 12px',
   display: 'block',
   fontFamily: 'inherit',
 });
 
-// "Merge locally" is the primary way to land a worktree, so it takes the same
-// inverted fill as Retry. Deliberately NOT the shell bar's #16a34a green: the
-// overlay palette has no hues at all, and one green button would be the only
-// colour in the drawer.
+// Three ways to land a worktree, three weights, left to right: "Create PR" is
+// the one to reach for by default, so it takes the popover's inverted fill (the
+// same primary treatment as Retry). Deliberately NOT the shell bar's #16a34a
+// green: the overlay palette has no hues at all, and one green button would be
+// the only colour in the drawer.
+const prBtn = (theme: OverlayTheme) => ({
+  background: surfacePalette(theme).submitBg,
+  border: 'none',
+  borderRadius: PILL_RADIUS,
+  color: surfacePalette(theme).submitText,
+  fontSize: '12px',
+  fontWeight: 500,
+  cursor: 'pointer',
+  padding: '4px 12px',
+  fontFamily: 'inherit',
+});
+
+// "Merge locally" is the secondary way to land — an outline, so it reads as the
+// considered alternative to opening a PR rather than a second equal pull.
 //
 // Named for what it does. It was "Ship it", which reads as "send this out into
 // the world" — the exact opposite of the truth, since nothing leaves your
 // machine: it merges the branch into your checkout. "Create PR" beside it is
 // the one that actually goes anywhere.
 const mergeBtn = (theme: OverlayTheme) => ({
-  background: surfacePalette(theme).submitBg,
-  border: 'none',
-  borderRadius: '6px',
-  color: surfacePalette(theme).submitText,
-  fontSize: '12px',
-  fontWeight: 500,
-  cursor: 'pointer',
-  padding: '4px 10px',
-  marginTop: '8px',
-  fontFamily: 'inherit',
-});
-
-// "Create PR" is the considered alternative to merging straight into your
-// checkout — equal in weight, so an outline rather than a second filled button.
-const prBtn = (theme: OverlayTheme) => ({
   background: 'transparent',
   border: `1px solid ${surfacePalette(theme).stroke}`,
-  borderRadius: '6px',
+  borderRadius: PILL_RADIUS,
   color: surfacePalette(theme).ink,
   fontSize: '12px',
   fontWeight: 500,
   cursor: 'pointer',
-  padding: '3px 10px',
-  marginTop: '8px',
+  // One less than the filled buttons on each side: the 1px border makes up the
+  // difference, so both pills come out the same height.
+  padding: '3px 11px',
   fontFamily: 'inherit',
+});
+
+// "Discard" is the tertiary, destructive one: Stop's text-only shape, and
+// `marginLeft: auto` pushes it to the far right of the row so it can't be hit
+// on the way to the two buttons that keep the work.
+const discardBtn = (theme: OverlayTheme) => ({
+  ...stopBtn(theme),
+  borderRadius: PILL_RADIUS,
+  marginLeft: 'auto',
 });
 
 // The PR link borrows View chat's quiet-action shape, one line below the row.
