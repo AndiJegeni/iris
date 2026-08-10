@@ -271,7 +271,9 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
   app.post('/worktrees/:slug/ship', async (c) => {
     const slug = c.req.param('slug');
     const result = await worktrees.shipIt(slug);
-    if (result.ok) return c.json({ ok: true });
+    // `replaced` names uncommitted files the merge overwrote. They're in a git
+    // stash; the UI has to say so or the only trace is a daemon log line.
+    if (result.ok) return c.json({ ok: true, replaced: result.replaced ?? [] });
     return c.json({ error: result.error }, 400);
   });
   app.post('/worktrees/:slug/pr', async (c) => {

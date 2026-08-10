@@ -8,6 +8,12 @@ import { defaultDevCmd, detectPackageManager } from './project';
 import { type PullRequestOutcome, openPullRequest } from './pull-request';
 import { sleep } from './util';
 
+/**
+ * Result of a "Merge locally". `replaced` names uncommitted files whose
+ * contents the merge overwrote — they are in a stash, and the UI says so.
+ */
+export type ShipOutcome = { ok: true; replaced?: string[] } | { ok: false; error: string };
+
 const WORKTREE_DIR_NAME = '.iris-worktrees';
 const FIRST_AGENT_PORT = 3001;
 const MAX_PORT = 3199;
@@ -35,6 +41,24 @@ type ManagedWorktree = {
   worktree: Worktree;
   proc: ChildProcess | null;
   ready: Promise<void> | null;
+  /**
+   * What `carryUncommittedChanges` copied in at spawn, as repo-relative path →
+   * content hash at the moment it was carried.
+   *
+   * This is your working state, not the agent's work: the `<Iris />` drop-in,
+   * the layout line that renders it, whatever you had half-finished. It has to
+   * be in the worktree so the agent sees the code you actually run — but it
+   * must not end up in the commit that ship/PR creates, or a pull request
+   * carries your local scaffolding out to the remote. The hash is what lets us
+   * tell the two apart later: still matching means the agent never touched it.
+   */
+  carried: Map<string, string>;
+  /**
+   * The commit the branch was cut from. Diffing it against the branch tip is
+   * what tells us which files the agent actually changed — needed at merge time
+   * to work out which of your uncommitted files are genuinely in the way.
+   */
+  baseCommit: string;
 };
 
 /**
@@ -83,7 +107,15 @@ export class WorktreeManager {
       port: mainPort,
       devServerStatus: 'ready', // user-managed; we assume it's up
     };
-    this.worktrees.set('main', { worktree: main, proc: null, ready: null });
+    // Main is your checkout, not a clone — nothing was carried into it, and
+    // ship/PR refuse to operate on it anyway.
+    this.worktrees.set('main', {
+      worktree: main,
+      proc: null,
+      ready: null,
+      carried: new Map(),
+      baseCommit: '',
+    });
   }
 
   list(): Worktree[] {
@@ -130,6 +162,7 @@ export class WorktreeManager {
       cwd: path,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    const baseCommit = execSync('git rev-parse HEAD', { cwd: path, encoding: 'utf8' }).trim();
 
     // Copy node_modules from main so the dev server starts without install.
     this.linkNodeModules(path);
@@ -137,7 +170,7 @@ export class WorktreeManager {
     // Carry main's UNCOMMITTED changes into the clone (clone only has committed
     // state). Tracked edits via patch; untracked files copied best-effort. This
     // is what brings <Iris /> and your current work-in-progress along.
-    this.carryUncommittedChanges(path);
+    const carried = this.carryUncommittedChanges(path);
 
     const worktree: Worktree = {
       slug,
@@ -146,7 +179,7 @@ export class WorktreeManager {
       port,
       devServerStatus: 'booting',
     };
-    const managed: ManagedWorktree = { worktree, proc: null, ready: null };
+    const managed: ManagedWorktree = { worktree, proc: null, ready: null, carried, baseCommit };
     this.worktrees.set(slug, managed);
     this.bus.broadcast({ type: 'worktree:created', worktree });
 
@@ -215,15 +248,49 @@ export class WorktreeManager {
 
   /**
    * `git add -A` in a worktree, then commit if that staged anything. Shared by
-   * "Ship it" and "Create PR", which both need the agent's edits to be a commit
+   * "Merge locally" and "Create PR", which both need the agent's edits to be a commit
    * before they can do anything with them.
    */
+  /**
+   * Drop the carried-in working state back out of the index, so the commit is
+   * the agent's diff and nothing else.
+   *
+   * "Untouched" is decided by content, not by path: a carried file whose hash
+   * still matches what we copied in is yours and gets unstaged; one the agent
+   * edited (or deleted, so it no longer hashes) stays staged, because then the
+   * change genuinely is the agent's work. `git reset` rather than `git restore
+   * --staged` for the wider git-version range, and chunked so a repo with a lot
+   * of uncommitted files can't blow past the shell's argument limit.
+   *
+   * Best-effort throughout: if this fails we commit everything, which is the
+   * old behaviour rather than a broken ship.
+   */
+  private unstageUntouched(path: string, carried: Map<string, string>): void {
+    if (carried.size === 0) return;
+    const paths = [...carried.keys()];
+    const now = this.hashFiles(path, paths);
+    const untouched = paths.filter((rel) => now.get(rel) === carried.get(rel));
+    for (let i = 0; i < untouched.length; i += 100) {
+      const chunk = untouched
+        .slice(i, i + 100)
+        .map(quote)
+        .join(' ');
+      try {
+        execSync(`git reset -q -- ${chunk}`, { cwd: path, stdio: ['ignore', 'pipe', 'pipe'] });
+      } catch {
+        // leave those staged rather than failing the whole commit
+      }
+    }
+  }
+
   private commitPending(
     path: string,
     message: string,
+    carried: Map<string, string> = new Map(),
   ): { ok: true; committed: boolean } | { ok: false; error: string } {
     try {
       execSync('git add -A', { cwd: path, stdio: ['ignore', 'pipe', 'pipe'] });
+      this.unstageUntouched(path, carried);
       // Empty index → `git commit` would error. Check first.
       let hasChanges = true;
       try {
@@ -245,16 +312,93 @@ export class WorktreeManager {
   }
 
   /**
-   * Merge a worktree's branch into main and tear down the worktree. Used by
-   * the "Ship it" button.
+   * Stash the uncommitted files that would block the merge, so it can proceed.
+   *
+   * "In the way" is the intersection of two sets: what the agent changed on its
+   * branch (base..tip), and what you have dirty in your checkout. Files outside
+   * that overlap are left completely alone — merging is not a reason to disturb
+   * work in a file nobody else touched.
+   *
+   * The stash is the safety net for a deliberately destructive action: the
+   * contents are recoverable with `git stash pop` even though the merge has
+   * already overwritten the files. Untracked files are included (`-u`), because
+   * a hand-added drop-in like Iris.tsx blocks a merge just as effectively as an
+   * edit to a tracked one.
+   *
+   * Best-effort: if the stash fails we return empty and let the merge attempt
+   * fail loudly, rather than deleting the files some other way.
    */
-  async shipIt(slug: string): Promise<{ ok: true } | { ok: false; error: string }> {
-    if (slug === 'main') return { ok: false, error: 'cannot ship main into itself' };
+  private clearMergeBlockers(m: ManagedWorktree, slug: string): string[] {
+    let agentFiles: string[];
+    try {
+      agentFiles = execSync(`git diff --name-only ${quote(m.baseCommit)} HEAD`, {
+        cwd: m.worktree.path,
+        encoding: 'utf8',
+        maxBuffer: 16 * 1024 * 1024,
+      })
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
+    } catch {
+      return [];
+    }
+    if (agentFiles.length === 0) return [];
+
+    // Two plain path lists rather than parsing `git status --porcelain`, whose
+    // fixed "XY <path>" columns don't survive the per-line trim in listPaths —
+    // and whose rename entries ("R old -> new") would need special-casing too.
+    const dirty = new Set([
+      ...this.listPaths('git diff --name-only HEAD'), // tracked, modified or deleted
+      ...this.listPaths('git ls-files --others --exclude-standard'), // untracked
+    ]);
+    const blockers = agentFiles.filter((f) => dirty.has(f));
+    if (blockers.length === 0) return [];
+
+    try {
+      execSync(
+        `git stash push -u -m ${quote(`iris: local edits replaced by ${slug}`)} -- ${blockers
+          .map(quote)
+          .join(' ')}`,
+        { cwd: this.repoRoot, stdio: ['ignore', 'pipe', 'pipe'] },
+      );
+    } catch (err) {
+      process.stderr.write(`[iris] could not stash local edits before merge: ${String(err)}\n`);
+      return [];
+    }
+    process.stderr.write(
+      `[iris] merging ${slug}: replaced your uncommitted ${blockers.join(', ')} — recover with \`git stash pop\`\n`,
+    );
+    return blockers;
+  }
+
+  /** Put a stash from clearMergeBlockers back, when the merge failed anyway. */
+  private restoreStash(): void {
+    try {
+      execSync('git stash pop', { cwd: this.repoRoot, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch {
+      process.stderr.write('[iris] could not restore stashed edits — see `git stash list`\n');
+    }
+  }
+
+  /**
+   * Merge a worktree's branch into main and tear down the worktree. Used by
+   * the "Merge locally" button.
+   */
+  async shipIt(slug: string): Promise<ShipOutcome> {
+    if (slug === 'main') return { ok: false, error: 'cannot merge main into itself' };
     const m = this.worktrees.get(slug);
     if (!m) return { ok: false, error: `unknown worktree ${slug}` };
 
-    const committed = this.commitPending(m.worktree.path, `iris: changes from ${slug}`);
+    const committed = this.commitPending(m.worktree.path, `iris: changes from ${slug}`, m.carried);
     if (!committed.ok) return committed;
+
+    // Git refuses to merge over uncommitted changes, which is the right default
+    // and the wrong one here: you pressed the button that means "take the
+    // agent's version". Clear the blockers out of the way so the merge always
+    // lands — but only the files actually in the way, and only after parking
+    // their current contents in a stash, since uncommitted work exists nowhere
+    // else and a button press shouldn't be able to evaporate it.
+    const replaced = this.clearMergeBlockers(m, slug);
 
     // The agent branch lives in the CLONE (a separate repo), so fetch+merge it
     // into main from the clone's path rather than a local `git merge`.
@@ -264,6 +408,9 @@ export class WorktreeManager {
         { cwd: this.repoRoot, stdio: ['ignore', 'pipe', 'pipe'] },
       );
     } catch (err) {
+      // The merge died for some other reason (a real conflict between committed
+      // states). Put the stashed work back rather than leaving it hidden.
+      if (replaced.length > 0) this.restoreStash();
       return {
         ok: false,
         error: `merge into main failed (resolve conflicts manually): ${String(err)}`,
@@ -271,7 +418,7 @@ export class WorktreeManager {
     }
 
     await this.remove(slug);
-    return { ok: true };
+    return replaced.length > 0 ? { ok: true, replaced } : { ok: true };
   }
 
   /**
@@ -296,7 +443,11 @@ export class WorktreeManager {
     if (inFlight) return inFlight;
 
     const run = (async (): Promise<PullRequestOutcome> => {
-      const committed = this.commitPending(m.worktree.path, `iris: changes from ${slug}`);
+      const committed = this.commitPending(
+        m.worktree.path,
+        `iris: changes from ${slug}`,
+        m.carried,
+      );
       if (!committed.ok) return committed;
       return openPullRequest({
         repoRoot: this.repoRoot,
@@ -323,7 +474,9 @@ export class WorktreeManager {
    * Apply main's uncommitted tracked-file diff to the worktree, then copy over
    * untracked (non-ignored) files. Best-effort: failures are logged, not fatal.
    */
-  private carryUncommittedChanges(worktreePath: string): void {
+  private carryUncommittedChanges(worktreePath: string): Map<string, string> {
+    const carriedPaths: string[] = [];
+
     // 1. Tracked changes (staged + unstaged) via a patch.
     try {
       const diff = execSync('git diff HEAD', {
@@ -337,6 +490,7 @@ export class WorktreeManager {
           input: diff,
           stdio: ['pipe', 'pipe', 'pipe'],
         });
+        carriedPaths.push(...this.listPaths('git diff HEAD --name-only'));
       }
     } catch (err) {
       process.stderr.write(
@@ -344,23 +498,16 @@ export class WorktreeManager {
       );
     }
 
-    // 2. Untracked, non-ignored files (e.g. brand-new components).
+    // 2. Untracked, non-ignored files (e.g. brand-new components — this is how
+    //    a hand-added Iris.tsx drop-in reaches the worktree).
     try {
-      const out = execSync('git ls-files --others --exclude-standard', {
-        cwd: this.repoRoot,
-        encoding: 'utf8',
-        maxBuffer: 16 * 1024 * 1024,
-      });
-      const files = out
-        .split('\n')
-        .map((l) => l.trim())
-        .filter(Boolean);
-      for (const rel of files) {
+      for (const rel of this.listPaths('git ls-files --others --exclude-standard')) {
         const src = join(this.repoRoot, rel);
         const dst = join(worktreePath, rel);
         try {
           mkdirSync(dirname(dst), { recursive: true });
           copyFileSync(src, dst);
+          carriedPaths.push(rel);
         } catch {
           // skip individual file failures
         }
@@ -368,6 +515,48 @@ export class WorktreeManager {
     } catch {
       // ls-files failed — ignore
     }
+
+    return this.hashFiles(worktreePath, carriedPaths);
+  }
+
+  /** Run a git command that prints one path per line, in the main repo. */
+  private listPaths(cmd: string): string[] {
+    return execSync(cmd, { cwd: this.repoRoot, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+  }
+
+  /**
+   * Content hash per path, as the files stand in `dir` right now. Uses git's own
+   * hash-object (one process, paths on stdin) so it matches how git sees the
+   * content, and so a large carry doesn't fork a process per file. Paths that
+   * can't be hashed — deleted, unreadable — are simply left out, which makes
+   * them count as "changed" later and so get committed.
+   */
+  private hashFiles(dir: string, paths: string[]): Map<string, string> {
+    const hashes = new Map<string, string>();
+    if (paths.length === 0) return hashes;
+    try {
+      const out = execSync('git hash-object --stdin-paths', {
+        cwd: dir,
+        input: `${paths.join('\n')}\n`,
+        encoding: 'utf8',
+        maxBuffer: 16 * 1024 * 1024,
+        stdio: ['pipe', 'pipe', 'ignore'],
+      })
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
+      // hash-object fails the whole batch if any path is missing, so a short
+      // result means the pairing is unreliable — drop it rather than mis-map.
+      if (out.length === paths.length) {
+        paths.forEach((rel, i) => hashes.set(rel, out[i] as string));
+      }
+    } catch {
+      // Nothing hashed → nothing excluded → we commit everything, as before.
+    }
+    return hashes;
   }
 
   /**
