@@ -130,8 +130,11 @@ export function TaskRow({
           </div>
           {/* Failed rows show Retry alongside View chat — a clear way to re-run.
               Finished rows add the ways to land the worktree's work, which
-              until now existed only in the shell page at :4747. Wraps because
-              five controls don't fit the card's width on one line. */}
+              until now existed only in the shell page at :4747. The ones that
+              keep the work sit together on the left in descending weight;
+              Discard is pushed to the far right (see discardBtn), away from
+              them. Wraps because five controls don't fit the card's width on
+              one line. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             {hasTranscript ? (
               <button
@@ -152,6 +155,19 @@ export function TaskRow({
               <>
                 <button
                   type="button"
+                  style={prBtn(theme)}
+                  disabled={wt.pending || !wt.canCreatePr}
+                  onClick={wt.onCreatePr}
+                  title={
+                    wt.canCreatePr
+                      ? 'Push this branch and open a pull request'
+                      : 'Unavailable — this repository has no git remote'
+                  }
+                >
+                  {wt.pending ? 'Working…' : 'Create PR'}
+                </button>
+                <button
+                  type="button"
                   style={mergeBtn(theme)}
                   disabled={wt.pending}
                   onClick={() => {
@@ -167,26 +183,13 @@ export function TaskRow({
                 >
                   {confirming === 'merge' ? 'Sure?' : 'Merge locally'}
                 </button>
-                <button
-                  type="button"
-                  style={prBtn(theme)}
-                  disabled={wt.pending || !wt.canCreatePr}
-                  onClick={wt.onCreatePr}
-                  title={
-                    wt.canCreatePr
-                      ? 'Push this branch and open a pull request'
-                      : 'Unavailable — this repository has no git remote'
-                  }
-                >
-                  {wt.pending ? 'Working…' : 'Create PR'}
-                </button>
               </>
             ) : null}
             {wt ? (
               <button
                 type="button"
                 className="la-tp-dim"
-                style={stopBtn(theme)}
+                style={discardBtn(theme)}
                 disabled={wt.pending}
                 onClick={() => {
                   if (confirming === 'discard') {
@@ -287,16 +290,12 @@ const retryBtn = (theme: OverlayTheme) => ({
   fontFamily: 'inherit',
 });
 
-// "Merge locally" is the primary way to land a worktree, so it takes the same
-// inverted fill as Retry. Deliberately NOT the shell bar's #16a34a green: the
-// overlay palette has no hues at all, and one green button would be the only
-// colour in the drawer.
-//
-// Named for what it does. It was "Ship it", which reads as "send this out into
-// the world" — the exact opposite of the truth, since nothing leaves your
-// machine: it merges the branch into your checkout. "Create PR" beside it is
-// the one that actually goes anywhere.
-const mergeBtn = (theme: OverlayTheme) => ({
+// Three ways to land a worktree, three weights, left to right: "Create PR" is
+// the one to reach for by default, so it takes the popover's inverted fill (the
+// same primary treatment as Retry). Deliberately NOT the shell bar's #16a34a
+// green: the overlay palette has no hues at all, and one green button would be
+// the only colour in the drawer.
+const prBtn = (theme: OverlayTheme) => ({
   background: surfacePalette(theme).submitBg,
   border: 'none',
   borderRadius: '6px',
@@ -309,9 +308,14 @@ const mergeBtn = (theme: OverlayTheme) => ({
   fontFamily: 'inherit',
 });
 
-// "Create PR" is the considered alternative to merging straight into your
-// checkout — equal in weight, so an outline rather than a second filled button.
-const prBtn = (theme: OverlayTheme) => ({
+// "Merge locally" is the secondary way to land — an outline, so it reads as the
+// considered alternative to opening a PR rather than a second equal pull.
+//
+// Named for what it does. It was "Ship it", which reads as "send this out into
+// the world" — the exact opposite of the truth, since nothing leaves your
+// machine: it merges the branch into your checkout. "Create PR" beside it is
+// the one that actually goes anywhere.
+const mergeBtn = (theme: OverlayTheme) => ({
   background: 'transparent',
   border: `1px solid ${surfacePalette(theme).stroke}`,
   borderRadius: '6px',
@@ -322,6 +326,15 @@ const prBtn = (theme: OverlayTheme) => ({
   padding: '3px 10px',
   marginTop: '8px',
   fontFamily: 'inherit',
+});
+
+// "Discard" is the tertiary, destructive one: Stop's text-only shape, and
+// `marginLeft: auto` pushes it to the far right of the row so it can't be hit
+// on the way to the two buttons that keep the work.
+const discardBtn = (theme: OverlayTheme) => ({
+  ...stopBtn(theme),
+  marginTop: '8px',
+  marginLeft: 'auto',
 });
 
 // The PR link borrows View chat's quiet-action shape, one line below the row.
