@@ -18,6 +18,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   so anyone working in their own app tab had no way to land an agent's work.
 
 ### Changed
+- A finished task row in the drawer now ranks its three actions instead of
+  showing them at one weight: **Create PR** leads as the filled button, **Merge
+  locally** is an outline beside it, and **Discard** is text-only and sits at
+  the far right, away from the two that keep the work. The buttons are pills,
+  matching the popover's controls, and "View chat" moved up onto the status line
+  next to the elapsed time.
 - The Background Tasks button moved out of the overlay's floating pill row and
   into the shell's top bar, immediately left of the viewport switcher. The
   drawer is unchanged. Running Iris without the shell (visiting the dev server
