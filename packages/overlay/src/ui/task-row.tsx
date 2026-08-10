@@ -107,6 +107,9 @@ export function TaskRow({
   // A finished task has something to land; a failed one only has a worktree to
   // clean up. Running rows never get the prop in the first place.
   const canLand = wt != null && task.status === 'done';
+  // Whether there's a button row at all — it owns the gap above it, so an empty
+  // one would be 12px of dead space under a running task's status line.
+  const hasActions = (failed && onRetry != null) || wt != null;
   return (
     <div style={cardStyle(theme)}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '9px' }}>
@@ -157,68 +160,82 @@ export function TaskRow({
               the ways to land the worktree's work, which until now existed only
               in the shell page at :4747. The ones that keep the work sit
               together on the left in descending weight; Discard is pushed to
-              the far right (see discardBtn), away from them. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-            {failed && onRetry ? (
-              <button type="button" style={retryBtn(theme)} onClick={onRetry}>
-                Retry
-              </button>
-            ) : null}
-            {canLand && wt ? (
-              <>
-                <button
-                  type="button"
-                  style={prBtn(theme)}
-                  disabled={wt.pending || !wt.canCreatePr}
-                  onClick={wt.onCreatePr}
-                  title={
-                    wt.canCreatePr
-                      ? 'Push this branch and open a pull request'
-                      : 'Unavailable — this repository has no git remote'
-                  }
-                >
-                  {wt.pending ? 'Working…' : 'Create PR'}
+              the far right (see discardBtn), away from them.
+
+              The 12px above the row is the container's, not each button's, so
+              the gap is one number rather than four — and a row with nothing in
+              it (a task still running) adds no space at all. */}
+          {hasActions ? (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                flexWrap: 'wrap',
+                marginTop: '12px',
+              }}
+            >
+              {failed && onRetry ? (
+                <button type="button" style={retryBtn(theme)} onClick={onRetry}>
+                  Retry
                 </button>
+              ) : null}
+              {canLand && wt ? (
+                <>
+                  <button
+                    type="button"
+                    style={prBtn(theme)}
+                    disabled={wt.pending || !wt.canCreatePr}
+                    onClick={wt.onCreatePr}
+                    title={
+                      wt.canCreatePr
+                        ? 'Push this branch and open a pull request'
+                        : 'Unavailable — this repository has no git remote'
+                    }
+                  >
+                    {wt.pending ? 'Working…' : 'Create PR'}
+                  </button>
+                  <button
+                    type="button"
+                    style={mergeBtn(theme)}
+                    disabled={wt.pending}
+                    onClick={() => {
+                      if (confirming === 'merge') {
+                        setConfirming(null);
+                        wt.onShip();
+                      } else {
+                        setConfirming('merge');
+                      }
+                    }}
+                    onBlur={() => setConfirming((c) => (c === 'merge' ? null : c))}
+                    title="Merge this worktree into your checkout and delete it"
+                  >
+                    {confirming === 'merge' ? 'Sure?' : 'Merge locally'}
+                  </button>
+                </>
+              ) : null}
+              {wt ? (
                 <button
                   type="button"
-                  style={mergeBtn(theme)}
+                  className="la-tp-dim"
+                  style={discardBtn(theme)}
                   disabled={wt.pending}
                   onClick={() => {
-                    if (confirming === 'merge') {
+                    if (confirming === 'discard') {
                       setConfirming(null);
-                      wt.onShip();
+                      wt.onDiscard();
                     } else {
-                      setConfirming('merge');
+                      setConfirming('discard');
                     }
                   }}
-                  onBlur={() => setConfirming((c) => (c === 'merge' ? null : c))}
-                  title="Merge this worktree into your checkout and delete it"
+                  onBlur={() => setConfirming((c) => (c === 'discard' ? null : c))}
+                  title="Delete this worktree without merging it"
                 >
-                  {confirming === 'merge' ? 'Sure?' : 'Merge locally'}
+                  {confirming === 'discard' ? 'Sure?' : 'Discard'}
                 </button>
-              </>
-            ) : null}
-            {wt ? (
-              <button
-                type="button"
-                className="la-tp-dim"
-                style={discardBtn(theme)}
-                disabled={wt.pending}
-                onClick={() => {
-                  if (confirming === 'discard') {
-                    setConfirming(null);
-                    wt.onDiscard();
-                  } else {
-                    setConfirming('discard');
-                  }
-                }}
-                onBlur={() => setConfirming((c) => (c === 'discard' ? null : c))}
-                title="Delete this worktree without merging it"
-              >
-                {confirming === 'discard' ? 'Sure?' : 'Discard'}
-              </button>
-            ) : null}
-          </div>
+              ) : null}
+            </div>
+          ) : null}
           {/* A link, not an auto-opened window: the popup would fire after an
               await, outside the click gesture, and get blocked. It also lets
               the user come back to the PR later. */}
@@ -305,7 +322,6 @@ const retryBtn = (theme: OverlayTheme) => ({
   fontWeight: 500,
   cursor: 'pointer',
   padding: '4px 12px',
-  marginTop: '8px',
   display: 'block',
   fontFamily: 'inherit',
 });
@@ -324,7 +340,6 @@ const prBtn = (theme: OverlayTheme) => ({
   fontWeight: 500,
   cursor: 'pointer',
   padding: '4px 12px',
-  marginTop: '8px',
   fontFamily: 'inherit',
 });
 
@@ -346,7 +361,6 @@ const mergeBtn = (theme: OverlayTheme) => ({
   // One less than the filled buttons on each side: the 1px border makes up the
   // difference, so both pills come out the same height.
   padding: '3px 11px',
-  marginTop: '8px',
   fontFamily: 'inherit',
 });
 
@@ -356,7 +370,6 @@ const mergeBtn = (theme: OverlayTheme) => ({
 const discardBtn = (theme: OverlayTheme) => ({
   ...stopBtn(theme),
   borderRadius: PILL_RADIUS,
-  marginTop: '8px',
   marginLeft: 'auto',
 });
 
