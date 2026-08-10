@@ -169,10 +169,14 @@ export function TaskChat({
           value={draft}
           onInput={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              void submit();
-            }
+            // Enter sends, Shift+Enter is the newline — same as the popover.
+            // `isComposing` guards IME input, where Enter accepts a candidate
+            // and submitting would send half a word (keyCode 229 is the older
+            // spelling of the same signal, still emitted by some browsers).
+            if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
+            if (e.shiftKey) return;
+            e.preventDefault();
+            void submit();
           }}
           rows={1}
           placeholder={busy ? 'Agent is working…' : 'Reply or ask a follow-up'}

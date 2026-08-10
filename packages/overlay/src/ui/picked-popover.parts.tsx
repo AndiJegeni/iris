@@ -122,7 +122,7 @@ export function FooterActions({
           opacity: canSubmit ? 1 : 0.3,
           cursor: canSubmit ? 'pointer' : 'not-allowed',
         }}
-        title="Send (⌘↵)"
+        title="Send (↵)"
       >
         <ArrowUpIcon />
       </button>
