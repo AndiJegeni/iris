@@ -108,7 +108,7 @@ export function TaskRow({
   // clean up. Running rows never get the prop in the first place.
   const canLand = wt != null && task.status === 'done';
   // Whether there's a button row at all — it owns the gap above it, so an empty
-  // one would be 12px of dead space under a running task's status line.
+  // one would be 16px of dead space under a running task's status line.
   const hasActions = (failed && onRetry != null) || wt != null;
   return (
     <div style={cardStyle(theme)}>
@@ -162,7 +162,7 @@ export function TaskRow({
               together on the left in descending weight; Discard is pushed to
               the far right (see discardBtn), away from them.
 
-              The 12px above the row is the container's, not each button's, so
+              The 16px above the row is the container's, not each button's, so
               the gap is one number rather than four — and a row with nothing in
               it (a task still running) adds no space at all. */}
           {hasActions ? (
@@ -172,7 +172,7 @@ export function TaskRow({
                 alignItems: 'center',
                 gap: '10px',
                 flexWrap: 'wrap',
-                marginTop: '12px',
+                marginTop: '16px',
               }}
             >
               {failed && onRetry ? (
