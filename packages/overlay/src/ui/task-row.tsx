@@ -128,24 +128,25 @@ export function TaskRow({
           <div style={{ color: p.soft, fontSize: '12px', marginTop: '2px' }}>
             {statusLine(task)} <span style={{ color: p.faint }}>· {elapsed(task)}</span>
           </div>
-          {/* Failed rows show Retry alongside View chat — a clear way to re-run.
-              Finished rows add the ways to land the worktree's work, which
-              until now existed only in the shell page at :4747. The ones that
-              keep the work sit together on the left in descending weight;
-              Discard is pushed to the far right (see discardBtn), away from
-              them. Wraps because five controls don't fit the card's width on
-              one line. */}
+          {/* "View chat" gets its own line above the buttons. It's a quiet text
+              link that reads the task rather than acting on it, and sharing a
+              line with the button pills made it look like a fourth control. */}
+          {hasTranscript ? (
+            <button
+              type="button"
+              className="la-tp-soft"
+              style={viewChatLink()}
+              onClick={onOpenChat}
+            >
+              View chat
+            </button>
+          ) : null}
+          {/* Failed rows show Retry — a clear way to re-run. Finished rows show
+              the ways to land the worktree's work, which until now existed only
+              in the shell page at :4747. The ones that keep the work sit
+              together on the left in descending weight; Discard is pushed to
+              the far right (see discardBtn), away from them. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-            {hasTranscript ? (
-              <button
-                type="button"
-                className="la-tp-soft"
-                style={viewChatLink()}
-                onClick={onOpenChat}
-              >
-                View chat
-              </button>
-            ) : null}
             {failed && onRetry ? (
               <button type="button" style={retryBtn(theme)} onClick={onRetry}>
                 Retry
@@ -274,17 +275,22 @@ const viewChatLink = () => ({
   fontFamily: 'inherit',
 });
 
+// Every button in a row is a pill, borrowing the popover's control shape: the
+// worktree chip and the send button are both 999px, so a 6px-rounded rectangle
+// in the drawer was the one square corner in the whole overlay.
+const PILL_RADIUS = '999px';
+
 // Failed-row "Retry" — the primary recovery action, so it borrows the popover's
 // primary control: the send button's inverted fill, not a blue accent.
 const retryBtn = (theme: OverlayTheme) => ({
   background: surfacePalette(theme).submitBg,
   border: 'none',
-  borderRadius: '6px',
+  borderRadius: PILL_RADIUS,
   color: surfacePalette(theme).submitText,
   fontSize: '12px',
   fontWeight: 500,
   cursor: 'pointer',
-  padding: '4px 10px',
+  padding: '4px 12px',
   marginTop: '8px',
   display: 'block',
   fontFamily: 'inherit',
@@ -298,12 +304,12 @@ const retryBtn = (theme: OverlayTheme) => ({
 const prBtn = (theme: OverlayTheme) => ({
   background: surfacePalette(theme).submitBg,
   border: 'none',
-  borderRadius: '6px',
+  borderRadius: PILL_RADIUS,
   color: surfacePalette(theme).submitText,
   fontSize: '12px',
   fontWeight: 500,
   cursor: 'pointer',
-  padding: '4px 10px',
+  padding: '4px 12px',
   marginTop: '8px',
   fontFamily: 'inherit',
 });
@@ -318,12 +324,14 @@ const prBtn = (theme: OverlayTheme) => ({
 const mergeBtn = (theme: OverlayTheme) => ({
   background: 'transparent',
   border: `1px solid ${surfacePalette(theme).stroke}`,
-  borderRadius: '6px',
+  borderRadius: PILL_RADIUS,
   color: surfacePalette(theme).ink,
   fontSize: '12px',
   fontWeight: 500,
   cursor: 'pointer',
-  padding: '3px 10px',
+  // One less than the filled buttons on each side: the 1px border makes up the
+  // difference, so both pills come out the same height.
+  padding: '3px 11px',
   marginTop: '8px',
   fontFamily: 'inherit',
 });
@@ -333,6 +341,7 @@ const mergeBtn = (theme: OverlayTheme) => ({
 // on the way to the two buttons that keep the work.
 const discardBtn = (theme: OverlayTheme) => ({
   ...stopBtn(theme),
+  borderRadius: PILL_RADIUS,
   marginTop: '8px',
   marginLeft: 'auto',
 });
