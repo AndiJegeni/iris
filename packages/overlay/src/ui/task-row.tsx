@@ -59,7 +59,7 @@ export function dotColor(status: Task['status'], theme: OverlayTheme): string {
  * ("main") rather than a worktree of their own.
  */
 export type WorktreeAction = {
-  /** The worktree still exists. Ship/Discard vanish once it's gone. */
+  /** The worktree still exists. Merge/Discard vanish once it's gone. */
   available: boolean;
   /** A remote is configured, so there's somewhere to push. Gates Create PR alone. */
   canCreatePr: boolean;
@@ -99,10 +99,10 @@ export function TaskRow({
 }: TaskRowProps) {
   const failed = task.status === 'failed';
   const p = surfacePalette(theme);
-  // Ship and Discard both destroy the worktree, so they arm before they fire.
+  // Merge and Discard both destroy the worktree, so they arm before they fire.
   // A native confirm() dialog raised from inside the user's own app reads as
   // the page misbehaving; a label that flips to "Sure?" stays in the overlay.
-  const [confirming, setConfirming] = useState<'ship' | 'discard' | null>(null);
+  const [confirming, setConfirming] = useState<'merge' | 'discard' | null>(null);
   const wt = worktree?.available ? worktree : null;
   // A finished task has something to land; a failed one only has a worktree to
   // clean up. Running rows never get the prop in the first place.
@@ -152,20 +152,20 @@ export function TaskRow({
               <>
                 <button
                   type="button"
-                  style={shipBtn(theme)}
+                  style={mergeBtn(theme)}
                   disabled={wt.pending}
                   onClick={() => {
-                    if (confirming === 'ship') {
+                    if (confirming === 'merge') {
                       setConfirming(null);
                       wt.onShip();
                     } else {
-                      setConfirming('ship');
+                      setConfirming('merge');
                     }
                   }}
-                  onBlur={() => setConfirming((c) => (c === 'ship' ? null : c))}
+                  onBlur={() => setConfirming((c) => (c === 'merge' ? null : c))}
                   title="Merge this worktree into your checkout and delete it"
                 >
-                  {confirming === 'ship' ? 'Sure?' : 'Ship it'}
+                  {confirming === 'merge' ? 'Sure?' : 'Merge locally'}
                 </button>
                 <button
                   type="button"
@@ -287,11 +287,16 @@ const retryBtn = (theme: OverlayTheme) => ({
   fontFamily: 'inherit',
 });
 
-// "Ship it" is the primary way to land a worktree, so it takes the same
+// "Merge locally" is the primary way to land a worktree, so it takes the same
 // inverted fill as Retry. Deliberately NOT the shell bar's #16a34a green: the
 // overlay palette has no hues at all, and one green button would be the only
 // colour in the drawer.
-const shipBtn = (theme: OverlayTheme) => ({
+//
+// Named for what it does. It was "Ship it", which reads as "send this out into
+// the world" — the exact opposite of the truth, since nothing leaves your
+// machine: it merges the branch into your checkout. "Create PR" beside it is
+// the one that actually goes anywhere.
+const mergeBtn = (theme: OverlayTheme) => ({
   background: surfacePalette(theme).submitBg,
   border: 'none',
   borderRadius: '6px',
@@ -304,7 +309,7 @@ const shipBtn = (theme: OverlayTheme) => ({
   fontFamily: 'inherit',
 });
 
-// "Create PR" is the considered alternative to shipping straight into your
+// "Create PR" is the considered alternative to merging straight into your
 // checkout — equal in weight, so an outline rather than a second filled button.
 const prBtn = (theme: OverlayTheme) => ({
   background: 'transparent',

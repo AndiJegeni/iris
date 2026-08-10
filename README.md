@@ -51,6 +51,45 @@ In a Next.js root layout `<Iris />` must go **inside `<body>`** — anything bet
 
 No API key required. Open the overlay's Settings and **Connect** with your Claude or ChatGPT subscription — Iris shells out to the provider's own CLI login and never sees a token. Setting `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` works too, as does `--anthropic-key` / `--openai-key`, though flags are visible in `ps` and shell history.
 
+## Landing the work
+
+When an agent finishes in a worktree you get three choices:
+
+| | Merge locally | Create PR | Discard |
+|---|---|---|---|
+| where it goes | your checkout | your git remote | nowhere |
+| needs a remote | no | yes | no |
+| worktree after | deleted | **kept running** | deleted |
+
+**Merge locally** merges the agent's branch into whatever you have checked out. Nothing leaves your machine, so it works on a repo you've never pushed. **Create PR** pushes the branch and opens a pull request, and deliberately leaves the worktree alive — a PR is a checkpoint you keep iterating on, and pushing again updates the same PR.
+
+Only the agent's edits are committed. Your uncommitted work is copied into the worktree so the agent sees the code you actually run, but it's excluded from the commit unless the agent changed those files — so your `<Iris />` line and your half-finished work don't ride along into a PR.
+
+If you and the agent edited the same file, **Merge locally takes the agent's version**. Yours isn't lost: it's stashed first, and `git stash pop` brings it back.
+
+### Connecting GitHub
+
+There's no connect button, and Iris never asks for or stores a GitHub token. It borrows what your machine already has:
+
+- **Pushing** runs `git push` through the remote's *name*, so whatever git already uses for that repo applies — your credential helper (macOS Keychain), an SSH key, or a `url.<base>.insteadOf` rewrite.
+- **Opening the PR** shells out to the [GitHub CLI](https://cli.github.com) (`gh`), using the login from `gh auth login`.
+
+So if you already use `gh`, it works on the first try with no setup. Starting from scratch:
+
+```bash
+brew install gh        # or see cli.github.com
+gh auth login
+git remote -v          # empty? git remote add origin <url>
+```
+
+| What you have | What Create PR does |
+|---|---|
+| remote + `gh` signed in | pushes the branch and opens the PR |
+| remote, no `gh` | pushes the branch, hands you a compare link to finish in the browser |
+| no remote | disabled — use **Merge locally** |
+
+Any git host works for the push; `gh` is what turns it into an actual pull request, so it's GitHub-only.
+
 ## What works where
 
 | | |
@@ -60,7 +99,7 @@ No API key required. Open the overlay's Settings and **Connect** with your Claud
 | **Runtime** | Node ≥ 18 |
 | **git** | Needed for worktree mode. Without it the worktree toggle is disabled and agents edit in place. |
 | **Backends** | Claude (needs the `claude` CLI for subscription login) · Codex (needs `codex`) · an API key needs neither |
-| **Pull requests** | Any git remote works — Iris pushes the branch. With the GitHub CLI (`gh`) installed and signed in it opens the PR too; without it you get a compare link to finish in the browser. No token is stored. |
+| **Pull requests** | Any git remote works — Iris pushes the branch. With the GitHub CLI (`gh`) installed and signed in it opens the PR too; without it you get a compare link to finish in the browser. No token is stored. See [Connecting GitHub](#connecting-github). |
 
 **The first run downloads ~300 MB.** Almost all of it is the Claude Agent SDK's platform executable, which npm fetches as an optional dependency whether or not you already have Claude Code installed. Subsequent runs are cached. If a matching `claude` is already on your PATH, Iris runs that one instead of the vendored copy — the startup banner's `agent:` line tells you which.
 
@@ -98,8 +137,8 @@ browser overlay  ──HTTP/WebSocket──►  iris daemon (:4747)
 
 `<Iris/>` pings the daemon in dev and, if it's up, injects the overlay — a self-contained Preact bundle served from `/overlay.js`, mounted in a shadow root so it can't collide with your styles. It also hands the overlay a handle on React's internal dispatcher, which is how Iris resolves a clicked element back to `file:line` even on Next.js + SWC, where `_debugSource` has been stripped.
 
-When you submit a request the daemon spawns an agent — optionally in a fresh git worktree with its own dev server — streams the transcript back over WebSocket, and lets you ship the result into your
-checkout, open a pull request for it, or discard it.
+When you submit a request the daemon spawns an agent — optionally in a fresh git worktree with its own dev server — streams the transcript back over WebSocket, and lets you merge the result into your
+checkout, open a pull request for it, or discard it. See [Landing the work](#landing-the-work).
 
 ## Security
 
@@ -113,10 +152,13 @@ Understand the inherent risks before running it:
 - The agent runs with broad permissions: it can **read, edit, and write files and run shell commands** in the target directory, with no per-action confirmation.
 - Page content the overlay captures (nearby text, source hints) is fed into the agent prompt — point it only at **trusted pages**. Untrusted page content is a prompt-injection vector.
 - Prefer **worktree mode** so the agent works in an isolated clone instead of your working tree.
-- **"Create PR" publishes whatever the worktree contains.** A worktree is seeded with your
-  *uncommitted* changes so the agent sees your work in progress — and opening a PR commits and
-  pushes all of it, not just the agent's edits. Check the branch before you push it anywhere
-  others can read. "Ship it" is unaffected: it merges locally and never leaves your machine.
+- **"Create PR" publishes to your remote.** A worktree is seeded with your *uncommitted* changes so
+  the agent sees your work in progress, but only the agent's own edits are committed — files it
+  never touched are left out. A file the agent *did* edit is pushed, so glance at the branch before
+  sending it somewhere others can read.
+- **"Merge locally" overwrites uncommitted changes that clash.** It only touches files the agent
+  also edited, and stashes them first (`git stash pop` restores), but it is a destructive action by
+  design: it never stops to ask.
 
 See [SECURITY.md](SECURITY.md) for the full threat model and how to report vulnerabilities.
 

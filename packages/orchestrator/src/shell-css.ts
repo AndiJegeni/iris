@@ -208,7 +208,7 @@ export const shellCss = `
         border: 1px solid var(--control-border); border-radius: 6px;
         padding: 3px 10px; font-size: 11px; cursor: pointer; font-family: inherit;
       }
-      /* Outlined, not a second green: shipping into your checkout and opening a
+      /* Outlined, not a second green: merging into your checkout and opening a
          PR are alternatives, and only one of them should read as THE action. */
       .pr-btn {
         background: transparent; color: var(--text);
