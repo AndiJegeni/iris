@@ -182,7 +182,11 @@ export function TaskRow({
                 alignItems: 'center',
                 gap: '8px',
                 flexWrap: 'wrap',
-                marginTop: '12px',
+                // Eight more than the popover's footer gap. The popover's controls
+                // sit under a text field with its own inner padding; here they
+                // sit straight under a line of prose, so the same 12 read as the
+                // buttons being part of the status line rather than a step after it.
+                marginTop: '20px',
               }}
             >
               {failed && onRetry ? (
@@ -194,7 +198,7 @@ export function TaskRow({
                 <>
                   <button
                     type="button"
-                    className="la-tp-act"
+                    className="la-tp-soft la-tp-act"
                     style={prBtn(theme)}
                     disabled={wt.pending || !wt.canCreatePr}
                     onClick={wt.onCreatePr}
@@ -367,11 +371,14 @@ const retryBtn = (theme: OverlayTheme) => ({
   fontFamily: 'inherit',
 });
 
-// Three ways to land a worktree, three weights, left to right: "Create PR" is
-// the one to reach for by default, so it takes the popover's inverted fill (the
-// same primary treatment as Retry). Deliberately NOT the shell bar's #16a34a
-// green: the overlay palette has no hues at all, and one green button would be
-// the only colour in the drawer.
+// "Create PR" is the one to reach for by default, and now the only control on
+// the row carrying a fill — which is the whole of its emphasis. Its ink rests
+// soft like every other action here and lifts to full under the cursor, so the
+// row reads as one quiet family until you point at something. A permanently
+// full-ink label on a filled pill made it the loudest thing in the drawer.
+//
+// Deliberately NOT the shell bar's #16a34a green: the overlay palette has no
+// hues at all, and one green button would be the only colour in the drawer.
 const prBtn = (theme: OverlayTheme) => ({
   // The popover's filled control — its worktree pill when checked. NOT the
   // send button's inverted #373734: a solid dark slab is the popover's smallest
@@ -380,7 +387,8 @@ const prBtn = (theme: OverlayTheme) => ({
   background: surfacePalette(theme).fill,
   border: 'none',
   borderRadius: PILL_RADIUS,
-  color: surfacePalette(theme).ink,
+  // No inline colour — `.la-tp-soft` owns it so the hover can win.
+
   fontSize: '13px',
   fontWeight: 500,
   cursor: 'var(--la-tp-cursor, pointer)',
@@ -400,21 +408,14 @@ const prBtn = (theme: OverlayTheme) => ({
 // the world" — the exact opposite of the truth, since nothing leaves your
 // machine: it merges the branch into your checkout. "Create PR" beside it is
 // the one that actually goes anywhere.
+// Discard's shape exactly — text only, no outline. The outlined pill put a
+// second container weight on the row for no gain: with Create PR already
+// carrying the only fill, an outline beside it read as a third kind of thing
+// rather than a step down. Now the row is one filled control and two plain
+// labels, and the emphasis is carried entirely by the fill.
 const mergeBtn = (theme: OverlayTheme) => ({
-  background: 'transparent',
-  border: `1px solid ${surfacePalette(theme).stroke}`,
+  ...quietBtn(theme),
   borderRadius: PILL_RADIUS,
-  // No inline colour: `.la-tp-soft` gives it the popover pill's soft ink, which
-  // lifts to full on hover. Inline would outrank the class and kill that.
-  fontSize: '13px',
-  fontWeight: 500,
-  cursor: 'var(--la-tp-cursor, pointer)',
-  // One less than the filled buttons on every side; its 1px border makes up the
-  // difference, so both land on the same 24px box.
-  padding: '3px 10px',
-  lineHeight: 1.2,
-  fontFamily: 'inherit',
-  letterSpacing: 'inherit',
 });
 
 // "Discard" is the tertiary, destructive one: Stop's text-only shape, and
