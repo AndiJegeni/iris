@@ -199,6 +199,11 @@ export function TaskRow({
                 // sit straight under a line of prose, so the same 12 read as the
                 // buttons being part of the status line rather than a step after it.
                 marginTop: '20px',
+                // Out of the card's gutter to the control inset, as the
+                // popover's footer does. `View chat` stays at the text inset —
+                // it belongs to the status sentence, not to this row.
+                marginLeft: `-${CARD_PAD_X - CONTROL_INSET}px`,
+                marginRight: `-${CARD_PAD_X - CONTROL_INSET}px`,
               }}
             >
               {failed && onRetry ? (
@@ -325,6 +330,17 @@ export function TaskRow({
  */
 const CARD_MIN_HEIGHT = 104;
 
+/** The card's gutter — where its prose sits. */
+const CARD_PAD_X = 12;
+/**
+ * Where its controls sit: half the gutter. The popover breaks its footer out of
+ * the card padding to reach exactly this, because a button's own padding already
+ * holds its label off the edge — matching the text's inset would inset it twice.
+ * Also the card's bottom padding, so a button row is the same distance from both
+ * edges it touches.
+ */
+const CONTROL_INSET = 6;
+
 const cardStyle = (theme: OverlayTheme) => ({
   background: surfacePalette(theme).fill,
   borderRadius: '6px',
@@ -339,7 +355,7 @@ const cardStyle = (theme: OverlayTheme) => ({
   // in the space around the labels, while a line of text starts at its cap
   // height and needs the room. Same 6px here; the top stays at 12 to match the
   // sides, so the title is as far from the top as it is from the edge.
-  padding: '12px 12px 6px',
+  padding: `12px ${CARD_PAD_X}px ${CONTROL_INSET}px`,
   marginBottom: '10px',
   position: 'relative' as const,
 });
@@ -521,7 +537,7 @@ const stopRow = () => ({
   // padding is the 12px minimum for a row tall enough not to have any slack.
   marginTop: 'auto',
   paddingTop: '12px',
-  marginRight: '-6px',
+  marginRight: `-${CARD_PAD_X - CONTROL_INSET}px`,
 });
 
 /**
