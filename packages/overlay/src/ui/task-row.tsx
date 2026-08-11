@@ -1,7 +1,7 @@
 /** @jsxImportSource preact */
 import { type Task, modelLabel } from '@iris/shared';
 import { useState } from 'preact/hooks';
-import { StopIcon } from './icons';
+import { RetryIcon, StopIcon, TrashIcon } from './icons';
 import { type OverlayTheme, surfacePalette } from './theme';
 
 export function isRunning(t: Task): boolean {
@@ -206,6 +206,7 @@ export function TaskRow({
             >
               {failed && onRetry ? (
                 <button type="button" style={retryBtn(theme)} onClick={onRetry}>
+                  <RetryIcon size={14} />
                   Retry
                 </button>
               ) : null}
@@ -271,8 +272,11 @@ export function TaskRow({
               {wt ? (
                 <button
                   type="button"
-                  className="la-tp-soft la-tp-act"
-                  style={discardBtn(theme)}
+                  className={
+                    confirming === 'discard' ? 'la-tp-soft la-tp-act' : 'la-tp-circle la-tp-act'
+                  }
+                  style={discardBtn(theme, confirming === 'discard')}
+                  aria-label="Discard"
                   disabled={wt.pending}
                   onClick={() => {
                     if (confirming === 'discard') {
@@ -285,7 +289,7 @@ export function TaskRow({
                   onBlur={() => setConfirming((c) => (c === 'discard' ? null : c))}
                   title="Delete this worktree without merging it"
                 >
-                  {confirming === 'discard' ? 'Sure?' : 'Discard'}
+                  {confirming === 'discard' ? 'Sure?' : <TrashIcon size={16} />}
                 </button>
               ) : null}
             </div>
@@ -296,8 +300,8 @@ export function TaskRow({
         <div style={stopRow()}>
           <button
             type="button"
-            className="la-tp-stop"
-            style={stopCircle(theme)}
+            className="la-tp-circle"
+            style={circleBtn(theme)}
             onClick={onCancel}
             aria-label="Stop"
             title="Stop this task"
@@ -427,6 +431,12 @@ const PILL_RADIUS = '999px';
 // Failed-row "Retry" — the primary recovery action, so it borrows the popover's
 // primary control: the send button's inverted fill, not a blue accent.
 const retryBtn = (theme: OverlayTheme) => ({
+  // Icon then label, on one baseline. The glyph is 14 against the label's 16px
+  // line box: a stroked circle reads larger than letterforms of the same
+  // height, so matching them exactly would make the icon the loud half.
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '5px',
   // The popover's filled control — its worktree pill when checked. NOT the
   // send button's inverted #373734: a solid dark slab is the popover's smallest
   // element (a 23px circle), and at button width it was the loudest thing in
@@ -444,7 +454,6 @@ const retryBtn = (theme: OverlayTheme) => ({
   padding: '4px 11px',
   lineHeight: 1.2,
   letterSpacing: 'inherit',
-  display: 'block',
   fontFamily: 'inherit',
 });
 
@@ -526,11 +535,15 @@ const prLinkPill = (theme: OverlayTheme) => ({
 // Pinned to the right edge by `marginLeft: auto`, which is a *position* rather
 // than a gap: the one control that throws work away sits apart from the ones
 // that keep it, so it can't be hit on the way to them.
-const discardBtn = (theme: OverlayTheme) => ({
-  ...quietBtn(theme),
-  borderRadius: PILL_RADIUS,
-  marginLeft: 'auto',
-});
+//
+// Idle it is Stop's circle carrying a trash glyph — the two destructive-ish
+// corner actions in the drawer now look like each other. While it asks "Sure?"
+// it becomes a text button: the confirm has to be unmistakable, and a word
+// reads faster than a recoloured icon. The width change is part of that.
+const discardBtn = (theme: OverlayTheme, confirming: boolean) =>
+  confirming
+    ? { ...quietBtn(theme), borderRadius: PILL_RADIUS, marginLeft: 'auto' }
+    : { ...circleBtn(theme), marginLeft: 'auto' };
 
 // A note or an error from the last worktree action, sitting between the status
 // line and the buttons. Soft ink for a note, the palette's one hue for an
@@ -564,17 +577,20 @@ const stopRow = () => ({
  * carrying the same StopIcon. A running task and an in-flight message are the
  * same act, so they get the same control rather than one being a word.
  */
-const stopCircle = (theme: OverlayTheme) => ({
+/**
+ * The round icon button — Stop in a running row's corner, Discard in a finished
+ * one. 24 across, matching the pills beside it rather than the composer's 26: a
+ * circle reads larger than a pill of the same height, so the composer's size
+ * looked oversized parked in a card.
+ */
+const circleBtn = (theme: OverlayTheme) => ({
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  // 24, matching the buttons on a finished row rather than the composer's 26:
-  // a circle reads larger than a pill of the same height, so the composer's
-  // size looked oversized parked in the corner of a card.
   width: '24px',
   height: '24px',
   flexShrink: 0,
-  // No inline `background` — `.la-tp-stop` owns it so the hover can win.
+  // No inline `background` — `.la-tp-circle` owns it so the hover can win.
   border: 'none',
   borderRadius: '999px',
   color: surfacePalette(theme).submitText,

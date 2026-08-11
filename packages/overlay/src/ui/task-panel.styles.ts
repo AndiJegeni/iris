@@ -184,12 +184,13 @@ export const taskPanelCss = (theme: OverlayTheme): string => {
   const pill = PILL_PALETTE[theme];
   return [
     `.la-tp-soft{color:${p.soft};transition:color 80ms}.la-tp-soft:hover{color:${p.ink}}`,
-    // Stop's circle rests at the ink's soft alpha and fills in under the
-    // cursor. Same ink either way — 40% white going solid in dark, 50% of
-    // #373734 going solid in light — so it is one colour at two weights
-    // rather than a second grey. In a class because an inline `background`
-    // would outrank the :hover, the way it did for the worktree pill.
-    `.la-tp-stop{background:${p.soft};transition:background 80ms}.la-tp-stop:hover{background:${p.submitBg}}`,
+    // The round icon buttons — Stop in a running row's corner, Discard in a
+    // finished row. They rest at the ink's soft alpha and fill in under the
+    // cursor: 40% white going solid in dark, 50% of #373734 going solid in
+    // light, so it is one colour at two weights rather than a second grey. In
+    // a class because an inline `background` would outrank the :hover, the way
+    // it did for the worktree pill.
+    `.la-tp-circle{background:${p.soft};transition:background 80ms}.la-tp-circle:hover{background:${p.submitBg}}`,
     // A disabled action looked exactly like a live one — same fill, same ink,
     // full opacity, and cursor:pointer — so "Create PR" on a repo with no remote
     // invited a click and did nothing.
