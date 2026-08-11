@@ -1,6 +1,7 @@
 /** @jsxImportSource preact */
 import { type Task, modelLabel } from '@iris/shared';
 import { useState } from 'preact/hooks';
+import { StopIcon } from './icons';
 import { type OverlayTheme, surfacePalette } from './theme';
 
 export function isRunning(t: Task): boolean {
@@ -127,15 +128,24 @@ export function TaskRow({
           />
         ) : null}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 500, fontSize: '12px', color: p.ink }}>{task.prompt}</div>
+          <div style={{ fontWeight: 500, fontSize: '13px', lineHeight: 1.5, color: p.ink }}>
+            {task.prompt}
+          </div>
           {/* "View chat" rides the status line, just past the elapsed time. It
               reads the task rather than acting on it, so it stays off the row
               of buttons below — down there it looked like a fourth control. */}
           <div
             style={{
-              color: p.soft,
-              fontSize: '12px',
-              marginTop: '2px',
+              // One tone for the whole status line. The model, what it's doing
+              // and the elapsed time are a single sentence, so splitting them
+              // across two greys made the timer read as a separate item; they
+              // now share the quieter of the two. "View chat" is the only part
+              // of the line that isn't status — it keeps the brighter ink from
+              // `.la-tp-soft`, which is what makes it findable.
+              color: p.faint,
+              fontSize: '13px',
+              lineHeight: 1.5,
+              marginTop: '3px',
               display: 'flex',
               alignItems: 'baseline',
               gap: '8px',
@@ -143,7 +153,7 @@ export function TaskRow({
             }}
           >
             <span>
-              {statusLine(task)} <span style={{ color: p.faint }}>· {elapsed(task)}</span>
+              {statusLine(task)} · {elapsed(task)}
             </span>
             {hasTranscript ? (
               <button
@@ -170,9 +180,9 @@ export function TaskRow({
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '10px',
+                gap: '8px',
                 flexWrap: 'wrap',
-                marginTop: '16px',
+                marginTop: '12px',
               }}
             >
               {failed && onRetry ? (
@@ -184,6 +194,7 @@ export function TaskRow({
                 <>
                   <button
                     type="button"
+                    className="la-tp-act"
                     style={prBtn(theme)}
                     disabled={wt.pending || !wt.canCreatePr}
                     onClick={wt.onCreatePr}
@@ -197,6 +208,7 @@ export function TaskRow({
                   </button>
                   <button
                     type="button"
+                    className="la-tp-soft la-tp-act"
                     style={mergeBtn(theme)}
                     disabled={wt.pending}
                     onClick={() => {
@@ -217,7 +229,7 @@ export function TaskRow({
               {wt ? (
                 <button
                   type="button"
-                  className="la-tp-dim"
+                  className="la-tp-soft la-tp-act"
                   style={discardBtn(theme)}
                   disabled={wt.pending}
                   onClick={() => {
@@ -251,18 +263,26 @@ export function TaskRow({
             </a>
           ) : null}
           {wt?.note ? (
-            <div style={{ color: p.soft, fontSize: '12px', marginTop: '6px' }}>{wt.note}</div>
+            <div style={{ color: p.soft, fontSize: '13px', marginTop: '6px' }}>{wt.note}</div>
           ) : null}
           {wt?.error ? (
-            <div style={{ color: p.error, fontSize: '12px', marginTop: '6px' }}>{wt.error}</div>
+            <div style={{ color: p.error, fontSize: '13px', marginTop: '6px' }}>{wt.error}</div>
           ) : null}
         </div>
-        {onCancel ? (
-          <button type="button" className="la-tp-dim" style={stopBtn(theme)} onClick={onCancel}>
-            Stop
-          </button>
-        ) : null}
       </div>
+      {onCancel ? (
+        <div style={stopRow()}>
+          <button
+            type="button"
+            style={stopCircle(theme)}
+            onClick={onCancel}
+            aria-label="Stop"
+            title="Stop this task"
+          >
+            <StopIcon />
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -270,23 +290,35 @@ export function TaskRow({
 const cardStyle = (theme: OverlayTheme) => ({
   background: surfacePalette(theme).fill,
   borderRadius: '6px',
-  padding: '11px 12px',
-  marginBottom: '7px',
+  // One number on every side: the title used to sit further from the top than
+  // from the left, which read as the text drifting down the card. The gap
+  // between cards is larger than the padding inside them, so rows still group
+  // as separate pieces of work.
+  padding: '12px',
+  marginBottom: '10px',
+  position: 'relative' as const,
 });
 
-// Text-only button: 50% ink, no fill/border, brightens to 100% on hover
-// (handled by the .la-tp-dim rule). Slightly rounded for the focus ring.
-const stopBtn = (theme: OverlayTheme) => ({
+// Text-only button, taking the popover's quiet-action idiom: soft ink that
+// lifts to full on hover, via `.la-tp-soft`. Deliberately *not* an opacity
+// fade — theme.ts makes the case: opacity also washes out anything nested
+// inside, and it is a second way of saying what the palette's `soft` already
+// says. No inline `color` for the same reason the worktree pill has no inline
+// border-color: it would outrank the class and kill the hover.
+const quietBtn = (_theme: OverlayTheme) => ({
   background: 'transparent',
   border: 'none',
   borderRadius: '4px',
+  // Vertically the filled buttons' padding, so a text-only control still sits
+  // on the same 24px line; narrower flanks because it has no pill around it.
   padding: '4px 6px',
-  fontSize: '12px',
+  lineHeight: 1.2,
+  fontSize: '13px',
   fontWeight: 500,
-  color: surfacePalette(theme).ink,
-  cursor: 'pointer',
+  cursor: 'var(--la-tp-cursor, pointer)',
   flexShrink: 0,
   fontFamily: 'inherit',
+  letterSpacing: 'inherit',
 });
 
 // Was `t.link` — a #60a5fa blue that was the loudest thing in the drawer and
@@ -295,8 +327,8 @@ const stopBtn = (theme: OverlayTheme) => ({
 const viewChatLink = () => ({
   background: 'transparent',
   border: 'none',
-  fontSize: '12px',
-  cursor: 'pointer',
+  fontSize: '13px',
+  cursor: 'var(--la-tp-cursor, pointer)',
   padding: 0,
   margin: 0,
   // Sits inline on the status line, after the elapsed time — so no block
@@ -314,14 +346,23 @@ const PILL_RADIUS = '999px';
 // Failed-row "Retry" — the primary recovery action, so it borrows the popover's
 // primary control: the send button's inverted fill, not a blue accent.
 const retryBtn = (theme: OverlayTheme) => ({
-  background: surfacePalette(theme).submitBg,
+  // The popover's filled control — its worktree pill when checked. NOT the
+  // send button's inverted #373734: a solid dark slab is the popover's smallest
+  // element (a 23px circle), and at button width it was the loudest thing in
+  // the drawer, which is the opposite of what the palette is for.
+  background: surfacePalette(theme).fill,
   border: 'none',
   borderRadius: PILL_RADIUS,
-  color: surfacePalette(theme).submitText,
-  fontSize: '12px',
+  color: surfacePalette(theme).ink,
+  fontSize: '13px',
   fontWeight: 500,
-  cursor: 'pointer',
-  padding: '4px 12px',
+  cursor: 'var(--la-tp-cursor, pointer)',
+  // A 24px box: 13 x 1.2 = 16px of text, plus 4 top and bottom. Two taller and
+  // four wider than the popover's worktree pill — these carry the row's real
+  // decisions, and at the pill's exact size they read as incidental chrome.
+  padding: '4px 11px',
+  lineHeight: 1.2,
+  letterSpacing: 'inherit',
   display: 'block',
   fontFamily: 'inherit',
 });
@@ -332,14 +373,23 @@ const retryBtn = (theme: OverlayTheme) => ({
 // green: the overlay palette has no hues at all, and one green button would be
 // the only colour in the drawer.
 const prBtn = (theme: OverlayTheme) => ({
-  background: surfacePalette(theme).submitBg,
+  // The popover's filled control — its worktree pill when checked. NOT the
+  // send button's inverted #373734: a solid dark slab is the popover's smallest
+  // element (a 23px circle), and at button width it was the loudest thing in
+  // the drawer, which is the opposite of what the palette is for.
+  background: surfacePalette(theme).fill,
   border: 'none',
   borderRadius: PILL_RADIUS,
-  color: surfacePalette(theme).submitText,
-  fontSize: '12px',
+  color: surfacePalette(theme).ink,
+  fontSize: '13px',
   fontWeight: 500,
-  cursor: 'pointer',
-  padding: '4px 12px',
+  cursor: 'var(--la-tp-cursor, pointer)',
+  // A 24px box: 13 x 1.2 = 16px of text, plus 4 top and bottom. Two taller and
+  // four wider than the popover's worktree pill — these carry the row's real
+  // decisions, and at the pill's exact size they read as incidental chrome.
+  padding: '4px 11px',
+  lineHeight: 1.2,
+  letterSpacing: 'inherit',
   fontFamily: 'inherit',
 });
 
@@ -354,30 +404,70 @@ const mergeBtn = (theme: OverlayTheme) => ({
   background: 'transparent',
   border: `1px solid ${surfacePalette(theme).stroke}`,
   borderRadius: PILL_RADIUS,
-  color: surfacePalette(theme).ink,
-  fontSize: '12px',
+  // No inline colour: `.la-tp-soft` gives it the popover pill's soft ink, which
+  // lifts to full on hover. Inline would outrank the class and kill that.
+  fontSize: '13px',
   fontWeight: 500,
-  cursor: 'pointer',
-  // One less than the filled buttons on each side: the 1px border makes up the
-  // difference, so both pills come out the same height.
-  padding: '3px 11px',
+  cursor: 'var(--la-tp-cursor, pointer)',
+  // One less than the filled buttons on every side; its 1px border makes up the
+  // difference, so both land on the same 24px box.
+  padding: '3px 10px',
+  lineHeight: 1.2,
   fontFamily: 'inherit',
+  letterSpacing: 'inherit',
 });
 
 // "Discard" is the tertiary, destructive one: Stop's text-only shape, and
 // `marginLeft: auto` pushes it to the far right of the row so it can't be hit
 // on the way to the two buttons that keep the work.
 const discardBtn = (theme: OverlayTheme) => ({
-  ...stopBtn(theme),
+  ...quietBtn(theme),
   borderRadius: PILL_RADIUS,
   marginLeft: 'auto',
 });
 
 // The PR link borrows View chat's quiet-action shape, one line below the row.
 const prLinkStyle = () => ({
-  fontSize: '12px',
+  fontSize: '13px',
   marginTop: '8px',
   display: 'block',
   textDecoration: 'none',
   fontFamily: 'inherit',
+});
+
+/**
+ * Stop's corner. 12px of air under the status line, then the button pulled out
+ * of the card's 12px padding to sit 6px from the right and bottom edges — close
+ * enough to the corner to read as the card's own control rather than another
+ * item in the stack.
+ */
+const stopRow = () => ({
+  display: 'flex',
+  justifyContent: 'flex-end',
+  marginTop: '12px',
+  marginRight: '-6px',
+  marginBottom: '-6px',
+});
+
+/**
+ * The chat composer's Stop button, unchanged: the popover's inverted circle
+ * carrying the same StopIcon. A running task and an in-flight message are the
+ * same act, so they get the same control rather than one being a word.
+ */
+const stopCircle = (theme: OverlayTheme) => ({
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  // 24, matching the buttons on a finished row rather than the composer's 26:
+  // a circle reads larger than a pill of the same height, so the composer's
+  // size looked oversized parked in the corner of a card.
+  width: '24px',
+  height: '24px',
+  flexShrink: 0,
+  background: surfacePalette(theme).submitBg,
+  border: 'none',
+  borderRadius: '999px',
+  color: surfacePalette(theme).submitText,
+  cursor: 'var(--la-tp-cursor, pointer)',
+  padding: 0,
 });

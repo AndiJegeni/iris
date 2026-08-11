@@ -6,8 +6,10 @@ import { Pill } from '@iris/overlay/ui/pill';
 import { SettingsPanel } from '@iris/overlay/ui/settings-panel';
 import { TaskChat } from '@iris/overlay/ui/task-chat';
 import { TaskPanel } from '@iris/overlay/ui/task-panel';
+import { taskPanelCss } from '@iris/overlay/ui/task-panel.styles';
+import { TaskRow, type WorktreeAction } from '@iris/overlay/ui/task-row';
 import { SURFACE_PALETTE } from '@iris/overlay/ui/theme';
-import type { Task, TranscriptEntry } from '@iris/shared';
+import type { AuthStatus, ProviderAuthStatus, Task, TranscriptEntry } from '@iris/shared';
 import { h, render } from 'preact';
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
@@ -173,6 +175,61 @@ function makeTask(partial: Partial<Task>): Task {
   };
 }
 
+/**
+ * A TaskRow on the drawer's own surface, at the drawer's own width.
+ *
+ * The row is the real component with the real class names, so it needs the
+ * drawer's stylesheet to look like itself — `taskPanelCss` is rendered once for
+ * the whole page (see Gallery) rather than copied here, because a copy would
+ * drift and this section's entire job is to be trustworthy about how a row looks.
+ */
+function RowStage({ theme, children }: { theme: ThemeName; children: ReactNode }) {
+  const p = SURFACE_PALETTE[theme];
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        inset: 0,
+        display: 'flex',
+        justifyContent: 'center',
+        padding: 12,
+        overflow: 'auto',
+      }}
+    >
+      <div
+        style={{
+          width: 356, // DRAWER_WIDTH (380) less its 12px gutters
+          alignSelf: 'flex-start',
+          background: p.surface,
+          border: `1px solid ${p.stroke}`,
+          borderRadius: 8,
+          padding: '10px 12px',
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/** Every worktree action wired to a no-op — spread, then override one field. */
+const WT_IDLE: WorktreeAction = {
+  available: true,
+  canCreatePr: true,
+  pending: false,
+  onShip: () => {},
+  onCreatePr: () => {},
+  onDiscard: () => {},
+};
+
+/** AuthStatus with Codex left disconnected, so each frame shows a contrast pair. */
+function authWith(anthropic: Partial<ProviderAuthStatus>): AuthStatus {
+  return {
+    anthropic: { method: 'none', configured: false, source: 'missing', ...anthropic },
+    openai: { method: 'none', configured: false, source: 'missing' },
+  };
+}
+
 type ThemeName = 'dark' | 'light';
 
 // Gallery chrome + frame-canvas tokens, exposed as CSS variables on <main>.
@@ -303,7 +360,7 @@ export default function Gallery() {
       id: 'p1',
       status: 'running',
       prompt: 'Make the CTA button larger',
-      model: 'opus-4.8',
+      model: 'claude-opus-4-8',
       message: 'patching globals.css',
       createdAt: now - 8000,
       updatedAt: now,
@@ -313,7 +370,7 @@ export default function Gallery() {
       status: 'editing',
       prompt: 'Reword the feature copy',
       backend: 'codex',
-      model: 'gpt-5.5',
+      model: 'gpt-5.4',
       message: 'rewriting paragraphs',
       createdAt: now - 24000,
       updatedAt: now - 500,
@@ -321,17 +378,19 @@ export default function Gallery() {
     makeTask({
       id: 'p3',
       status: 'done',
+      worktreeSlug: 'footer-link',
       prompt: 'Add a footer link',
       backend: 'echo',
-      model: 'haiku-4.5',
+      model: 'claude-haiku-4-5',
       createdAt: now - 90000,
       updatedAt: now - 60000,
     }),
     makeTask({
       id: 'p4',
       status: 'failed',
+      worktreeSlug: 'routing',
       prompt: 'Refactor the routing layer',
-      model: 'sonnet-4.6',
+      model: 'claude-sonnet-5',
       message: 'Error: cannot resolve @iris/router',
       createdAt: now - 130000,
       updatedAt: now - 110000,
@@ -426,6 +485,10 @@ export default function Gallery() {
         } as CSSProperties
       }
     >
+      {/* The drawer's own rules, so a TaskRow rendered outside TaskPanel (the
+          row-states section) still hovers like the real thing. Rendered from the
+          exported string rather than copied, so it can't drift. */}
+      <style>{taskPanelCss(theme)}</style>
       <button
         type="button"
         onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
@@ -810,56 +873,357 @@ export default function Gallery() {
         })()}
       </Section>
 
-      <Section title="TaskPanel" columns={1}>
-        {/* Constrain width so the 400px drawer (anchored to the frame's right
+      <Section title="Background tasks · panel" minColWidth={440}>
+        {/* Constrain width so the 380px drawer (anchored to the frame's right
             edge) stays fully in view, instead of docking far off to the side. */}
-        <div style={{ maxWidth: 480 }}>
-          <Frame
-            label="TaskPanel / launcher + drawer"
-            height={540}
-            hint="click the layers circle at the frame's bottom-right to open the drawer"
-          >
-            <PreactMount
-              component={TaskPanel}
-              props={{
-                tasks: panelTasks,
-                logs: panelLogs,
-                transcripts: panelTranscripts,
-                theme,
-                onCancel: () => {},
-                onSendMessage: async () => {},
-                onOpenChat: () => {},
-              }}
-              source="packages/overlay/src/ui/task-panel.tsx"
-            />
-          </Frame>
-        </div>
+        <Frame
+          label="TaskPanel / launcher — idle"
+          height={200}
+          hint="the circle only exists once there's work; no badge with nothing running"
+        >
+          <PreactMount
+            component={TaskPanel}
+            props={{
+              tasks: [makeTask({ id: 'l1', status: 'done' })],
+              logs: {},
+              theme,
+              onCancel: () => {},
+            }}
+            source="packages/overlay/src/ui/task-panel.tsx"
+          />
+        </Frame>
+
+        <Frame
+          label="TaskPanel / launcher — running count"
+          height={200}
+          hint="the badge counts only queued + running + editing"
+        >
+          <PreactMount
+            component={TaskPanel}
+            props={{
+              tasks: [
+                makeTask({ id: 'l2', status: 'running' }),
+                makeTask({ id: 'l3', status: 'editing' }),
+                makeTask({ id: 'l4', status: 'done' }),
+              ],
+              logs: {},
+              theme,
+              onCancel: () => {},
+            }}
+            source="packages/overlay/src/ui/task-panel.tsx"
+          />
+        </Frame>
+
+        <Frame label="TaskPanel / drawer — empty" height={300} hint="first run, nothing queued yet">
+          <PreactMount
+            component={TaskPanel}
+            props={{
+              tasks: [],
+              logs: {},
+              theme,
+              defaultOpen: true,
+              showLauncher: false,
+              onCancel: () => {},
+            }}
+            source="packages/overlay/src/ui/task-panel.tsx"
+          />
+        </Frame>
+
+        <Frame
+          label="TaskPanel / drawer — Running + Finished"
+          height={560}
+          hint="click the layers circle to open; 'View chat' swaps the drawer into the transcript"
+        >
+          <PreactMount
+            component={TaskPanel}
+            props={{
+              tasks: panelTasks,
+              logs: panelLogs,
+              transcripts: panelTranscripts,
+              theme,
+              defaultOpen: true,
+              worktrees: [{ slug: 'footer-link' }, { slug: 'routing' }],
+              onCancel: () => {},
+              onSendMessage: async () => {},
+              onOpenChat: () => {},
+              onRetry: () => {},
+              onShip: async () => {},
+              onCreatePr: async () => ({ url: null, created: false }),
+              onDiscard: async () => {},
+            }}
+            source="packages/overlay/src/ui/task-panel.tsx"
+          />
+        </Frame>
       </Section>
 
-      <Section title="SettingsPanel" columns={1}>
-        {/* Constrain width so the 320px panel (anchored bottom-right of the frame)
-            stays in view. The panel docks above where the pill would sit. */}
-        <div style={{ maxWidth: 480 }}>
+      {/* Every row state, driven directly rather than by clicking through the
+          drawer. Most of these live in TaskPanel's internal per-row state
+          (pending / prUrl / note / error), so they're unreachable from the
+          outside — which is exactly why they were the least-reviewed pixels in
+          the overlay and belong here. */}
+      <Section title="Background tasks · row states" minColWidth={400}>
+        {(
+          [
+            {
+              label: 'queued',
+              height: 120,
+              hint: 'no model yet — nothing has started',
+              task: { id: 'r1', status: 'queued', prompt: 'Tighten the hero headline' },
+              props: {},
+            },
+            {
+              label: 'running · Stop + View chat',
+              height: 150,
+              hint: 'Stop sits far right at 50% ink, lifting on hover',
+              task: {
+                id: 'r2',
+                status: 'running',
+                prompt: 'Make the CTA button larger',
+                model: 'claude-opus-5',
+              },
+              props: { hasTranscript: true, onCancel: () => {} },
+            },
+            {
+              label: 'editing · live message',
+              height: 150,
+              hint: 'the status line becomes whatever the agent is doing',
+              task: {
+                id: 'r3',
+                status: 'editing',
+                prompt: 'Reword the feature copy',
+                model: 'gpt-5.4',
+                message: 'rewriting app/page.tsx',
+              },
+              props: { hasTranscript: true, onCancel: () => {} },
+            },
+            {
+              label: 'done · ran in your checkout',
+              height: 120,
+              hint: 'worktreeSlug "main" — no worktree, so nothing to land',
+              task: {
+                id: 'r4',
+                status: 'done',
+                prompt: 'Add a footer link',
+                model: 'claude-haiku-4-5',
+              },
+              props: { hasTranscript: true },
+            },
+            {
+              label: 'done · worktree',
+              height: 175,
+              hint: 'click Merge locally or Discard to see the "Sure?" confirm step',
+              task: {
+                id: 'r5',
+                status: 'done',
+                prompt: 'Add a footer link',
+                model: 'claude-opus-5',
+                worktreeSlug: 'footer-link',
+              },
+              props: { hasTranscript: true, worktree: WT_IDLE },
+            },
+            {
+              label: 'done · no git remote',
+              height: 175,
+              hint: 'Create PR disabled — nowhere to push. Merge locally still works',
+              task: {
+                id: 'r6',
+                status: 'done',
+                prompt: 'Add a footer link',
+                model: 'claude-opus-5',
+                worktreeSlug: 'footer-link',
+              },
+              props: { hasTranscript: true, worktree: { ...WT_IDLE, canCreatePr: false } },
+            },
+            {
+              label: 'done · request in flight',
+              height: 175,
+              hint: 'all three disabled while the push runs',
+              task: {
+                id: 'r7',
+                status: 'done',
+                prompt: 'Add a footer link',
+                model: 'claude-opus-5',
+                worktreeSlug: 'footer-link',
+              },
+              props: { hasTranscript: true, worktree: { ...WT_IDLE, pending: true } },
+            },
+            {
+              label: 'done · PR opened',
+              height: 205,
+              hint: 'a link the user clicks — never an auto-opened window',
+              task: {
+                id: 'r8',
+                status: 'done',
+                prompt: 'Add a footer link',
+                model: 'claude-opus-5',
+                worktreeSlug: 'footer-link',
+              },
+              props: {
+                hasTranscript: true,
+                worktree: {
+                  ...WT_IDLE,
+                  prUrl: 'https://github.com/AndiJegeni/iris/pull/42',
+                  prLabel: 'View PR',
+                },
+              },
+            },
+            {
+              label: 'done · pushed, no gh',
+              height: 230,
+              hint: '"Open PR" not "View PR" — a compare page is a form, not a PR',
+              task: {
+                id: 'r9',
+                status: 'done',
+                prompt: 'Add a footer link',
+                model: 'claude-opus-5',
+                worktreeSlug: 'footer-link',
+              },
+              props: {
+                hasTranscript: true,
+                worktree: {
+                  ...WT_IDLE,
+                  prUrl: 'https://github.com/AndiJegeni/iris/compare/la/footer-link',
+                  prLabel: 'Open PR',
+                  note: 'Pushed the branch. Install the GitHub CLI to open PRs from here.',
+                },
+              },
+            },
+            {
+              label: 'done · action failed',
+              height: 210,
+              hint: 'the one place the drawer uses a hue, because failure must read as failure',
+              task: {
+                id: 'r10',
+                status: 'done',
+                prompt: 'Add a footer link',
+                model: 'claude-opus-5',
+                worktreeSlug: 'footer-link',
+              },
+              props: {
+                hasTranscript: true,
+                worktree: {
+                  ...WT_IDLE,
+                  error: 'merge into main failed (resolve conflicts manually)',
+                },
+              },
+            },
+            {
+              label: 'failed · Retry',
+              height: 180,
+              hint: 'the only row with a status dot; no Merge — a failed run has nothing to land',
+              task: {
+                id: 'r11',
+                status: 'failed',
+                prompt: 'Refactor the routing layer',
+                model: 'claude-sonnet-5',
+                message: 'Error: cannot resolve @iris/router',
+                worktreeSlug: 'routing',
+              },
+              props: { hasTranscript: true, onRetry: () => {}, worktree: WT_IDLE },
+            },
+            {
+              label: 'cancelled',
+              height: 150,
+              hint: 'Discard only — you stopped it, so there is nothing to merge',
+              task: {
+                id: 'r12',
+                status: 'cancelled',
+                prompt: 'Rewrite the pricing table',
+                model: 'claude-opus-5',
+                worktreeSlug: 'pricing',
+              },
+              props: { hasTranscript: true, worktree: WT_IDLE },
+            },
+          ] as const
+        ).map((s) => (
+          <Frame key={s.label} label={`TaskRow / ${s.label}`} height={s.height} hint={s.hint}>
+            <RowStage theme={theme}>
+              <PreactMount
+                component={TaskRow}
+                props={{
+                  task: makeTask(s.task as Partial<Task>),
+                  theme,
+                  hasTranscript: false,
+                  onOpenChat: () => {},
+                  ...s.props,
+                }}
+                source="packages/overlay/src/ui/task-row.tsx"
+              />
+            </RowStage>
+          </Frame>
+        ))}
+      </Section>
+
+      <Section title="Toolbar · settings panel" minColWidth={440}>
+        <Frame
+          label="SettingsPanel / settings"
+          height={340}
+          hint="theme toggle drives this whole page; 'Accounts ›' opens the sub-view"
+        >
+          <PreactMount
+            component={SettingsPanel}
+            props={{
+              theme,
+              blockInteractions: true,
+              auth: authWith({}),
+              onClose: () => {},
+              onToggleTheme: () => setTheme((tn) => (tn === 'dark' ? 'light' : 'dark')),
+              onToggleBlockInteractions: () => {},
+            }}
+            source="packages/overlay/src/ui/settings-panel.tsx"
+          />
+        </Frame>
+
+        {(
+          [
+            {
+              label: 'not connected',
+              hint: 'the first-run state: log in, or paste a key',
+              anthropic: {},
+            },
+            {
+              label: 'subscription connected',
+              hint: 'the only button is Log out',
+              anthropic: { method: 'oauth', configured: true, source: 'oauth' },
+            },
+            {
+              label: 'API key set',
+              hint: 'the field offers to replace rather than add',
+              anthropic: { method: 'api-key', configured: true, source: 'env' },
+            },
+            {
+              label: 'session expired',
+              hint: 'a real run was rejected — the stored session still looks valid',
+              anthropic: { method: 'oauth', configured: true, source: 'oauth', expired: true },
+            },
+            {
+              label: 'API key rejected',
+              hint: 'same signal, different wording for a key',
+              anthropic: { method: 'api-key', configured: true, source: 'env', expired: true },
+            },
+          ] as const
+        ).map((s) => (
           <Frame
-            label="SettingsPanel / settings + API keys views"
-            height={480}
-            hint="toggle theme/checkbox; 'Manage API keys' › opens the keys sub-view"
+            key={s.label}
+            label={`SettingsPanel / accounts — ${s.label}`}
+            height={430}
+            hint={s.hint}
           >
             <PreactMount
               component={SettingsPanel}
               props={{
                 theme,
-                blockInteractions: true,
-                apiKeys: { anthropic: '', openai: '' },
+                defaultView: 'accounts',
+                auth: authWith(s.anthropic as Partial<ProviderAuthStatus>),
                 onClose: () => {},
-                onToggleTheme: () => setTheme((tn) => (tn === 'dark' ? 'light' : 'dark')),
-                onToggleBlockInteractions: () => {},
-                onSaveKey: () => {},
+                onLogin: async () => {},
+                onLogout: async () => {},
+                onSaveKey: async () => {},
               }}
               source="packages/overlay/src/ui/settings-panel.tsx"
             />
           </Frame>
-        </div>
+        ))}
       </Section>
 
       <Section title="TaskChat" columns={1}>

@@ -20,6 +20,7 @@ import {
   panelHeader,
   panelStyle,
   sectionHeader,
+  taskPanelCss,
 } from './task-panel.styles';
 import { TaskRow, type WorktreeAction, isRunning } from './task-row';
 import { type OverlayTheme, SURFACE_PAD, surfacePalette } from './theme';
@@ -244,16 +245,7 @@ export function TaskPanel({
           animation pops the circle in on the pill's own expo curve, so a task
           arriving reads as one gesture rather than a button blinking into
           existence. */}
-      <style>
-        {[
-          '.la-tp-dim{opacity:0.5;transition:opacity 80ms}.la-tp-dim:hover{opacity:1}',
-          `.la-tp-soft{color:${p.soft};transition:color 80ms}.la-tp-soft:hover{color:${p.ink}}`,
-          `.la-tp-launcher{color:${pill.icon};background:${pill.surface};transition:background 90ms,box-shadow 90ms}`,
-          `.la-tp-launcher:hover{background:${pill.hover};box-shadow:0 0 0 2px ${pill.hover}}`,
-          '.la-tp-launcher-in{animation:la-tasks-in 360ms cubic-bezier(0.19,1,0.22,1) both}',
-          '@keyframes la-tasks-in{from{opacity:0;transform:scale(0.4)}to{opacity:1;transform:scale(1)}}',
-        ].join('')}
-      </style>
+      <style>{taskPanelCss(theme)}</style>
       {showLauncher && tasks.length > 0 ? (
         <button
           type="button"

@@ -9,6 +9,8 @@
     "./ui/element-outline": "./src/ui/element-outline.tsx",
     "./ui/picked-popover": "./src/ui/picked-popover.tsx",
     "./ui/task-panel": "./src/ui/task-panel.tsx",
+    "./ui/task-panel.styles": "./src/ui/task-panel.styles.ts",
+    "./ui/task-row": "./src/ui/task-row.tsx",
     "./ui/task-chat": "./src/ui/task-chat.tsx",
     "./ui/settings-panel": "./src/ui/settings-panel.tsx",
     "./ui/theme": "./src/ui/theme.ts"
