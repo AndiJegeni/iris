@@ -326,23 +326,19 @@ export function TaskRow({
 const CARD_MIN_HEIGHT = 102;
 
 /**
- * The card's gutter. Everything with a left edge lines up on it — title, status
- * line, prose, and the button row alike.
+ * The card's padding, on all four sides, and the distance Stop keeps from the
+ * corner. One number: everything with an edge lines up on it, so the row has a
+ * single margin rather than a different one per side.
  *
- * The popover breaks its footer out to half this, so its controls sit closer to
- * the card edge than its text. Tried here and reverted: the popover's footer is
- * one cluster spanning the full width, where the ragged left edge reads as the
- * cluster owning the card. A task row's buttons are a short group under a
- * heading, and pulling them out just made the card look like it had two
- * different left margins.
+ * Two things were tried and reverted on the way here. The popover breaks its
+ * footer out to half its gutter, which works there because that footer is one
+ * cluster spanning the full card — the ragged left edge reads as the cluster
+ * owning the card. A task row's buttons are a short group under a heading, and
+ * pulling them out just gave the card two left margins. Running a tighter
+ * bottom than gutter (the popover's 10/6) had the same trouble from the other
+ * side: it left the controls sitting low in the card rather than inside it.
  */
-const CARD_PAD_X = 10;
-/**
- * Bottom padding, and how far Stop sits off the card's corner. Less than the
- * gutter because a control already carries padding around its own label, so it
- * needs less room beneath it than a line of text does.
- */
-const CONTROL_INSET = 6;
+const CARD_PAD = 8;
 
 const cardStyle = (theme: OverlayTheme) => ({
   background: surfacePalette(theme).fill,
@@ -358,7 +354,7 @@ const cardStyle = (theme: OverlayTheme) => ({
   // in the space around the labels, while a line of text starts at its cap
   // height and needs the room. Same 6px here; the top stays at 12 to match the
   // sides, so the title is as far from the top as it is from the edge.
-  padding: `${CARD_PAD_X}px ${CARD_PAD_X}px ${CONTROL_INSET}px`,
+  padding: `${CARD_PAD}px`,
   marginBottom: '10px',
   position: 'relative' as const,
 });
@@ -540,7 +536,6 @@ const stopRow = () => ({
   // padding is the 12px minimum for a row tall enough not to have any slack.
   marginTop: 'auto',
   paddingTop: '12px',
-  marginRight: `-${CARD_PAD_X - CONTROL_INSET}px`,
 });
 
 /**
