@@ -166,13 +166,25 @@ export function TaskRow({
               </button>
             ) : null}
           </div>
+          {/* What the last worktree action had to say, above the buttons rather
+              than after them.
+
+              These used to hang off the bottom of the card, so a row that was a
+              tidy two-line header plus a row of controls turned into a ragged
+              stack of four text blocks, and the thing you had to read came last.
+              Read top to bottom the row is now one sentence: here is the task,
+              here is what happened to it, here is what you can still do. It also
+              puts a failure directly above the controls that produced it, where
+              the next click is going to be. */}
+          {wt?.note ? <div style={outcomeText(p.soft)}>{wt.note}</div> : null}
+          {wt?.error ? <div style={outcomeText(p.error)}>{wt.error}</div> : null}
           {/* Failed rows show Retry — a clear way to re-run. Finished rows show
               the ways to land the worktree's work, which until now existed only
-              in the shell page at :4747. The ones that keep the work sit
-              together on the left in descending weight; Discard is pushed to
-              the far right (see discardBtn), away from them.
+              in the shell page at :4747. Controls run left to right in
+              descending weight, and Discard — the one that throws work away —
+              is set apart from them by a wider gap (see discardBtn).
 
-              The 16px above the row is the container's, not each button's, so
+              The 12px above the row is the container's, not each button's, so
               the gap is one number rather than four — and a row with nothing in
               it (a task still running) adds no space at all. */}
           {hasActions ? (
@@ -194,22 +206,45 @@ export function TaskRow({
                   Retry
                 </button>
               ) : null}
+              {/* Once the PR exists it takes the slot Create PR was in, as the
+                  same pill with a new label — the row doesn't re-flow, it just
+                  changes what it says. Creating a second PR for a branch that
+                  already has one isn't the next thing anyone wants, and leaving
+                  the button there at full weight claimed it was.
+
+                  Still a link the user clicks, not an auto-opened window: the
+                  popup would fire after an await, outside the click gesture,
+                  and get blocked. It also lets them come back to it later. */}
+              {wt?.prUrl ? (
+                <a
+                  className="la-tp-soft"
+                  style={prLinkPill(theme)}
+                  href={wt.prUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={wt.prUrl}
+                >
+                  {wt.prLabel ?? 'View PR'} ↗
+                </a>
+              ) : null}
               {canLand && wt ? (
                 <>
-                  <button
-                    type="button"
-                    className="la-tp-soft la-tp-act"
-                    style={prBtn(theme)}
-                    disabled={wt.pending || !wt.canCreatePr}
-                    onClick={wt.onCreatePr}
-                    title={
-                      wt.canCreatePr
-                        ? 'Push this branch and open a pull request'
-                        : 'Unavailable — this repository has no git remote'
-                    }
-                  >
-                    {wt.pending ? 'Working…' : 'Create PR'}
-                  </button>
+                  {wt.prUrl ? null : (
+                    <button
+                      type="button"
+                      className="la-tp-soft la-tp-act"
+                      style={prBtn(theme)}
+                      disabled={wt.pending || !wt.canCreatePr}
+                      onClick={wt.onCreatePr}
+                      title={
+                        wt.canCreatePr
+                          ? 'Push this branch and open a pull request'
+                          : 'Unavailable — this repository has no git remote'
+                      }
+                    >
+                      {wt.pending ? 'Working…' : 'Create PR'}
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="la-tp-soft la-tp-act"
@@ -234,7 +269,7 @@ export function TaskRow({
                 <button
                   type="button"
                   className="la-tp-soft la-tp-act"
-                  style={discardBtn(theme)}
+                  style={discardBtn(theme, (failed && onRetry != null) || canLand)}
                   disabled={wt.pending}
                   onClick={() => {
                     if (confirming === 'discard') {
@@ -251,26 +286,6 @@ export function TaskRow({
                 </button>
               ) : null}
             </div>
-          ) : null}
-          {/* A link, not an auto-opened window: the popup would fire after an
-              await, outside the click gesture, and get blocked. It also lets
-              the user come back to the PR later. */}
-          {wt?.prUrl ? (
-            <a
-              className="la-tp-soft"
-              style={prLinkStyle()}
-              href={wt.prUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {wt.prLabel ?? 'View PR'} ↗
-            </a>
-          ) : null}
-          {wt?.note ? (
-            <div style={{ color: p.soft, fontSize: '13px', marginTop: '6px' }}>{wt.note}</div>
-          ) : null}
-          {wt?.error ? (
-            <div style={{ color: p.error, fontSize: '13px', marginTop: '6px' }}>{wt.error}</div>
           ) : null}
         </div>
       </div>
@@ -419,22 +434,54 @@ const mergeBtn = (theme: OverlayTheme) => ({
   borderRadius: PILL_RADIUS,
 });
 
-// "Discard" is the tertiary, destructive one: Stop's text-only shape, and
-// `marginLeft: auto` pushes it to the far right of the row so it can't be hit
-// on the way to the two buttons that keep the work.
-const discardBtn = (theme: OverlayTheme) => ({
-  ...quietBtn(theme),
-  borderRadius: PILL_RADIUS,
-  marginLeft: 'auto',
+// The PR, once there is one, wearing Create PR's pill — same box, same fill,
+// same 24px line, so the row it sits in doesn't change shape when the action
+// succeeds. An anchor rather than a button: see the comment at the call site.
+//
+// Colour comes from `.la-tp-soft` at the call site, exactly as it does for the
+// button this replaces: soft at rest, full ink under the cursor, so the slot
+// behaves the same whichever element is occupying it. It has to come from
+// somewhere explicitly — without it the UA paints an anchor link-blue, which
+// would be the only hue in the drawer.
+const prLinkPill = (theme: OverlayTheme) => ({
+  ...prBtn(theme),
+  display: 'inline-flex',
+  alignItems: 'center',
+  textDecoration: 'none',
+  whiteSpace: 'nowrap' as const,
 });
 
-// The PR link borrows View chat's quiet-action shape, one line below the row.
-const prLinkStyle = () => ({
+// "Discard" is the tertiary, destructive one: Stop's text-only shape, held
+// apart from the controls that keep the work.
+//
+// The separation used to be `marginLeft: auto`, which pinned it to the far
+// right of the card. Next to two buttons that read as deliberate; next to one
+// (a failed row is Retry and Discard, nothing else) it left a 150px hole in the
+// middle of the row, and the two controls stopped reading as one set of
+// choices. Adding one more row-gap in front of it says the same thing — this
+// one is not part of that group — at any number of buttons, and never opens a
+// void. 8 + 8: double the space between the controls that keep the work.
+//
+// `apart` is false on a cancelled row, where Discard is the only control there
+// is — a gap that exists to separate it from something has nothing to do when
+// it stands alone, and would just indent it off the card's text.
+const DISCARD_GAP = '8px';
+
+const discardBtn = (theme: OverlayTheme, apart: boolean) => ({
+  ...quietBtn(theme),
+  borderRadius: PILL_RADIUS,
+  marginLeft: apart ? DISCARD_GAP : 0,
+});
+
+// A note or an error from the last worktree action, sitting between the status
+// line and the buttons. Soft ink for a note, the palette's one hue for an
+// error — the same 13px/1.5 as everything else in the row, because it is prose
+// about the task and not a control.
+const outcomeText = (color: string) => ({
+  color,
   fontSize: '13px',
-  marginTop: '8px',
-  display: 'block',
-  textDecoration: 'none',
-  fontFamily: 'inherit',
+  lineHeight: 1.5,
+  marginTop: '6px',
 });
 
 /**

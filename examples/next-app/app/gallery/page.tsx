@@ -1049,8 +1049,8 @@ export default function Gallery() {
             },
             {
               label: 'done · PR opened',
-              height: 205,
-              hint: 'a link the user clicks — never an auto-opened window',
+              height: 175,
+              hint: 'the PR takes Create PR’s slot — a link the user clicks, never a popup',
               task: {
                 id: 'r8',
                 status: 'done',
@@ -1069,7 +1069,7 @@ export default function Gallery() {
             },
             {
               label: 'done · pushed, no gh',
-              height: 230,
+              height: 220,
               hint: '"Open PR" not "View PR" — a compare page is a form, not a PR',
               task: {
                 id: 'r9',
@@ -1084,13 +1084,17 @@ export default function Gallery() {
                   ...WT_IDLE,
                   prUrl: 'https://github.com/AndiJegeni/iris/compare/la/footer-link',
                   prLabel: 'Open PR',
-                  note: 'Pushed the branch. Install the GitHub CLI to open PRs from here.',
+                  // "from Iris", not "from here" — the row now carries an Open PR
+                  // pill, and telling someone they can't open a PR right next to
+                  // a control that opens one is two messages fighting. It also
+                  // matches what the orchestrator actually sends (pull-request.ts).
+                  note: 'Pushed the branch. Install the GitHub CLI to open PRs from Iris.',
                 },
               },
             },
             {
               label: 'done · action failed',
-              height: 210,
+              height: 200,
               hint: 'the one place the drawer uses a hue, because failure must read as failure',
               task: {
                 id: 'r10',
@@ -1109,7 +1113,7 @@ export default function Gallery() {
             },
             {
               label: 'failed · Retry',
-              height: 180,
+              height: 175,
               hint: 'the only row with a status dot; no Merge — a failed run has nothing to land',
               task: {
                 id: 'r11',
