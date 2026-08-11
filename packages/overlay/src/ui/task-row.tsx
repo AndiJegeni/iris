@@ -278,6 +278,7 @@ export function TaskRow({
         <div style={stopRow()}>
           <button
             type="button"
+            className="la-tp-stop"
             style={stopCircle(theme)}
             onClick={onCancel}
             aria-label="Stop"
@@ -465,7 +466,7 @@ const stopCircle = (theme: OverlayTheme) => ({
   width: '24px',
   height: '24px',
   flexShrink: 0,
-  background: surfacePalette(theme).submitBg,
+  // No inline `background` — `.la-tp-stop` owns it so the hover can win.
   border: 'none',
   borderRadius: '999px',
   color: surfacePalette(theme).submitText,
