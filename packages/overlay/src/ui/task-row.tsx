@@ -307,9 +307,28 @@ export function TaskRow({
   );
 }
 
+/**
+ * Every row without an outcome line settles at one height, so a list of tasks
+ * reads as a column of equal things rather than a ragged stack — a queued row
+ * carrying only two lines used to be 66px next to a finished row's 110.
+ *
+ * A floor, not a fixed height: the two states that say something extra — a note
+ * about the missing gh CLI, or an error from the last action — grow past it
+ * instead of scrolling or clipping. That is why this needs no exception for
+ * them. 110 is the tallest a row gets from controls alone (title, status, and a
+ * button row), so nothing has to shrink to meet it.
+ */
+const CARD_MIN_HEIGHT = 110;
+
 const cardStyle = (theme: OverlayTheme) => ({
   background: surfacePalette(theme).fill,
   borderRadius: '6px',
+  minHeight: `${CARD_MIN_HEIGHT}px`,
+  // The measurement above is the whole card, padding included.
+  boxSizing: 'border-box' as const,
+  // A column, so Stop's row can take the slack and stay in the corner.
+  display: 'flex',
+  flexDirection: 'column' as const,
   // One number on every side: the title used to sit further from the top than
   // from the left, which read as the text drifting down the card. The gap
   // between cards is larger than the padding inside them, so rows still group
@@ -493,7 +512,11 @@ const outcomeText = (color: string) => ({
 const stopRow = () => ({
   display: 'flex',
   justifyContent: 'flex-end',
-  marginTop: '12px',
+  // `auto` takes whatever slack the card's min-height leaves, keeping Stop in
+  // the bottom-right corner instead of stranding it under the status line; the
+  // padding is the 12px minimum for a row tall enough not to have any slack.
+  marginTop: 'auto',
+  paddingTop: '12px',
   marginRight: '-6px',
   marginBottom: '-6px',
 });
