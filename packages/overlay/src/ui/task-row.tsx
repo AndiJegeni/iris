@@ -206,7 +206,7 @@ export function TaskRow({
             >
               {failed && onRetry ? (
                 <button type="button" style={retryBtn(theme)} onClick={onRetry}>
-                  <RetryIcon size={14} />
+                  <RetryIcon size={12} />
                   Retry
                 </button>
               ) : null}
@@ -272,9 +272,7 @@ export function TaskRow({
               {wt ? (
                 <button
                   type="button"
-                  className={
-                    confirming === 'discard' ? 'la-tp-soft la-tp-act' : 'la-tp-circle la-tp-act'
-                  }
+                  className="la-tp-soft la-tp-act"
                   style={discardBtn(theme, confirming === 'discard')}
                   aria-label="Discard"
                   disabled={wt.pending}
@@ -431,9 +429,9 @@ const PILL_RADIUS = '999px';
 // Failed-row "Retry" — the primary recovery action, so it borrows the popover's
 // primary control: the send button's inverted fill, not a blue accent.
 const retryBtn = (theme: OverlayTheme) => ({
-  // Icon then label, on one baseline. The glyph is 14 against the label's 16px
+  // Icon then label, on one baseline. The glyph is 12 against the label's 16px
   // line box: a stroked circle reads larger than letterforms of the same
-  // height, so matching them exactly would make the icon the loud half.
+  // height, so matching them would make the icon the loud half of the button.
   display: 'inline-flex',
   alignItems: 'center',
   gap: '5px',
@@ -536,14 +534,29 @@ const prLinkPill = (theme: OverlayTheme) => ({
 // than a gap: the one control that throws work away sits apart from the ones
 // that keep it, so it can't be hit on the way to them.
 //
-// Idle it is Stop's circle carrying a trash glyph — the two destructive-ish
-// corner actions in the drawer now look like each other. While it asks "Sure?"
-// it becomes a text button: the confirm has to be unmistakable, and a word
-// reads faster than a recoloured icon. The width change is part of that.
-const discardBtn = (theme: OverlayTheme, confirming: boolean) =>
-  confirming
-    ? { ...quietBtn(theme), borderRadius: PILL_RADIUS, marginLeft: 'auto' }
-    : { ...circleBtn(theme), marginLeft: 'auto' };
+// A bare trash glyph, taking the same soft ink as every other quiet action here
+// and lifting to full under the cursor. No fill: Stop's circle earns one by
+// sitting alone in a corner with nothing to be quiet against, but this sits in
+// a row of controls where it is the *least* prominent of the three, and a
+// filled circle made the destructive one the loudest thing in the row.
+//
+// It stays a word while it asks "Sure?" — the confirm has to be unmistakable,
+// and a word reads faster than a recoloured icon.
+const discardBtn = (theme: OverlayTheme, confirming: boolean) => ({
+  ...quietBtn(theme),
+  borderRadius: PILL_RADIUS,
+  marginLeft: 'auto',
+  ...(confirming
+    ? null
+    : {
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '24px',
+        height: '24px',
+        padding: 0,
+      }),
+});
 
 // A note or an error from the last worktree action, sitting between the status
 // line and the buttons. Soft ink for a note, the palette's one hue for an
