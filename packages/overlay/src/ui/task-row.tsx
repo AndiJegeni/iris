@@ -269,7 +269,7 @@ export function TaskRow({
                 <button
                   type="button"
                   className="la-tp-soft la-tp-act"
-                  style={discardBtn(theme, (failed && onRetry != null) || canLand)}
+                  style={discardBtn(theme)}
                   disabled={wt.pending}
                   onClick={() => {
                     if (confirming === 'discard') {
@@ -299,7 +299,10 @@ export function TaskRow({
             aria-label="Stop"
             title="Stop this task"
           >
-            <StopIcon />
+            {/* 16 in a 24px circle — the same 4px of padding the buttons put
+                around their 16px line box, so the glyph is inset like a label
+                rather than floating in the middle of a bigger circle. */}
+            <StopIcon size={16} />
           </button>
         </div>
       ) : null}
@@ -315,10 +318,12 @@ export function TaskRow({
  * A floor, not a fixed height: the two states that say something extra — a note
  * about the missing gh CLI, or an error from the last action — grow past it
  * instead of scrolling or clipping. That is why this needs no exception for
- * them. 110 is the tallest a row gets from controls alone (title, status, and a
- * button row), so nothing has to shrink to meet it.
+ * them. 104 is the tallest a row gets from controls alone (title, status, and a
+ * button row), so nothing has to shrink to meet it — and because the floor is
+ * exactly that height, the buttons on such a row still sit on the card's bottom
+ * padding rather than floating above a strip of slack.
  */
-const CARD_MIN_HEIGHT = 110;
+const CARD_MIN_HEIGHT = 104;
 
 const cardStyle = (theme: OverlayTheme) => ({
   background: surfacePalette(theme).fill,
@@ -329,11 +334,12 @@ const cardStyle = (theme: OverlayTheme) => ({
   // A column, so Stop's row can take the slack and stay in the corner.
   display: 'flex',
   flexDirection: 'column' as const,
-  // One number on every side: the title used to sit further from the top than
-  // from the left, which read as the text drifting down the card. The gap
-  // between cards is larger than the padding inside them, so rows still group
-  // as separate pieces of work.
-  padding: '12px',
+  // The popover's asymmetry — it runs 10px above its text and 6px below its
+  // controls, because a row of buttons already carries its own visual padding
+  // in the space around the labels, while a line of text starts at its cap
+  // height and needs the room. Same 6px here; the top stays at 12 to match the
+  // sides, so the title is as far from the top as it is from the edge.
+  padding: '12px 12px 6px',
   marginBottom: '10px',
   position: 'relative' as const,
 });
@@ -481,15 +487,13 @@ const prLinkPill = (theme: OverlayTheme) => ({
 // one is not part of that group — at any number of buttons, and never opens a
 // void. 8 + 8: double the space between the controls that keep the work.
 //
-// `apart` is false on a cancelled row, where Discard is the only control there
-// is — a gap that exists to separate it from something has nothing to do when
-// it stands alone, and would just indent it off the card's text.
-const DISCARD_GAP = '8px';
-
-const discardBtn = (theme: OverlayTheme, apart: boolean) => ({
+// Pinned to the right edge by `marginLeft: auto`, which is a *position* rather
+// than a gap: the one control that throws work away sits apart from the ones
+// that keep it, so it can't be hit on the way to them.
+const discardBtn = (theme: OverlayTheme) => ({
   ...quietBtn(theme),
   borderRadius: PILL_RADIUS,
-  marginLeft: apart ? DISCARD_GAP : 0,
+  marginLeft: 'auto',
 });
 
 // A note or an error from the last worktree action, sitting between the status
@@ -518,7 +522,6 @@ const stopRow = () => ({
   marginTop: 'auto',
   paddingTop: '12px',
   marginRight: '-6px',
-  marginBottom: '-6px',
 });
 
 /**
