@@ -1,7 +1,7 @@
 /** @jsxImportSource preact */
 import { type Task, modelLabel } from '@iris/shared';
 import { useState } from 'preact/hooks';
-import { RetryIcon, StopIcon, TrashIcon } from './icons';
+import { RetryIcon, StopIcon } from './icons';
 import { type OverlayTheme, surfacePalette } from './theme';
 
 export function isRunning(t: Task): boolean {
@@ -273,8 +273,7 @@ export function TaskRow({
                 <button
                   type="button"
                   className="la-tp-soft la-tp-act"
-                  style={discardBtn(theme, confirming === 'discard')}
-                  aria-label="Discard"
+                  style={discardBtn(theme)}
                   disabled={wt.pending}
                   onClick={() => {
                     if (confirming === 'discard') {
@@ -287,7 +286,7 @@ export function TaskRow({
                   onBlur={() => setConfirming((c) => (c === 'discard' ? null : c))}
                   title="Delete this worktree without merging it"
                 >
-                  {confirming === 'discard' ? 'Sure?' : <TrashIcon size={16} />}
+                  {confirming === 'discard' ? 'Sure?' : 'Discard'}
                 </button>
               ) : null}
             </div>
@@ -534,28 +533,18 @@ const prLinkPill = (theme: OverlayTheme) => ({
 // than a gap: the one control that throws work away sits apart from the ones
 // that keep it, so it can't be hit on the way to them.
 //
-// A bare trash glyph, taking the same soft ink as every other quiet action here
-// and lifting to full under the cursor. No fill: Stop's circle earns one by
-// sitting alone in a corner with nothing to be quiet against, but this sits in
-// a row of controls where it is the *least* prominent of the three, and a
-// filled circle made the destructive one the loudest thing in the row.
+// A word, not a glyph — tried both a filled circle and a bare trash icon, and
+// neither survived: this is the least prominent of three controls, and an icon
+// among two labels reads as a different kind of thing rather than a quieter
+// one. The same soft ink as its neighbours, lifting to full under the cursor.
 //
-// It stays a word while it asks "Sure?" — the confirm has to be unmistakable,
-// and a word reads faster than a recoloured icon.
-const discardBtn = (theme: OverlayTheme, confirming: boolean) => ({
+// `marginLeft: auto` is a *position* rather than a gap: the one control that
+// throws work away sits apart from the ones that keep it, so it can't be hit on
+// the way to them.
+const discardBtn = (theme: OverlayTheme) => ({
   ...quietBtn(theme),
   borderRadius: PILL_RADIUS,
   marginLeft: 'auto',
-  ...(confirming
-    ? null
-    : {
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: '24px',
-        height: '24px',
-        padding: 0,
-      }),
 });
 
 // A note or an error from the last worktree action, sitting between the status
