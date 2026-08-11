@@ -1,6 +1,7 @@
 /** @jsxImportSource preact */
 import { type Task, modelLabel } from '@iris/shared';
 import { useState } from 'preact/hooks';
+import { StopIcon } from './icons';
 import { type OverlayTheme, surfacePalette } from './theme';
 
 export function isRunning(t: Task): boolean {
@@ -127,15 +128,24 @@ export function TaskRow({
           />
         ) : null}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 500, fontSize: '12px', color: p.ink }}>{task.prompt}</div>
+          <div style={{ fontWeight: 500, fontSize: '13px', lineHeight: 1.5, color: p.ink }}>
+            {task.prompt}
+          </div>
           {/* "View chat" rides the status line, just past the elapsed time. It
               reads the task rather than acting on it, so it stays off the row
               of buttons below — down there it looked like a fourth control. */}
           <div
             style={{
-              color: p.soft,
-              fontSize: '12px',
-              marginTop: '2px',
+              // One tone for the whole status line. The model, what it's doing
+              // and the elapsed time are a single sentence, so splitting them
+              // across two greys made the timer read as a separate item; they
+              // now share the quieter of the two. "View chat" is the only part
+              // of the line that isn't status — it keeps the brighter ink from
+              // `.la-tp-soft`, which is what makes it findable.
+              color: p.faint,
+              fontSize: '13px',
+              lineHeight: 1.5,
+              marginTop: '3px',
               display: 'flex',
               alignItems: 'baseline',
               gap: '8px',
@@ -143,7 +153,7 @@ export function TaskRow({
             }}
           >
             <span>
-              {statusLine(task)} <span style={{ color: p.faint }}>· {elapsed(task)}</span>
+              {statusLine(task)} · {elapsed(task)}
             </span>
             {hasTranscript ? (
               <button
@@ -156,13 +166,25 @@ export function TaskRow({
               </button>
             ) : null}
           </div>
+          {/* What the last worktree action had to say, above the buttons rather
+              than after them.
+
+              These used to hang off the bottom of the card, so a row that was a
+              tidy two-line header plus a row of controls turned into a ragged
+              stack of four text blocks, and the thing you had to read came last.
+              Read top to bottom the row is now one sentence: here is the task,
+              here is what happened to it, here is what you can still do. It also
+              puts a failure directly above the controls that produced it, where
+              the next click is going to be. */}
+          {wt?.note ? <div style={outcomeText(p.soft)}>{wt.note}</div> : null}
+          {wt?.error ? <div style={outcomeText(p.error)}>{wt.error}</div> : null}
           {/* Failed rows show Retry — a clear way to re-run. Finished rows show
               the ways to land the worktree's work, which until now existed only
-              in the shell page at :4747. The ones that keep the work sit
-              together on the left in descending weight; Discard is pushed to
-              the far right (see discardBtn), away from them.
+              in the shell page at :4747. Controls run left to right in
+              descending weight, and Discard — the one that throws work away —
+              is set apart from them by a wider gap (see discardBtn).
 
-              The 16px above the row is the container's, not each button's, so
+              The 12px above the row is the container's, not each button's, so
               the gap is one number rather than four — and a row with nothing in
               it (a task still running) adds no space at all. */}
           {hasActions ? (
@@ -170,9 +192,13 @@ export function TaskRow({
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '10px',
+                gap: '8px',
                 flexWrap: 'wrap',
-                marginTop: '16px',
+                // Eight more than the popover's footer gap. The popover's controls
+                // sit under a text field with its own inner padding; here they
+                // sit straight under a line of prose, so the same 12 read as the
+                // buttons being part of the status line rather than a step after it.
+                marginTop: '20px',
               }}
             >
               {failed && onRetry ? (
@@ -180,23 +206,48 @@ export function TaskRow({
                   Retry
                 </button>
               ) : null}
+              {/* Once the PR exists it takes the slot Create PR was in, as the
+                  same pill with a new label — the row doesn't re-flow, it just
+                  changes what it says. Creating a second PR for a branch that
+                  already has one isn't the next thing anyone wants, and leaving
+                  the button there at full weight claimed it was.
+
+                  Still a link the user clicks, not an auto-opened window: the
+                  popup would fire after an await, outside the click gesture,
+                  and get blocked. It also lets them come back to it later. */}
+              {wt?.prUrl ? (
+                <a
+                  className="la-tp-soft"
+                  style={prLinkPill(theme)}
+                  href={wt.prUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={wt.prUrl}
+                >
+                  {wt.prLabel ?? 'View PR'} ↗
+                </a>
+              ) : null}
               {canLand && wt ? (
                 <>
+                  {wt.prUrl ? null : (
+                    <button
+                      type="button"
+                      className="la-tp-soft la-tp-act"
+                      style={prBtn(theme)}
+                      disabled={wt.pending || !wt.canCreatePr}
+                      onClick={wt.onCreatePr}
+                      title={
+                        wt.canCreatePr
+                          ? 'Push this branch and open a pull request'
+                          : 'Unavailable — this repository has no git remote'
+                      }
+                    >
+                      {wt.pending ? 'Working…' : 'Create PR'}
+                    </button>
+                  )}
                   <button
                     type="button"
-                    style={prBtn(theme)}
-                    disabled={wt.pending || !wt.canCreatePr}
-                    onClick={wt.onCreatePr}
-                    title={
-                      wt.canCreatePr
-                        ? 'Push this branch and open a pull request'
-                        : 'Unavailable — this repository has no git remote'
-                    }
-                  >
-                    {wt.pending ? 'Working…' : 'Create PR'}
-                  </button>
-                  <button
-                    type="button"
+                    className="la-tp-soft la-tp-act"
                     style={mergeBtn(theme)}
                     disabled={wt.pending}
                     onClick={() => {
@@ -217,7 +268,7 @@ export function TaskRow({
               {wt ? (
                 <button
                   type="button"
-                  className="la-tp-dim"
+                  className="la-tp-soft la-tp-act"
                   style={discardBtn(theme)}
                   disabled={wt.pending}
                   onClick={() => {
@@ -236,57 +287,98 @@ export function TaskRow({
               ) : null}
             </div>
           ) : null}
-          {/* A link, not an auto-opened window: the popup would fire after an
-              await, outside the click gesture, and get blocked. It also lets
-              the user come back to the PR later. */}
-          {wt?.prUrl ? (
-            <a
-              className="la-tp-soft"
-              style={prLinkStyle()}
-              href={wt.prUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {wt.prLabel ?? 'View PR'} ↗
-            </a>
-          ) : null}
-          {wt?.note ? (
-            <div style={{ color: p.soft, fontSize: '12px', marginTop: '6px' }}>{wt.note}</div>
-          ) : null}
-          {wt?.error ? (
-            <div style={{ color: p.error, fontSize: '12px', marginTop: '6px' }}>{wt.error}</div>
-          ) : null}
         </div>
-        {onCancel ? (
-          <button type="button" className="la-tp-dim" style={stopBtn(theme)} onClick={onCancel}>
-            Stop
-          </button>
-        ) : null}
       </div>
+      {onCancel ? (
+        <div style={stopRow()}>
+          <button
+            type="button"
+            className="la-tp-stop"
+            style={stopCircle(theme)}
+            onClick={onCancel}
+            aria-label="Stop"
+            title="Stop this task"
+          >
+            {/* 16 in a 24px circle — the same 4px of padding the buttons put
+                around their 16px line box, so the glyph is inset like a label
+                rather than floating in the middle of a bigger circle. */}
+            <StopIcon size={16} />
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
 
+/**
+ * Every row without an outcome line settles at one height, so a list of tasks
+ * reads as a column of equal things rather than a ragged stack — a queued row
+ * carrying only two lines used to be 66px next to a finished row's 110.
+ *
+ * A floor, not a fixed height: the two states that say something extra — a note
+ * about the missing gh CLI, or an error from the last action — grow past it
+ * instead of scrolling or clipping. That is why this needs no exception for
+ * them. 102 is the tallest a row gets from controls alone (title, status, and a
+ * button row), so nothing has to shrink to meet it — and because the floor is
+ * exactly that height, the buttons on such a row still sit on the card's bottom
+ * padding rather than floating above a strip of slack.
+ */
+const CARD_MIN_HEIGHT = 102;
+
+/**
+ * The card's padding, on all four sides, and the distance Stop keeps from the
+ * corner. One number: everything with an edge lines up on it, so the row has a
+ * single margin rather than a different one per side.
+ *
+ * Two things were tried and reverted on the way here. The popover breaks its
+ * footer out to half its gutter, which works there because that footer is one
+ * cluster spanning the full card — the ragged left edge reads as the cluster
+ * owning the card. A task row's buttons are a short group under a heading, and
+ * pulling them out just gave the card two left margins. Running a tighter
+ * bottom than gutter (the popover's 10/6) had the same trouble from the other
+ * side: it left the controls sitting low in the card rather than inside it.
+ */
+const CARD_PAD = 8;
+
 const cardStyle = (theme: OverlayTheme) => ({
   background: surfacePalette(theme).fill,
   borderRadius: '6px',
-  padding: '11px 12px',
-  marginBottom: '7px',
+  minHeight: `${CARD_MIN_HEIGHT}px`,
+  // The measurement above is the whole card, padding included.
+  boxSizing: 'border-box' as const,
+  // A column, so Stop's row can take the slack and stay in the corner.
+  display: 'flex',
+  flexDirection: 'column' as const,
+  // The popover's asymmetry — it runs 10px above its text and 6px below its
+  // controls, because a row of buttons already carries its own visual padding
+  // in the space around the labels, while a line of text starts at its cap
+  // height and needs the room. Same 6px here; the top stays at 12 to match the
+  // sides, so the title is as far from the top as it is from the edge.
+  padding: `${CARD_PAD}px`,
+  marginBottom: '10px',
+  position: 'relative' as const,
 });
 
-// Text-only button: 50% ink, no fill/border, brightens to 100% on hover
-// (handled by the .la-tp-dim rule). Slightly rounded for the focus ring.
-const stopBtn = (theme: OverlayTheme) => ({
+// Text-only button, taking the popover's quiet-action idiom: soft ink that
+// lifts to full on hover, via `.la-tp-soft`. Deliberately *not* an opacity
+// fade — theme.ts makes the case: opacity also washes out anything nested
+// inside, and it is a second way of saying what the palette's `soft` already
+// says. No inline `color` for the same reason the worktree pill has no inline
+// border-color: it would outrank the class and kill the hover.
+const quietBtn = (_theme: OverlayTheme) => ({
   background: 'transparent',
   border: 'none',
   borderRadius: '4px',
+  // Vertically the filled buttons' padding, so a text-only control still sits
+  // on the same 24px line; narrower flanks because it has no pill around it.
   padding: '4px 6px',
-  fontSize: '12px',
+  lineHeight: 1.2,
+  fontSize: '13px',
   fontWeight: 500,
-  color: surfacePalette(theme).ink,
-  cursor: 'pointer',
+  cursor: 'var(--la-tp-cursor, pointer)',
   flexShrink: 0,
   fontFamily: 'inherit',
+  letterSpacing: 'inherit',
 });
 
 // Was `t.link` — a #60a5fa blue that was the loudest thing in the drawer and
@@ -295,8 +387,8 @@ const stopBtn = (theme: OverlayTheme) => ({
 const viewChatLink = () => ({
   background: 'transparent',
   border: 'none',
-  fontSize: '12px',
-  cursor: 'pointer',
+  fontSize: '13px',
+  cursor: 'var(--la-tp-cursor, pointer)',
   padding: 0,
   margin: 0,
   // Sits inline on the status line, after the elapsed time — so no block
@@ -314,32 +406,54 @@ const PILL_RADIUS = '999px';
 // Failed-row "Retry" — the primary recovery action, so it borrows the popover's
 // primary control: the send button's inverted fill, not a blue accent.
 const retryBtn = (theme: OverlayTheme) => ({
-  background: surfacePalette(theme).submitBg,
+  // The popover's filled control — its worktree pill when checked. NOT the
+  // send button's inverted #373734: a solid dark slab is the popover's smallest
+  // element (a 23px circle), and at button width it was the loudest thing in
+  // the drawer, which is the opposite of what the palette is for.
+  background: surfacePalette(theme).fill,
   border: 'none',
   borderRadius: PILL_RADIUS,
-  color: surfacePalette(theme).submitText,
-  fontSize: '12px',
+  color: surfacePalette(theme).ink,
+  fontSize: '13px',
   fontWeight: 500,
-  cursor: 'pointer',
-  padding: '4px 12px',
+  cursor: 'var(--la-tp-cursor, pointer)',
+  // A 24px box: 13 x 1.2 = 16px of text, plus 4 top and bottom. Two taller and
+  // four wider than the popover's worktree pill — these carry the row's real
+  // decisions, and at the pill's exact size they read as incidental chrome.
+  padding: '4px 11px',
+  lineHeight: 1.2,
+  letterSpacing: 'inherit',
   display: 'block',
   fontFamily: 'inherit',
 });
 
-// Three ways to land a worktree, three weights, left to right: "Create PR" is
-// the one to reach for by default, so it takes the popover's inverted fill (the
-// same primary treatment as Retry). Deliberately NOT the shell bar's #16a34a
-// green: the overlay palette has no hues at all, and one green button would be
-// the only colour in the drawer.
+// "Create PR" is the one to reach for by default, and now the only control on
+// the row carrying a fill — which is the whole of its emphasis. Its ink rests
+// soft like every other action here and lifts to full under the cursor, so the
+// row reads as one quiet family until you point at something. A permanently
+// full-ink label on a filled pill made it the loudest thing in the drawer.
+//
+// Deliberately NOT the shell bar's #16a34a green: the overlay palette has no
+// hues at all, and one green button would be the only colour in the drawer.
 const prBtn = (theme: OverlayTheme) => ({
-  background: surfacePalette(theme).submitBg,
+  // The popover's filled control — its worktree pill when checked. NOT the
+  // send button's inverted #373734: a solid dark slab is the popover's smallest
+  // element (a 23px circle), and at button width it was the loudest thing in
+  // the drawer, which is the opposite of what the palette is for.
+  background: surfacePalette(theme).fill,
   border: 'none',
   borderRadius: PILL_RADIUS,
-  color: surfacePalette(theme).submitText,
-  fontSize: '12px',
+  // No inline colour — `.la-tp-soft` owns it so the hover can win.
+
+  fontSize: '13px',
   fontWeight: 500,
-  cursor: 'pointer',
-  padding: '4px 12px',
+  cursor: 'var(--la-tp-cursor, pointer)',
+  // A 24px box: 13 x 1.2 = 16px of text, plus 4 top and bottom. Two taller and
+  // four wider than the popover's worktree pill — these carry the row's real
+  // decisions, and at the pill's exact size they read as incidental chrome.
+  padding: '4px 11px',
+  lineHeight: 1.2,
+  letterSpacing: 'inherit',
   fontFamily: 'inherit',
 });
 
@@ -350,34 +464,99 @@ const prBtn = (theme: OverlayTheme) => ({
 // the world" — the exact opposite of the truth, since nothing leaves your
 // machine: it merges the branch into your checkout. "Create PR" beside it is
 // the one that actually goes anywhere.
+// Discard's shape exactly — text only, no outline. The outlined pill put a
+// second container weight on the row for no gain: with Create PR already
+// carrying the only fill, an outline beside it read as a third kind of thing
+// rather than a step down. Now the row is one filled control and two plain
+// labels, and the emphasis is carried entirely by the fill.
 const mergeBtn = (theme: OverlayTheme) => ({
-  background: 'transparent',
-  border: `1px solid ${surfacePalette(theme).stroke}`,
+  ...quietBtn(theme),
   borderRadius: PILL_RADIUS,
-  color: surfacePalette(theme).ink,
-  fontSize: '12px',
-  fontWeight: 500,
-  cursor: 'pointer',
-  // One less than the filled buttons on each side: the 1px border makes up the
-  // difference, so both pills come out the same height.
-  padding: '3px 11px',
-  fontFamily: 'inherit',
 });
 
-// "Discard" is the tertiary, destructive one: Stop's text-only shape, and
-// `marginLeft: auto` pushes it to the far right of the row so it can't be hit
-// on the way to the two buttons that keep the work.
+// The PR, once there is one, wearing Create PR's pill — same box, same fill,
+// same 24px line, so the row it sits in doesn't change shape when the action
+// succeeds. An anchor rather than a button: see the comment at the call site.
+//
+// Colour comes from `.la-tp-soft` at the call site, exactly as it does for the
+// button this replaces: soft at rest, full ink under the cursor, so the slot
+// behaves the same whichever element is occupying it. It has to come from
+// somewhere explicitly — without it the UA paints an anchor link-blue, which
+// would be the only hue in the drawer.
+const prLinkPill = (theme: OverlayTheme) => ({
+  ...prBtn(theme),
+  display: 'inline-flex',
+  alignItems: 'center',
+  textDecoration: 'none',
+  whiteSpace: 'nowrap' as const,
+});
+
+// "Discard" is the tertiary, destructive one: Stop's text-only shape, held
+// apart from the controls that keep the work.
+//
+// The separation used to be `marginLeft: auto`, which pinned it to the far
+// right of the card. Next to two buttons that read as deliberate; next to one
+// (a failed row is Retry and Discard, nothing else) it left a 150px hole in the
+// middle of the row, and the two controls stopped reading as one set of
+// choices. Adding one more row-gap in front of it says the same thing — this
+// one is not part of that group — at any number of buttons, and never opens a
+// void. 8 + 8: double the space between the controls that keep the work.
+//
+// Pinned to the right edge by `marginLeft: auto`, which is a *position* rather
+// than a gap: the one control that throws work away sits apart from the ones
+// that keep it, so it can't be hit on the way to them.
 const discardBtn = (theme: OverlayTheme) => ({
-  ...stopBtn(theme),
+  ...quietBtn(theme),
   borderRadius: PILL_RADIUS,
   marginLeft: 'auto',
 });
 
-// The PR link borrows View chat's quiet-action shape, one line below the row.
-const prLinkStyle = () => ({
-  fontSize: '12px',
-  marginTop: '8px',
-  display: 'block',
-  textDecoration: 'none',
-  fontFamily: 'inherit',
+// A note or an error from the last worktree action, sitting between the status
+// line and the buttons. Soft ink for a note, the palette's one hue for an
+// error — the same 13px/1.5 as everything else in the row, because it is prose
+// about the task and not a control.
+const outcomeText = (color: string) => ({
+  color,
+  fontSize: '13px',
+  lineHeight: 1.5,
+  marginTop: '6px',
+});
+
+/**
+ * Stop's corner. 12px of air under the status line, then the button pulled out
+ * of the card's 12px padding to sit 6px from the right and bottom edges — close
+ * enough to the corner to read as the card's own control rather than another
+ * item in the stack.
+ */
+const stopRow = () => ({
+  display: 'flex',
+  justifyContent: 'flex-end',
+  // `auto` takes whatever slack the card's min-height leaves, keeping Stop in
+  // the bottom-right corner instead of stranding it under the status line; the
+  // padding is the 12px minimum for a row tall enough not to have any slack.
+  marginTop: 'auto',
+  paddingTop: '12px',
+});
+
+/**
+ * The chat composer's Stop button, unchanged: the popover's inverted circle
+ * carrying the same StopIcon. A running task and an in-flight message are the
+ * same act, so they get the same control rather than one being a word.
+ */
+const stopCircle = (theme: OverlayTheme) => ({
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  // 24, matching the buttons on a finished row rather than the composer's 26:
+  // a circle reads larger than a pill of the same height, so the composer's
+  // size looked oversized parked in the corner of a card.
+  width: '24px',
+  height: '24px',
+  flexShrink: 0,
+  // No inline `background` — `.la-tp-stop` owns it so the hover can win.
+  border: 'none',
+  borderRadius: '999px',
+  color: surfacePalette(theme).submitText,
+  cursor: 'var(--la-tp-cursor, pointer)',
+  padding: 0,
 });

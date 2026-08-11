@@ -167,3 +167,42 @@ export const iconBtn = (theme: OverlayTheme) => ({
   padding: '2px',
   display: 'inline-flex',
 });
+
+/**
+ * The drawer's class-based rules — the hover behaviour that inline styles can't
+ * express (see the worktree pill in picked-popover.styles for why: an inline
+ * declaration outranks a stylesheet `:hover`).
+ *
+ * Lives here rather than inline in task-panel.tsx so anything rendering a
+ * TaskRow outside the drawer — today the gallery, which drives one row per
+ * worktree state — gets the real rules instead of a copy. A copy would drift,
+ * and a gallery that renders Stop and Discard at full opacity while the product
+ * renders them at 50% is worse than no gallery at all.
+ */
+export const taskPanelCss = (theme: OverlayTheme): string => {
+  const p = surfacePalette(theme);
+  const pill = PILL_PALETTE[theme];
+  return [
+    `.la-tp-soft{color:${p.soft};transition:color 80ms}.la-tp-soft:hover{color:${p.ink}}`,
+    // Stop's circle rests at the ink's soft alpha and fills in under the
+    // cursor. Same ink either way — 40% white going solid in dark, 50% of
+    // #373734 going solid in light — so it is one colour at two weights
+    // rather than a second grey. In a class because an inline `background`
+    // would outrank the :hover, the way it did for the worktree pill.
+    `.la-tp-stop{background:${p.soft};transition:background 80ms}.la-tp-stop:hover{background:${p.submitBg}}`,
+    // A disabled action looked exactly like a live one — same fill, same ink,
+    // full opacity, and cursor:pointer — so "Create PR" on a repo with no remote
+    // invited a click and did nothing.
+    //
+    // Last in the list on purpose: it ties with `.la-tp-soft:hover` on
+    // specificity, so source order is what stops a dead Discard from lifting to
+    // full ink under the cursor. The `color` here is why that matters — opacity
+    // alone left the hover working on a button that does nothing. Filled buttons
+    // are unaffected: their inline `color` outranks this either way.
+    `.la-tp-act:disabled{opacity:0.4;color:${p.soft};--la-tp-cursor:default}`,
+    `.la-tp-launcher{color:${pill.icon};background:${pill.surface};transition:background 90ms,box-shadow 90ms}`,
+    `.la-tp-launcher:hover{background:${pill.hover};box-shadow:0 0 0 2px ${pill.hover}}`,
+    '.la-tp-launcher-in{animation:la-tasks-in 360ms cubic-bezier(0.19,1,0.22,1) both}',
+    '@keyframes la-tasks-in{from{opacity:0;transform:scale(0.4)}to{opacity:1;transform:scale(1)}}',
+  ].join('');
+};
