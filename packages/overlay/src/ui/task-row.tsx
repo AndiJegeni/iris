@@ -199,11 +199,6 @@ export function TaskRow({
                 // sit straight under a line of prose, so the same 12 read as the
                 // buttons being part of the status line rather than a step after it.
                 marginTop: '20px',
-                // Out of the card's gutter to the control inset, as the
-                // popover's footer does. `View chat` stays at the text inset —
-                // it belongs to the status sentence, not to this row.
-                marginLeft: `-${CARD_PAD_X - CONTROL_INSET}px`,
-                marginRight: `-${CARD_PAD_X - CONTROL_INSET}px`,
               }}
             >
               {failed && onRetry ? (
@@ -323,21 +318,29 @@ export function TaskRow({
  * A floor, not a fixed height: the two states that say something extra — a note
  * about the missing gh CLI, or an error from the last action — grow past it
  * instead of scrolling or clipping. That is why this needs no exception for
- * them. 104 is the tallest a row gets from controls alone (title, status, and a
+ * them. 102 is the tallest a row gets from controls alone (title, status, and a
  * button row), so nothing has to shrink to meet it — and because the floor is
  * exactly that height, the buttons on such a row still sit on the card's bottom
  * padding rather than floating above a strip of slack.
  */
-const CARD_MIN_HEIGHT = 104;
+const CARD_MIN_HEIGHT = 102;
 
-/** The card's gutter — where its prose sits. */
-const CARD_PAD_X = 12;
 /**
- * Where its controls sit: half the gutter. The popover breaks its footer out of
- * the card padding to reach exactly this, because a button's own padding already
- * holds its label off the edge — matching the text's inset would inset it twice.
- * Also the card's bottom padding, so a button row is the same distance from both
- * edges it touches.
+ * The card's gutter. Everything with a left edge lines up on it — title, status
+ * line, prose, and the button row alike.
+ *
+ * The popover breaks its footer out to half this, so its controls sit closer to
+ * the card edge than its text. Tried here and reverted: the popover's footer is
+ * one cluster spanning the full width, where the ragged left edge reads as the
+ * cluster owning the card. A task row's buttons are a short group under a
+ * heading, and pulling them out just made the card look like it had two
+ * different left margins.
+ */
+const CARD_PAD_X = 10;
+/**
+ * Bottom padding, and how far Stop sits off the card's corner. Less than the
+ * gutter because a control already carries padding around its own label, so it
+ * needs less room beneath it than a line of text does.
  */
 const CONTROL_INSET = 6;
 
@@ -355,7 +358,7 @@ const cardStyle = (theme: OverlayTheme) => ({
   // in the space around the labels, while a line of text starts at its cap
   // height and needs the room. Same 6px here; the top stays at 12 to match the
   // sides, so the title is as far from the top as it is from the edge.
-  padding: `12px ${CARD_PAD_X}px ${CONTROL_INSET}px`,
+  padding: `${CARD_PAD_X}px ${CARD_PAD_X}px ${CONTROL_INSET}px`,
   marginBottom: '10px',
   position: 'relative' as const,
 });
