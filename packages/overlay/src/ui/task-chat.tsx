@@ -198,6 +198,7 @@ export function TaskChat({
           }}
         >
           <ModelReasoningPicker
+            softInk={surfacePalette(theme).soft}
             models={modelChoices.map((m) => ({ value: m.value, label: m.label }))}
             model={model}
             onModelSelect={changeModel}
@@ -257,8 +258,6 @@ const chatCss = (theme: OverlayTheme): string => {
   const p = surfacePalette(theme);
   return [
     '.la-pp-dim{opacity:0.6;transition:opacity 80ms}.la-pp-dim:hover{opacity:1}',
-    '.la-pp-menu-row{background:transparent;transition:background 80ms}',
-    `.la-pp-menu-row:hover{background:${p.hover}}`,
     '.la-tc-icon{background:transparent;transition:background 90ms,box-shadow 90ms}',
     `.la-tc-icon:hover{background:${p.hover};box-shadow:0 0 0 2px ${p.hover}}`,
     '.la-tc-send:hover:not(:disabled){transform:scale(1.06)}',
