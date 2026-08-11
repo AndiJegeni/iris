@@ -39,7 +39,7 @@ function MenuRow({
   return (
     <button
       type="button"
-      className="la-pp-menu-row"
+      className="la-mp-row"
       onClick={onClick}
       style={{
         display: 'flex',
@@ -114,6 +114,7 @@ export function ModelReasoningPicker({
   modelLabel,
   effortLabel,
   t,
+  softInk,
 }: {
   models: { value: string; label: string }[];
   model: string;
@@ -124,6 +125,15 @@ export function ModelReasoningPicker({
   modelLabel: string;
   effortLabel: string;
   t: ThemeTokens;
+  /**
+   * Resting colour of the closed trigger, lifting to full ink on hover.
+   *
+   * Passed in rather than taken from `t`: the popover re-points every ink token
+   * to full ink in light mode (see popoverTokens), so there is no "soft" left in
+   * the token set to read. Each caller knows its own — the popover's placeholder
+   * colour, the chat's palette `soft`.
+   */
+  softInk: string;
 }) {
   const [open, setOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
@@ -185,11 +195,23 @@ export function ModelReasoningPicker({
 
   return (
     <div ref={wrapRef} style={{ position: 'relative', display: 'inline-flex', minWidth: 0 }}>
+      {/* The picker's own rules travel with it. They used to live in the
+          popover's style block, so mounting this anywhere else — the task
+          chat — left the trigger with no colour at all: a <button> does not
+          inherit `color`, so the UA painted it black on a dark surface. */}
+      <style>
+        {[
+          '.la-mp-row{background:transparent;transition:background 80ms}',
+          `.la-mp-row:hover{background:${t.controlBg}}`,
+          `.la-mp-soft{color:${softInk};transition:color 80ms}`,
+          `.la-mp-soft:hover{color:${t.textPrimary}}`,
+        ].join('')}
+      </style>
       <button
         type="button"
         // Closed: resting color from .la-pp-soft (placeholder color, darkens on
         // hover). Open: pin to full ink inline (outranks the class).
-        className={open ? undefined : 'la-pp-soft'}
+        className={open ? undefined : 'la-mp-soft'}
         onClick={toggle}
         aria-label="Model and reasoning"
         style={{
@@ -239,7 +261,7 @@ export function ModelReasoningPicker({
           <div style={{ position: 'relative' }}>
             <button
               type="button"
-              className="la-pp-menu-row la-pp-model-row"
+              className="la-mp-row la-mp-model-row"
               onClick={(e) => {
                 // Open the submenu to the right, flipping left when it would clip.
                 if (!modelOpen) {

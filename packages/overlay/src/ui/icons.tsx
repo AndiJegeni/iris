@@ -197,6 +197,28 @@ export function StopIcon({ size = 13, ...props }: IconProps) {
   );
 }
 
+// ---------- task actions ----------
+
+/**
+ * Retry — a counter-clockwise arrow returning to its start (vb 24×24, sw 2).
+ *
+ * Same viewBox/stroke ratio as ArrowUpIcon, so it renders at the same visual
+ * weight as the popover's send arrow at a given `size`.
+ */
+export function RetryIcon({ size = 14, ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" aria-hidden="true" {...props}>
+      <path
+        d="M2 10C2 10 4.00498 7.26822 5.63384 5.63824C7.26269 4.00827 9.5136 3 12 3C16.9706 3 21 7.02944 21 12C21 16.9706 16.9706 21 12 21C7.89691 21 4.43511 18.2543 3.35177 14.5M8 10H2V4"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
+  );
+}
+
 // ---------- close ----------
 
 /** Close X (vb 16×16, sw 1.33333) — pill toolbar close button. */

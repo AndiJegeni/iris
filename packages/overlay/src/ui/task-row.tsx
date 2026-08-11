@@ -1,7 +1,7 @@
 /** @jsxImportSource preact */
 import { type Task, modelLabel } from '@iris/shared';
 import { useState } from 'preact/hooks';
-import { StopIcon } from './icons';
+import { RetryIcon, StopIcon } from './icons';
 import { type OverlayTheme, surfacePalette } from './theme';
 
 export function isRunning(t: Task): boolean {
@@ -113,23 +113,26 @@ export function TaskRow({
   const hasActions = (failed && onRetry != null) || wt != null;
   return (
     <div style={cardStyle(theme)}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '9px' }}>
-        {/* Only the failed state shows a status dot. */}
-        {failed ? (
-          <span
-            style={{
-              width: '8px',
-              height: '8px',
-              borderRadius: '999px',
-              background: dotColor(task.status, theme),
-              marginTop: '5px',
-              flexShrink: 0,
-            }}
-          />
-        ) : null}
+      <div style={{ display: 'flex', alignItems: 'flex-start' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 500, fontSize: '13px', lineHeight: 1.5, color: p.ink }}>
-            {task.prompt}
+          {/* Only the failed state shows a status dot, and it belongs to the
+              title line rather than the card. As a sibling of the whole column
+              it indented the status line and the button row too, so a failed
+              row sat further from the left edge than every other row — the dot
+              was moving the card's contents instead of marking its heading. */}
+          <div
+            style={{
+              fontWeight: 500,
+              fontSize: '13px',
+              lineHeight: 1.5,
+              color: p.ink,
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '7px',
+            }}
+          >
+            {failed ? <span style={statusDot(task.status, theme)} /> : null}
+            <span style={{ minWidth: 0 }}>{task.prompt}</span>
           </div>
           {/* "View chat" rides the status line, just past the elapsed time. It
               reads the task rather than acting on it, so it stays off the row
@@ -203,6 +206,7 @@ export function TaskRow({
             >
               {failed && onRetry ? (
                 <button type="button" style={retryBtn(theme)} onClick={onRetry}>
+                  <RetryIcon size={12} />
                   Retry
                 </button>
               ) : null}
@@ -293,8 +297,8 @@ export function TaskRow({
         <div style={stopRow()}>
           <button
             type="button"
-            className="la-tp-stop"
-            style={stopCircle(theme)}
+            className="la-tp-circle"
+            style={circleBtn(theme)}
             onClick={onCancel}
             aria-label="Stop"
             title="Stop this task"
@@ -339,6 +343,24 @@ const CARD_MIN_HEIGHT = 102;
  * side: it left the controls sitting low in the card rather than inside it.
  */
 const CARD_PAD = 8;
+
+/**
+ * The failed row's marker, sitting in the title line.
+ *
+ * Six across rather than eight: at the old size it read as a bullet the title
+ * was listed under. The top margin centres it on the first line of the title
+ * (13px at 1.5 is a 19.5px line box, so (19.5 - 6) / 2), which is why it is
+ * flex-start rather than centre — a title that wraps to two lines should keep
+ * its dot against the first, not floating between them.
+ */
+const statusDot = (status: Task['status'], theme: OverlayTheme) => ({
+  width: '6px',
+  height: '6px',
+  borderRadius: '999px',
+  background: dotColor(status, theme),
+  marginTop: '7px',
+  flexShrink: 0,
+});
 
 const cardStyle = (theme: OverlayTheme) => ({
   background: surfacePalette(theme).fill,
@@ -406,6 +428,12 @@ const PILL_RADIUS = '999px';
 // Failed-row "Retry" — the primary recovery action, so it borrows the popover's
 // primary control: the send button's inverted fill, not a blue accent.
 const retryBtn = (theme: OverlayTheme) => ({
+  // Icon then label, on one baseline. The glyph is 12 against the label's 16px
+  // line box: a stroked circle reads larger than letterforms of the same
+  // height, so matching them would make the icon the loud half of the button.
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '5px',
   // The popover's filled control — its worktree pill when checked. NOT the
   // send button's inverted #373734: a solid dark slab is the popover's smallest
   // element (a 23px circle), and at button width it was the loudest thing in
@@ -423,7 +451,6 @@ const retryBtn = (theme: OverlayTheme) => ({
   padding: '4px 11px',
   lineHeight: 1.2,
   letterSpacing: 'inherit',
-  display: 'block',
   fontFamily: 'inherit',
 });
 
@@ -505,6 +532,15 @@ const prLinkPill = (theme: OverlayTheme) => ({
 // Pinned to the right edge by `marginLeft: auto`, which is a *position* rather
 // than a gap: the one control that throws work away sits apart from the ones
 // that keep it, so it can't be hit on the way to them.
+//
+// A word, not a glyph — tried both a filled circle and a bare trash icon, and
+// neither survived: this is the least prominent of three controls, and an icon
+// among two labels reads as a different kind of thing rather than a quieter
+// one. The same soft ink as its neighbours, lifting to full under the cursor.
+//
+// `marginLeft: auto` is a *position* rather than a gap: the one control that
+// throws work away sits apart from the ones that keep it, so it can't be hit on
+// the way to them.
 const discardBtn = (theme: OverlayTheme) => ({
   ...quietBtn(theme),
   borderRadius: PILL_RADIUS,
@@ -543,17 +579,20 @@ const stopRow = () => ({
  * carrying the same StopIcon. A running task and an in-flight message are the
  * same act, so they get the same control rather than one being a word.
  */
-const stopCircle = (theme: OverlayTheme) => ({
+/**
+ * The round icon button — Stop in a running row's corner, Discard in a finished
+ * one. 24 across, matching the pills beside it rather than the composer's 26: a
+ * circle reads larger than a pill of the same height, so the composer's size
+ * looked oversized parked in a card.
+ */
+const circleBtn = (theme: OverlayTheme) => ({
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  // 24, matching the buttons on a finished row rather than the composer's 26:
-  // a circle reads larger than a pill of the same height, so the composer's
-  // size looked oversized parked in the corner of a card.
   width: '24px',
   height: '24px',
   flexShrink: 0,
-  // No inline `background` — `.la-tp-stop` owns it so the hover can win.
+  // No inline `background` — `.la-tp-circle` owns it so the hover can win.
   border: 'none',
   borderRadius: '999px',
   color: surfacePalette(theme).submitText,

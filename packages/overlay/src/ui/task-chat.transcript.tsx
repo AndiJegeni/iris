@@ -226,10 +226,18 @@ function renderInlineCode(text: string) {
 // ---------- styles ----------
 
 /**
- * Two sizes and one corner across the whole chat. Prose is SIZE_BODY; every
- * label, argument and duration is SIZE_META.
+ * One size and one corner across the whole chat.
+ *
+ * Prose used to be 14 against the composer's 13, so the message you were
+ * reading was larger than the one you were writing. 13 is the overlay's size
+ * everywhere else — the popover's composer, the drawer's rows — so the chat
+ * matches rather than the composer growing to meet it.
+ *
+ * Prose and meta being the same size is deliberate: the palette separates them
+ * by ink, one colour at three alphas, which is how the rest of the overlay
+ * builds hierarchy.
  */
-const SIZE_BODY = 14;
+const SIZE_BODY = 13;
 const SIZE_META = 13;
 const RADIUS = 6;
 

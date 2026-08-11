@@ -13,7 +13,6 @@ import { PickedPopover } from './ui/picked-popover';
 import { PILL_CIRCLE, PILL_TOOLBAR_W, Pill } from './ui/pill';
 import { SettingsPanel } from './ui/settings-panel';
 import { TaskPanel } from './ui/task-panel';
-import { CHAT_WIDTH } from './ui/task-panel.styles';
 import { isRunning } from './ui/task-row';
 import type { OverlayTheme } from './ui/theme';
 import { useTransport } from './use-transport';
@@ -52,10 +51,14 @@ const BLOCK_KEY = 'iris:block-interactions';
 // keeps them tethered to it. Pill dimensions come from pill.tsx itself.
 const PANEL_GAP = 8;
 // Widest panel (the chat composer) — used to keep a panel on-screen when the
-// pill has been dragged toward the left edge. The task panel is wider still, so
-// it clamps against its own maximum (the chat view).
+// pill has been dragged toward the left edge.
 const PANEL_MAX_W = 380;
-const TASKS_PANEL_MAX_W = CHAT_WIDTH;
+/**
+ * Shortest the task drawer is allowed to get. It runs from the top edge down to
+ * just above the pill, so a pill dragged near the top of the window would
+ * otherwise give it a negative height and collapse it entirely.
+ */
+const TASKS_PANEL_MIN_H = 220;
 // Background Tasks launcher: a 40px circle that widens to carry a running count
 // beside the glyph (40 empty, ~57 with one digit, ~67 with two). Deliberately
 // over-estimated — this only decides which side of the pill it parks on, and
@@ -377,16 +380,25 @@ export function Overlay() {
 
   // The drawer runs from the top edge down to just above the pill row, so it
   // gets nearly the full height without ever sharing space with the toolbar.
-  // Right-aligned to the pill, clamped so its widest state (the chat view) still
-  // fits when the pill has been dragged toward the left edge.
-  const tasksPanelRight = Math.min(
-    pillRight,
-    Math.max(MARGIN, window.innerWidth - TASKS_PANEL_MAX_W - MARGIN),
+  //
+  // It docks to the right edge of the *window*, not to the pill. The settings
+  // and chat panels track the pill because they belong to it — they open out of
+  // the button you just pressed. The task drawer is a place, not a popover: it
+  // holds work that outlives the toolbar's position, and having it slide across
+  // the screen because the toolbar was dragged made it read as a menu hanging
+  // off the pill rather than somewhere tasks live.
+  //
+  // Vertically it still clears the pill row wherever that has been dragged to,
+  // and the bottom is clamped so a pill parked near the top can't invert the
+  // drawer into a negative height.
+  const tasksPanelBottom = Math.min(
+    pillTopFromBottom + PANEL_GAP,
+    Math.max(MARGIN, window.innerHeight - TASKS_PANEL_MIN_H - MARGIN),
   );
   const tasksPanelStyle = {
     top: `${MARGIN}px`,
-    right: `${tasksPanelRight}px`,
-    bottom: `${pillTopFromBottom + PANEL_GAP}px`,
+    right: `${MARGIN}px`,
+    bottom: `${tasksPanelBottom}px`,
     left: 'auto',
   };
 
