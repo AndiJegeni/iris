@@ -247,10 +247,14 @@ export class TaskQueue {
       }
       // Generator exited without explicit done/error.
       if (next.task.status === 'running' || next.task.status === 'editing') {
-        this.updateStatus(next, 'done');
+        this.updateStatus(next, next.abort.signal.aborted ? 'cancelled' : 'done');
       }
     } catch (err) {
-      this.updateStatus(next, 'failed', err instanceof Error ? err.message : String(err));
+      if (next.abort.signal.aborted) {
+        this.updateStatus(next, 'cancelled');
+      } else {
+        this.updateStatus(next, 'failed', err instanceof Error ? err.message : String(err));
+      }
     } finally {
       this.running.delete(slug);
       // Keep the entry in `byId` (and its transcript) after completion so a
