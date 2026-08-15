@@ -2,6 +2,7 @@ import { execSync, spawn } from 'node:child_process';
 import type { ProviderAuth } from '../auth';
 import { authFailureMessage, isAuthError } from '../auth-errors';
 import { commandExists } from '../util';
+import { stageImages } from './images';
 import { buildFollowUpPrompt, buildPrompt } from './prompt';
 import type { AgentRunner, RunEvent, RunRequest } from './types';
 
@@ -71,12 +72,25 @@ export function createCodexRunner(auth: ProviderAuth): AgentRunner {
     // `codex exec` starts a fresh session every time and we never capture its
     // session id, so a follow-up would otherwise arrive with no memory of the
     // turn it is continuing. Replay the conversation into the prompt instead.
-    const prompt = req.priorTranscript?.length ? buildFollowUpPrompt(req) : buildPrompt(req);
+    const followUp = Boolean(req.priorTranscript?.length);
+    const prompt = followUp ? buildFollowUpPrompt(req) : buildPrompt(req);
+    // Attached screenshots go in through `codex exec -i` as staged files, on
+    // the fresh run only (a follow-up replays the conversation as text; its
+    // first answer already accounted for the images). Best-effort — a staging
+    // failure drops the attachments, not the run.
+    let imageArgs: string[] = [];
+    if (!followUp && req.images.length > 0) {
+      try {
+        imageArgs = (await stageImages(req.images)).flatMap((p) => ['-i', p]);
+      } catch (err) {
+        yield { kind: 'log', line: `[images] failed to stage attachments: ${String(err)}` };
+      }
+    }
     // Model + reasoning ride in as CLI flags. `-m` takes the model id verbatim;
     // effort has no flag of its own, so it goes through the generic config
     // override for `model_reasoning_effort`. Both are omitted when unset, which
     // leaves codex on whatever the user's ~/.codex/config.toml says.
-    const proc = spawn('codex', ['exec', ...codexModelArgs(req), prompt], {
+    const proc = spawn('codex', ['exec', ...codexModelArgs(req), ...imageArgs, prompt], {
       cwd: req.cwd,
       env: childEnv,
       stdio: ['pipe', 'pipe', 'pipe'],

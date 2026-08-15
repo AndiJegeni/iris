@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import type { ProviderAuth } from '../auth';
 import { authFailureMessage } from '../auth-errors';
 import { CLAUDE_BINARY_ENV, type ClaudeBinary } from '../claude-binary';
+import { imagesAppendix, stageImages } from './images';
 import { buildPrompt } from './prompt';
 import type { AgentRunner, RunEvent, RunRequest } from './types';
 
@@ -68,7 +69,17 @@ export function createClaudeRunner(auth: ProviderAuth, claudeBinary?: ClaudeBina
     // Send the prompt (+ optional resume session id for follow-ups), then close
     // stdin. On a follow-up turn the prompt is the raw user message — the
     // worktree context was already established by the original run's session.
-    const workerPrompt = req.resumeSessionId ? req.prompt : buildPrompt(req);
+    let workerPrompt = req.resumeSessionId ? req.prompt : buildPrompt(req);
+    // Attached screenshots ride along as staged files the agent Reads — the
+    // fresh run only, since a resumed session already saw them. Best-effort: a
+    // full disk shouldn't kill the run, just the attachments.
+    if (!req.resumeSessionId && req.images.length > 0) {
+      try {
+        workerPrompt += imagesAppendix(await stageImages(req.images));
+      } catch (err) {
+        yield { kind: 'log', line: `[images] failed to stage attachments: ${String(err)}` };
+      }
+    }
     proc.stdin?.write(
       JSON.stringify({
         prompt: workerPrompt,
