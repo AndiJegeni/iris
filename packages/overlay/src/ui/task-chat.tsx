@@ -75,6 +75,13 @@ export function TaskChat({
   };
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // The input's width in the one-line pill layout, recorded while we're in it.
+  // The expand/collapse decision must always be made against THIS width: the
+  // flip itself changes the input's width (pill row ↔ full row), so measuring
+  // in whichever layout happens to be current lets each keystroke undo the
+  // previous one's decision — the composer visibly flapped between the two
+  // layouts while typing, and settled collapsed on wrapped text.
+  const pillWidthRef = useRef<number | null>(null);
 
   // Auto-scroll to the latest message as the transcript grows.
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on new content
@@ -85,15 +92,34 @@ export function TaskChat({
 
   // Grow the composer with its content up to 3 lines, then scroll — and flip
   // between the one-line pill and the expanded card off the same measurement.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: resize when draft changes
+  // Runs again after a flip (`multiline` in deps) so the height is re-measured
+  // at the layout the input actually ends up in.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: resize when draft changes or the layout flips
   useEffect(() => {
     const el = inputRef.current;
     if (!el) return;
+    // "Would it wrap in the pill?" — measured at the pill width even while
+    // expanded (see pillWidthRef). One line measures ~18-24px; two ~36px.
+    // 30 splits them cleanly.
+    if (!multiline) pillWidthRef.current = el.clientWidth;
     el.style.height = 'auto';
+    let wraps: boolean;
+    if (multiline && pillWidthRef.current != null) {
+      // flexBasis is what actually sizes the input on the expanded card's row
+      // (its inline width is just '100%'), so pin both for the measurement.
+      const prevWidth = el.style.width;
+      const prevBasis = el.style.flexBasis;
+      el.style.width = `${pillWidthRef.current}px`;
+      el.style.flexBasis = `${pillWidthRef.current}px`;
+      wraps = el.scrollHeight > 30;
+      el.style.width = prevWidth;
+      el.style.flexBasis = prevBasis;
+    } else {
+      wraps = el.scrollHeight > 30;
+    }
     el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_H)}px`;
-    // One line measures ~18-24px; two lines ~36px. 30 splits them cleanly.
-    setMultiline(el.scrollHeight > 30);
-  }, [draft]);
+    setMultiline(wraps);
+  }, [draft, multiline]);
 
   const locked = busy || sending;
   const canSend = !!draft.trim() && !locked;
@@ -142,7 +168,21 @@ export function TaskChat({
               </div>
             ))}
         {busy ? (
-          <div style={{ marginTop: entries.length ? TIGHT : 0 }}>
+          // Keyed so streaming entries reconcile around it instead of rebuilding
+          // it. Tight against a run of quiet rows, but a full block gap after
+          // anything loud — right after your own prompt it was the one row
+          // sitting 3px under a filled block.
+          <div
+            key="working"
+            style={{
+              marginTop:
+                entries.length === 0
+                  ? 0
+                  : isQuietEntry(entries[entries.length - 1]!)
+                    ? TIGHT
+                    : LOOSE,
+            }}
+          >
             <WorkingRow theme={theme} />
           </div>
         ) : null}

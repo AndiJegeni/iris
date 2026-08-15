@@ -138,6 +138,8 @@ export function TaskPanel({
     onOpenChange?.(value);
   };
   const [cleared, setCleared] = useState<Set<string>>(() => new Set());
+  // "Archive" everywhere below: hide a finished task's row (and its chat tab).
+  const archiveTask = (id: string) => setCleared((prev) => new Set(prev).add(id));
   // Keyed by TASK id, not worktree slug: a follow-up message reuses one
   // worktree, so two rows can share a slug and each wants its own spinner.
   const [wtState, setWtState] = useState<Record<string, WorktreeRowState>>({});
@@ -208,7 +210,15 @@ export function TaskPanel({
       note: row?.note ?? null,
       error: row?.error ?? null,
       onShip: () => runAction(task.id, () => onShip(slug)),
-      onDiscard: () => runAction(task.id, () => onDiscard(slug)),
+      // Archiving is part of the same action: the card's whole point was the
+      // worktree, and a row that survives its own Discard just sits there
+      // looking like the click didn't work. Only on success — a failed discard
+      // leaves the row (and its error line) where the user can see it.
+      onDiscard: () =>
+        runAction(task.id, async () => {
+          await onDiscard(slug);
+          archiveTask(task.id);
+        }),
       onCreatePr: () =>
         runAction(task.id, async () => {
           const res = await onCreatePr(slug);
@@ -231,7 +241,7 @@ export function TaskPanel({
     .map((task) => ({ id: task.id, title: task.prompt, status: task.status }));
 
   const closeTab = (id: string) => {
-    setCleared((prev) => new Set(prev).add(id));
+    archiveTask(id);
     if (id === chatTaskId) {
       const next = chatTabs.find((tb) => tb.id !== id)?.id ?? null;
       setChatTaskId(next);
@@ -307,10 +317,6 @@ export function TaskPanel({
                         key={task.id}
                         task={task}
                         theme={theme}
-                        hasTranscript={
-                          (logs[task.id]?.length ?? 0) > 0 ||
-                          (transcripts?.[task.id]?.length ?? 0) > 0
-                        }
                         onOpenChat={() => openChat(task.id)}
                         onCancel={() => onCancel(task.id)}
                       />
@@ -340,16 +346,26 @@ export function TaskPanel({
                         key={task.id}
                         task={task}
                         theme={theme}
-                        hasTranscript={
-                          (logs[task.id]?.length ?? 0) > 0 ||
-                          (transcripts?.[task.id]?.length ?? 0) > 0
-                        }
                         onOpenChat={() => openChat(task.id)}
-                        {...(onRetry ? { onRetry: () => onRetry(task.id) } : {})}
+                        {...(onRetry
+                          ? {
+                              // The fresh task replaces this row rather than
+                              // joining it — two cards with the same prompt read
+                              // as a duplicate, not a second attempt. Archive
+                              // only once the retry actually enqueued.
+                              onRetry: () => {
+                                void Promise.resolve(onRetry(task.id)).then(
+                                  () => archiveTask(task.id),
+                                  () => {},
+                                );
+                              },
+                            }
+                          : {})}
                         {...(() => {
                           const wt = worktreeAction(task);
                           return wt ? { worktree: wt } : {};
                         })()}
+                        onArchive={() => archiveTask(task.id)}
                       />
                     ))}
                   </>

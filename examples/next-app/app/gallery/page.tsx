@@ -981,7 +981,7 @@ export default function Gallery() {
                 prompt: 'Make the CTA button larger',
                 model: 'claude-opus-5',
               },
-              props: { hasTranscript: true, onCancel: () => {} },
+              props: { onCancel: () => {} },
             },
             {
               label: 'editing · live message',
@@ -994,7 +994,7 @@ export default function Gallery() {
                 model: 'gpt-5.4',
                 message: 'rewriting app/page.tsx',
               },
-              props: { hasTranscript: true, onCancel: () => {} },
+              props: { onCancel: () => {} },
             },
             {
               label: 'done · ran in your checkout',
@@ -1006,7 +1006,7 @@ export default function Gallery() {
                 prompt: 'Add a footer link',
                 model: 'claude-haiku-4-5',
               },
-              props: { hasTranscript: true },
+              props: {},
             },
             {
               label: 'done · worktree',
@@ -1019,7 +1019,7 @@ export default function Gallery() {
                 model: 'claude-opus-5',
                 worktreeSlug: 'footer-link',
               },
-              props: { hasTranscript: true, worktree: WT_IDLE },
+              props: { worktree: WT_IDLE },
             },
             {
               label: 'done · no git remote',
@@ -1032,7 +1032,7 @@ export default function Gallery() {
                 model: 'claude-opus-5',
                 worktreeSlug: 'footer-link',
               },
-              props: { hasTranscript: true, worktree: { ...WT_IDLE, canCreatePr: false } },
+              props: { worktree: { ...WT_IDLE, canCreatePr: false } },
             },
             {
               label: 'done · request in flight',
@@ -1045,7 +1045,7 @@ export default function Gallery() {
                 model: 'claude-opus-5',
                 worktreeSlug: 'footer-link',
               },
-              props: { hasTranscript: true, worktree: { ...WT_IDLE, pending: true } },
+              props: { worktree: { ...WT_IDLE, pending: true } },
             },
             {
               label: 'done · PR opened',
@@ -1059,7 +1059,6 @@ export default function Gallery() {
                 worktreeSlug: 'footer-link',
               },
               props: {
-                hasTranscript: true,
                 worktree: {
                   ...WT_IDLE,
                   prUrl: 'https://github.com/AndiJegeni/iris/pull/42',
@@ -1079,7 +1078,6 @@ export default function Gallery() {
                 worktreeSlug: 'footer-link',
               },
               props: {
-                hasTranscript: true,
                 worktree: {
                   ...WT_IDLE,
                   prUrl: 'https://github.com/AndiJegeni/iris/compare/la/footer-link',
@@ -1104,7 +1102,6 @@ export default function Gallery() {
                 worktreeSlug: 'footer-link',
               },
               props: {
-                hasTranscript: true,
                 worktree: {
                   ...WT_IDLE,
                   error: 'merge into main failed (resolve conflicts manually)',
@@ -1123,7 +1120,7 @@ export default function Gallery() {
                 message: 'Error: cannot resolve @iris/router',
                 worktreeSlug: 'routing',
               },
-              props: { hasTranscript: true, onRetry: () => {}, worktree: WT_IDLE },
+              props: { onRetry: () => {}, worktree: WT_IDLE },
             },
             {
               label: 'cancelled',
@@ -1136,7 +1133,7 @@ export default function Gallery() {
                 model: 'claude-opus-5',
                 worktreeSlug: 'pricing',
               },
-              props: { hasTranscript: true, worktree: WT_IDLE },
+              props: { worktree: WT_IDLE },
             },
           ] as const
         ).map((s) => (
@@ -1147,7 +1144,6 @@ export default function Gallery() {
                 props={{
                   task: makeTask(s.task as Partial<Task>),
                   theme,
-                  hasTranscript: false,
                   onOpenChat: () => {},
                   ...s.props,
                 }}

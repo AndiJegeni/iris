@@ -134,12 +134,22 @@ async function main(): Promise<void> {
           emit({ kind: 'needs-auth', message: summary });
           return;
         }
-        if (summary) {
+        // The closing line is just "Done · 12s". The SDK's `result` is the full
+        // final assistant message, which the transcript already carries as its
+        // own assistant entry — re-emitting it here painted the whole reply a
+        // second time, in the activity row's grey, right under the real one.
+        // Same guard on the error path: the SDK often surfaces a failure as an
+        // assistant message AND an error result carrying identical text.
+        if (m.is_error === true && summary) {
+          if (String(summary).trim() !== tracker.lastAssistantText.trim()) {
+            emitEntry({ id: randomUUID(), role: 'error', at: Date.now(), text: String(summary) });
+          }
+        } else {
           emitEntry({
             id: randomUUID(),
             role: 'result',
             at: Date.now(),
-            text: String(summary),
+            text: 'Done',
             ...(durationMs != null ? { durationMs } : {}),
           });
         }
@@ -171,6 +181,8 @@ async function main(): Promise<void> {
  */
 class TranscriptTracker {
   readonly editedFiles = new Set<string>();
+  /** The most recent assistant text block, for de-duplicating the result. */
+  lastAssistantText = '';
   private toolStart = new Map<string, number>();
   private lastBoundaryMs = Date.now();
 
@@ -207,6 +219,7 @@ class TranscriptTracker {
 
     if (block.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
       emitEntry({ id: randomUUID(), role: 'assistant', at: now, text: block.text });
+      this.lastAssistantText = block.text;
       this.lastBoundaryMs = now;
       return;
     }

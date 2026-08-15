@@ -470,7 +470,7 @@ export function Overlay() {
         onCancel={(id) => void cancel(id)}
         onSendMessage={(id, text, opts) => sendMessage(id, text, opts)}
         onOpenChat={(id) => void fetchTranscript(id)}
-        onRetry={(id) => void retry(id)}
+        onRetry={(id) => retry(id).then(() => undefined)}
         worktrees={state.worktrees}
         remoteAvailable={state.capabilities?.remote ?? true}
         onShip={ship}

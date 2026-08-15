@@ -80,23 +80,28 @@ export type WorktreeAction = {
 export type TaskRowProps = {
   task: Task;
   theme: OverlayTheme;
-  hasTranscript: boolean;
   onOpenChat: () => void;
   onCancel?: () => void;
   /** Re-run this task; only rendered for failed rows. */
   onRetry?: () => void;
   /** Worktree actions. Optional — the gallery example renders rows without them. */
   worktree?: WorktreeAction;
+  /**
+   * Hide this finished row from the drawer. When the row still has a worktree,
+   * archiving goes through the worktree's own Discard-with-confirm instead —
+   * this is the plain variant for rows with nothing left to tear down.
+   */
+  onArchive?: () => void;
 };
 
 export function TaskRow({
   task,
   theme,
-  hasTranscript,
   onOpenChat,
   onCancel,
   onRetry,
   worktree,
+  onArchive,
 }: TaskRowProps) {
   const failed = task.status === 'failed';
   const p = surfacePalette(theme);
@@ -110,7 +115,7 @@ export function TaskRow({
   const canLand = wt != null && task.status === 'done';
   // Whether there's a button row at all — it owns the gap above it, so an empty
   // one would be 16px of dead space under a running task's status line.
-  const hasActions = (failed && onRetry != null) || wt != null;
+  const hasActions = (failed && onRetry != null) || wt != null || onArchive != null;
   return (
     <div style={cardStyle(theme)}>
       <div style={{ display: 'flex', alignItems: 'flex-start' }}>
@@ -158,16 +163,17 @@ export function TaskRow({
             <span>
               {statusLine(task)} · {elapsed(task)}
             </span>
-            {hasTranscript ? (
-              <button
-                type="button"
-                className="la-tp-soft"
-                style={viewChatLink()}
-                onClick={onOpenChat}
-              >
-                View chat
-              </button>
-            ) : null}
+            {/* Always on offer: the daemon keeps the transcript for every task
+                it knows about, so gating this on the client having already
+                *seen* entries hid finished chats after any page reload. */}
+            <button
+              type="button"
+              className="la-tp-soft"
+              style={viewChatLink()}
+              onClick={onOpenChat}
+            >
+              View chat
+            </button>
           </div>
           {/* What the last worktree action had to say, above the buttons rather
               than after them.
@@ -269,6 +275,9 @@ export function TaskRow({
                   </button>
                 </>
               ) : null}
+              {/* One slot, two weights of the same word. With a worktree still
+                  standing, Archive tears it down too, so it arms first; with
+                  nothing left to delete it just hides the row, no ceremony. */}
               {wt ? (
                 <button
                   type="button"
@@ -284,9 +293,19 @@ export function TaskRow({
                     }
                   }}
                   onBlur={() => setConfirming((c) => (c === 'discard' ? null : c))}
-                  title="Delete this worktree without merging it"
+                  title="Delete this worktree without merging it, and archive the task"
                 >
-                  {confirming === 'discard' ? 'Sure?' : 'Discard'}
+                  {confirming === 'discard' ? 'Sure?' : 'Archive'}
+                </button>
+              ) : onArchive ? (
+                <button
+                  type="button"
+                  className="la-tp-soft la-tp-act"
+                  style={discardBtn(theme)}
+                  onClick={onArchive}
+                  title="Remove this task from the list"
+                >
+                  Archive
                 </button>
               ) : null}
             </div>

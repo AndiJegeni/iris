@@ -232,7 +232,10 @@ class Transport {
       componentPath: [],
       nearbyText: null,
       confidence: 'low',
-      worktreeMode: 'new',
+      // Rerun where the original ran: slug "main" means it used the user's own
+      // checkout, so a retry spawning a surprise worktree would be a different
+      // task, not the same one again.
+      worktreeMode: orig.worktreeSlug === 'main' ? 'same' : 'new',
       backend: orig.backend,
       model: orig.model ?? '',
       reasoningEffort: 'medium',
