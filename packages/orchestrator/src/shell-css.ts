@@ -227,30 +227,37 @@ export const shellCss = `
       /* display:flex would otherwise outrank the hidden attribute. */
       .modal-scrim[hidden] { display: none; }
       .modal {
-        width: min(420px, 100%);
+        width: min(430px, 100%);
         background: var(--header-bg);
         border: 1px solid var(--header-border);
-        border-radius: 18px;
-        padding: 16px 18px;
+        border-radius: 28px;
+        padding: 24px 28px 28px;
         box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
       }
       .modal-head {
         display: flex; align-items: center; justify-content: space-between;
-        gap: 12px; padding-bottom: 12px;
+        gap: 12px; padding-bottom: 16px;
         border-bottom: 1px solid var(--header-border);
       }
-      .modal-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--text); }
+      .modal-title {
+        margin: 0; font-size: 20px; font-weight: 700;
+        letter-spacing: -0.01em; color: var(--text);
+      }
+      /* Negative margin buys the × a real hit target without pushing the glyph
+         off the title's baseline or the card's gutter. */
       .modal-close {
-        background: transparent; border: none; padding: 0; line-height: 1;
-        font-size: 18px; color: var(--soft); cursor: pointer;
+        background: transparent; border: none; padding: 6px; margin: -6px;
+        line-height: 1; font-size: 24px; color: var(--soft); cursor: pointer;
         font-family: inherit; transition: color 90ms ease;
       }
       .modal-close:hover { color: var(--text); }
-      .modal-body { margin: 12px 0 0; font-size: 12px; line-height: 1.55; color: var(--muted); }
-      .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+      .modal-body { margin: 16px 0 0; font-size: 15px; line-height: 1.6; color: var(--muted); }
+      /* The row that makes it read as the reference: two equal pills filling
+         the card's width, not small text buttons tucked in a corner. */
+      .modal-actions { display: flex; gap: 12px; margin-top: 24px; }
       .modal-btn {
-        border: none; border-radius: 999px; padding: 7px 16px;
-        font-size: 12px; font-weight: 500; font-family: inherit;
+        flex: 1; min-width: 0; height: 48px; border: none; border-radius: 999px;
+        padding: 0 16px; font-size: 15px; font-weight: 700; font-family: inherit;
         cursor: pointer; transition: opacity 90ms ease;
       }
       .modal-btn:hover { opacity: 0.85; }

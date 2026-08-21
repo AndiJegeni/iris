@@ -1,7 +1,7 @@
 /** @jsxImportSource preact */
 import { useEffect, useRef } from 'preact/hooks';
 import { CloseThinIcon } from './icons';
-import { type OverlayTheme, SURFACE_WIDTH, type SurfacePalette, surfacePalette } from './theme';
+import { type OverlayTheme, type SurfacePalette, surfacePalette } from './theme';
 
 type ConfirmDialogProps = {
   title: string;
@@ -80,7 +80,7 @@ export function ConfirmDialog({
             onClick={onCancel}
             aria-label="Close"
           >
-            <CloseThinIcon />
+            <CloseThinIcon size={18} />
           </button>
         </div>
         <p style={bodyStyle(p)}>{body}</p>
@@ -126,16 +126,16 @@ const scrimStyle = (p: SurfacePalette) => ({
 });
 
 /**
- * The shell dialog's 18px rather than the surfaces' SURFACE_RADIUS: this is one
- * small card centred in an empty field, not a panel docked to an edge, and at
- * 8px it read as a torn-off scrap of the drawer.
+ * The shell dialog's 28px/430px rather than the surfaces' SURFACE_RADIUS and
+ * SURFACE_WIDTH: this is one card centred in an empty field, not a panel docked
+ * to an edge, and at the drawer's geometry it read as a torn-off scrap of it.
  */
 const cardStyle = (p: SurfacePalette, theme: OverlayTheme) => ({
-  width: `min(${SURFACE_WIDTH}px, 100%)`,
+  width: 'min(430px, 100%)',
   background: p.surface,
   border: `1px solid ${p.stroke}`,
-  borderRadius: '18px',
-  padding: '16px 18px',
+  borderRadius: '28px',
+  padding: '24px 28px 28px',
   boxShadow:
     theme === 'light' ? '0 16px 48px rgba(0, 0, 0, 0.2)' : '0 16px 48px rgba(0, 0, 0, 0.45)',
   color: p.ink,
@@ -146,20 +146,24 @@ const headStyle = (p: SurfacePalette) => ({
   alignItems: 'center',
   justifyContent: 'space-between',
   gap: '12px',
-  paddingBottom: '12px',
+  paddingBottom: '16px',
   borderBottom: `1px solid ${p.stroke}`,
 });
 
 const titleStyle = (p: SurfacePalette) => ({
-  fontSize: '13px',
-  fontWeight: 600,
+  fontSize: '20px',
+  fontWeight: 700,
+  letterSpacing: '-0.01em',
   color: p.ink,
 });
 
+// Negative margin buys the × a real hit target without pushing the glyph off
+// the title's baseline or the card's gutter.
 const closeBtn = () => ({
   display: 'inline-flex',
   alignItems: 'center',
-  padding: 0,
+  padding: '6px',
+  margin: '-6px',
   background: 'transparent',
   border: 'none',
   cursor: 'pointer',
@@ -167,25 +171,29 @@ const closeBtn = () => ({
 });
 
 const bodyStyle = (p: SurfacePalette) => ({
-  margin: '12px 0 0',
-  fontSize: '12px',
-  lineHeight: 1.55,
+  margin: '16px 0 0',
+  fontSize: '15px',
+  lineHeight: 1.6,
   color: p.soft,
 });
 
+// The row that makes it read as the reference: two equal pills filling the
+// card's width, not small text buttons tucked in a corner.
 const actionsStyle = () => ({
   display: 'flex',
-  justifyContent: 'flex-end',
-  gap: '8px',
-  marginTop: '18px',
+  gap: '12px',
+  marginTop: '24px',
 });
 
 const btnBase = () => ({
+  flex: 1,
+  minWidth: 0,
+  height: '48px',
   border: 'none',
   borderRadius: '999px',
-  padding: '7px 16px',
-  fontSize: '12px',
-  fontWeight: 500,
+  padding: '0 16px',
+  fontSize: '15px',
+  fontWeight: 700,
   fontFamily: 'inherit',
   letterSpacing: 'inherit',
   cursor: 'pointer',
