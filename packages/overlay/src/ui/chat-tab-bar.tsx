@@ -26,7 +26,14 @@ export function ChatTabBar({
   // selected tab uses the pill's hover ink, the chat's only fill.
   return (
     <div style={tabBar(theme)}>
-      <button type="button" style={tabBackBtn(theme)} onClick={onBack} aria-label="Back to tasks">
+      <style>{tabBarCss(theme)}</style>
+      <button
+        type="button"
+        className="la-tc-tabicon"
+        style={tabBackBtn}
+        onClick={onBack}
+        aria-label="Back to tasks"
+      >
         <ThinChevronLeftIcon />
       </button>
       <div style={tabsRow}>
@@ -47,7 +54,8 @@ export function ChatTabBar({
               </button>
               <button
                 type="button"
-                style={tabClose(theme)}
+                className="la-tc-tabicon"
+                style={tabClose}
                 onClick={() => onCloseTab(tab.id)}
                 aria-label="Close chat"
               >
@@ -58,7 +66,13 @@ export function ChatTabBar({
         })}
       </div>
       <div style={tabActions}>
-        <button type="button" style={tabIconBtn(theme)} onClick={onBack} aria-label="Back to tasks">
+        <button
+          type="button"
+          className="la-tc-tabicon"
+          style={tabIconBtn}
+          onClick={onBack}
+          aria-label="Back to tasks"
+        >
           <PlusThinIcon />
         </button>
       </div>
@@ -67,6 +81,13 @@ export function ChatTabBar({
 }
 
 // ---------- styles ----------
+
+// The bar's icons rest at `soft` and come up to full ink on hover. Both colours
+// live in the rule, never inline: an inline `color` would outrank `:hover`.
+const tabBarCss = (theme: OverlayTheme): string => {
+  const p = surfacePalette(theme);
+  return `.la-tc-tabicon{color:${p.soft};transition:color 90ms}.la-tc-tabicon:hover{color:${p.ink}}`;
+};
 
 const tabBar = (theme: OverlayTheme) => ({
   display: 'flex',
@@ -90,7 +111,7 @@ const tabsRow = {
   scrollbarWidth: 'none' as const,
 };
 
-const tabBackBtn = (theme: OverlayTheme) => ({
+const tabBackBtn = {
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -99,11 +120,10 @@ const tabBackBtn = (theme: OverlayTheme) => ({
   background: 'transparent',
   border: 'none',
   borderRadius: '999px',
-  color: surfacePalette(theme).soft,
   cursor: 'pointer',
   padding: 0,
   flexShrink: 0,
-});
+};
 
 const activeTab = (theme: OverlayTheme) => ({
   display: 'flex',
@@ -160,7 +180,7 @@ const tabTitle = {
   minWidth: 0,
 };
 
-const tabClose = (theme: OverlayTheme) => ({
+const tabClose = {
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -169,11 +189,10 @@ const tabClose = (theme: OverlayTheme) => ({
   background: 'transparent',
   border: 'none',
   borderRadius: '999px',
-  color: surfacePalette(theme).soft,
   cursor: 'pointer',
   padding: 0,
   flexShrink: 0,
-});
+};
 
 const tabActions = {
   display: 'flex',
@@ -182,7 +201,7 @@ const tabActions = {
   flexShrink: 0,
 };
 
-const tabIconBtn = (theme: OverlayTheme) => ({
+const tabIconBtn = {
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -191,7 +210,6 @@ const tabIconBtn = (theme: OverlayTheme) => ({
   background: 'transparent',
   border: 'none',
   borderRadius: '999px',
-  color: surfacePalette(theme).soft,
   cursor: 'pointer',
   padding: 0,
-});
+};

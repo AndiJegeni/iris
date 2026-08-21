@@ -253,8 +253,8 @@ export function TaskChat({
         {onCancel && busy ? (
           <button
             type="button"
-            className="la-tc-send"
-            style={{ ...sendBtn(theme), order: 3 }}
+            className="la-tc-send la-tc-stop"
+            style={{ ...stopBtn(theme), order: 3 }}
             onClick={onCancel}
             aria-label="Stop"
           >
@@ -297,10 +297,15 @@ const LOOSE = '14px';
 const chatCss = (theme: OverlayTheme): string => {
   const p = surfacePalette(theme);
   return [
-    '.la-pp-dim{opacity:0.6;transition:opacity 80ms}.la-pp-dim:hover{opacity:1}',
     '.la-tc-icon{background:transparent;transition:background 90ms,box-shadow 90ms}',
     `.la-tc-icon:hover{background:${p.hover};box-shadow:0 0 0 2px ${p.hover}}`,
+    // `transition` is one property, so it can only be declared in one place —
+    // and the circle used to declare it inline, which silently dropped the
+    // background fade `.la-tc-stop` asks for below. Both circles get their
+    // timing here instead; Stop comes after and widens it by one property.
+    '.la-tc-send{transition:opacity 120ms,transform 120ms}',
     '.la-tc-send:hover:not(:disabled){transform:scale(1.06)}',
+    `.la-tc-stop{background:${p.soft};transition:background 80ms,opacity 120ms,transform 120ms}.la-tc-stop:hover{background:${p.submitBg}}`,
     // Activity rows are full-width, so a hover *fill* would re-draw the boxes
     // this layout exists to remove. A dip in opacity reads as pressable without
     // adding a container.
@@ -396,18 +401,45 @@ const attachBtn = () => ({
 });
 
 // The popover's send button — inverted against the surface, same as there.
-const sendBtn = (theme: OverlayTheme) => ({
+/**
+ * The composer's trailing circle — everything but the fill, which is Send's and
+ * Stop's one difference.
+ */
+const circleBtn = (theme: OverlayTheme) => ({
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
   width: '26px',
   height: '26px',
   flexShrink: 0,
-  background: surfacePalette(theme).submitBg,
   border: 'none',
   borderRadius: '999px',
   color: surfacePalette(theme).submitText,
   cursor: 'pointer',
   padding: 0,
-  transition: 'opacity 120ms, transform 120ms',
+  // 2px on top of the card's 6px column gap. The picker is a wide, quiet label
+  // and the button a small, loud circle; at 6px flat they read as one welded
+  // control rather than a control and its trailing action.
+  marginLeft: '2px',
+  // No inline `transition` — `.la-tc-send` owns the timing (see chatCss).
 });
+
+/** Send: the composer's one inverted, primary control. */
+const sendBtn = (theme: OverlayTheme) => ({
+  ...circleBtn(theme),
+  background: surfacePalette(theme).submitBg,
+});
+
+/**
+ * Stop, wearing the running row's circle rather than Send's.
+ *
+ * Send is the composer's one inverted, primary control. Stop isn't primary —
+ * it undoes — and it already exists elsewhere as `.la-tp-circle` in a running
+ * row's corner: a `soft` fill that inverts on hover. Painting it white here
+ * made the busy composer louder than the idle one, which is backwards.
+ *
+ * The fill lives in CSS (`.la-tc-stop`), not inline, so the hover can win.
+ * Geometry stays Send's 26 — the row's 24 is sized to the pills beside it, and
+ * changing width here would jog the composer every time a run starts.
+ */
+const stopBtn = (theme: OverlayTheme) => circleBtn(theme);

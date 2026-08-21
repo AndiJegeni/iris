@@ -26,12 +26,18 @@ export const shellCss = `
         --text: #f4f4f5;
         --logo: rgba(255, 255, 255, 0.4);
         --muted: #a1a1aa;
+        --soft: rgba(244, 244, 245, 0.4);
         --faint: #71717a;
         --control-border: #3f3f46;
         --code-bg: #18181b;
         --code-text: #e4e4e7;
         --accent: #3b82f6;
         --danger: #f87171;
+        --scrim: rgba(0, 0, 0, 0.6);
+        --dialog-primary-bg: #f4f4f5;
+        --dialog-primary-fg: #18181b;
+        --dialog-secondary-bg: #3f3f46;
+        --dialog-secondary-fg: #f4f4f5;
       }
       @media (prefers-color-scheme: light) {
         :root {
@@ -43,11 +49,17 @@ export const shellCss = `
              invisible, so light mode mirrors it as the foreground at 40%. */
           --logo: rgba(0, 0, 0, 0.4);
           --muted: #52525b;
+          --soft: rgba(24, 24, 27, 0.5);
           --faint: #71717a;
           --control-border: #d4d4d8;
           --code-bg: #e4e4e7;
           --code-text: #27272a;
           --danger: #dc2626;
+          --scrim: rgba(0, 0, 0, 0.35);
+          --dialog-primary-bg: #18181b;
+          --dialog-primary-fg: #ffffff;
+          --dialog-secondary-bg: #e4e4e7;
+          --dialog-secondary-fg: #27272a;
         }
       }
       :root[data-theme="dark"] {
@@ -57,11 +69,17 @@ export const shellCss = `
         --text: #f4f4f5;
         --logo: rgba(255, 255, 255, 0.4);
         --muted: #a1a1aa;
+        --soft: rgba(244, 244, 245, 0.4);
         --faint: #71717a;
         --control-border: #3f3f46;
         --code-bg: #18181b;
         --code-text: #e4e4e7;
         --danger: #f87171;
+        --scrim: rgba(0, 0, 0, 0.6);
+        --dialog-primary-bg: #f4f4f5;
+        --dialog-primary-fg: #18181b;
+        --dialog-secondary-bg: #3f3f46;
+        --dialog-secondary-fg: #f4f4f5;
       }
       :root[data-theme="light"] {
         --bg: #f4f4f5;
@@ -70,11 +88,17 @@ export const shellCss = `
         --text: #18181b;
         --logo: rgba(0, 0, 0, 0.4);
         --muted: #52525b;
+        --soft: rgba(24, 24, 27, 0.5);
         --faint: #71717a;
         --control-border: #d4d4d8;
         --code-bg: #e4e4e7;
         --code-text: #27272a;
         --danger: #dc2626;
+        --scrim: rgba(0, 0, 0, 0.35);
+        --dialog-primary-bg: #18181b;
+        --dialog-primary-fg: #ffffff;
+        --dialog-secondary-bg: #e4e4e7;
+        --dialog-secondary-fg: #27272a;
       }
 
       * { box-sizing: border-box; }
@@ -147,48 +171,19 @@ export const shellCss = `
        */
       option { background: var(--header-bg); color: var(--text); }
       /*
-       * Background Tasks: the drawer itself lives in the overlay (inside the
-       * iframe), but its button is chrome for the whole viewport, so it sits up
-       * here beside the viewport switcher. Hidden until the overlay reports work
-       * to show — mirroring the launcher it replaces, and keeping the bar clear
-       * of a button that would do nothing when the framed page has no overlay.
+       * Everything but the wordmark, held together so the margin-left:auto can
+       * live on the group rather than on any one member. It used to sit on
+       * .status, which worked only because that span is always present — now
+       * that the worktree buttons ride along on the right, and all three of
+       * them are display:none off an agent worktree, no single member is
+       * reliably there to carry it.
        */
-      .tasks-btn {
-        display: none;
-        align-items: center;
-        gap: 5px;
-        /* Still the select's height, so the hover fill lines up with the control
-           beside it even though nothing is drawn around the glyph at rest. */
-        height: 24px;
-        padding: 0 6px;
-        background: transparent;
-        /* Muted at rest, like the wordmark and the "viewport" label: with no chip
-           around it, full-strength ink would make this the loudest thing in a bar
-           that is otherwise all quiet text. Hover brings it up to full. */
-        color: var(--muted);
-        border: none;
-        border-radius: 6px;
-        font-size: 12px;
-        font-family: inherit;
-        cursor: pointer;
-        outline: none;
-        transition: color 90ms ease;
-      }
-      /* Nothing is drawn around the glyph, hovered or not — the ink coming up to
-         full is the whole affordance. */
-      .tasks-btn:hover { color: var(--text); }
-      /* No border to tint, so the keyboard ring is drawn outside the box —
-         same shape the overlay's own pill buttons use. */
-      .tasks-btn:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
-      /* Open drawer — the accent the select wears when focused, on the ink. */
-      .tasks-btn[data-open="true"] { color: var(--accent); }
-      /* Running count, the glyph's peer rather than a badge on it: same ink,
-         same size as the bar's text, tabular so it doesn't jitter at 9→10. */
-      .tasks-count { font-variant-numeric: tabular-nums; line-height: 1; }
+      .bar-right { display: flex; align-items: center; gap: 12px; margin-left: auto; }
       /* Silent while the daemon is reachable — it only ever speaks up to report
-         that it isn't. The margin-left:auto lives here rather than on the
-         switcher so the switcher still sits hard right when this span is empty. */
-      .status { color: var(--danger); font-size: 11px; margin-left: auto; }
+         that it isn't. Out of flow entirely when it has nothing to say, or the
+         group would still spend a 12px gap on an empty span. */
+      .status { color: var(--danger); font-size: 11px; }
+      .status:empty { display: none; }
       iframe { flex: 1; border: none; background: white; }
       .empty {
         flex: 1; display: flex; align-items: center; justify-content: center;
@@ -198,23 +193,73 @@ export const shellCss = `
         background: var(--code-bg); padding: 2px 6px; border-radius: 4px;
         font-family: ui-monospace, monospace; color: var(--code-text);
       }
-      .ship-btn {
-        background: #16a34a; color: #ffffff; border: none; border-radius: 6px;
-        padding: 4px 12px; font-size: 11px; font-weight: 600; cursor: pointer;
-        font-family: inherit;
+      /* The task rows' quiet idiom, up here too: text-only, regular weight,
+         soft ink lifting to full under the cursor. The old green Merge pill
+         made the bar's copy of these controls louder than the drawer's — the
+         same action wearing two costumes. One filled chip and one outline
+         chip went with it; hover ink is now the whole affordance, exactly as
+         it is on the rows. 12px rather than the rows' 13 because everything
+         in this bar sits on the 12px line.
+
+         Ink is --soft, not --muted: the rows' soft is the ink thinned to 40/50%,
+         and --muted is a flat step-down that lands visibly heavier over this
+         bar. Written the same way, they still didn't look the same weight. */
+      .ship-btn, .pr-btn, .discard-btn {
+        background: transparent; color: var(--soft); border: none;
+        border-radius: 6px; padding: 4px 6px; font-size: 12px; font-weight: 400;
+        cursor: pointer; font-family: inherit; transition: color 90ms ease;
       }
-      .discard-btn {
-        background: transparent; color: var(--muted);
-        border: 1px solid var(--control-border); border-radius: 6px;
-        padding: 3px 10px; font-size: 11px; cursor: pointer; font-family: inherit;
-      }
-      /* Outlined, not a second green: merging into your checkout and opening a
-         PR are alternatives, and only one of them should read as THE action. */
-      .pr-btn {
-        background: transparent; color: var(--text);
-        border: 1px solid var(--control-border); border-radius: 6px;
-        padding: 3px 10px; font-size: 11px; font-weight: 500; cursor: pointer;
-        font-family: inherit;
-      }
+      .ship-btn:hover:not(:disabled), .pr-btn:hover:not(:disabled),
+      .discard-btn:hover:not(:disabled) { color: var(--text); }
       .ship-btn:disabled, .pr-btn:disabled { opacity: 0.6; cursor: default; }
+
+      /*
+       * The confirmation dialog, standing in for confirm(). The native one
+       * can't be themed and names the page in its title, which reads as the
+       * browser asking rather than iris — a bad look on the one control that
+       * throws work away. Driven by askConfirm() in shell-html.ts.
+       */
+      .modal-scrim {
+        position: fixed; inset: 0; z-index: 10;
+        display: flex; align-items: center; justify-content: center;
+        padding: 16px; background: var(--scrim);
+      }
+      /* display:flex would otherwise outrank the hidden attribute. */
+      .modal-scrim[hidden] { display: none; }
+      .modal {
+        width: min(420px, 100%);
+        background: var(--header-bg);
+        border: 1px solid var(--header-border);
+        border-radius: 18px;
+        padding: 16px 18px;
+        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+      }
+      .modal-head {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 12px; padding-bottom: 12px;
+        border-bottom: 1px solid var(--header-border);
+      }
+      .modal-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--text); }
+      .modal-close {
+        background: transparent; border: none; padding: 0; line-height: 1;
+        font-size: 18px; color: var(--soft); cursor: pointer;
+        font-family: inherit; transition: color 90ms ease;
+      }
+      .modal-close:hover { color: var(--text); }
+      .modal-body { margin: 12px 0 0; font-size: 12px; line-height: 1.55; color: var(--muted); }
+      .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+      .modal-btn {
+        border: none; border-radius: 999px; padding: 7px 16px;
+        font-size: 12px; font-weight: 500; font-family: inherit;
+        cursor: pointer; transition: opacity 90ms ease;
+      }
+      .modal-btn:hover { opacity: 0.85; }
+      /*
+       * Inverted from where the eye expects them: the safe choice wears the
+       * filled primary and the destructive one the muted secondary, so the
+       * button that destroys work is never the inviting one. Primary flips
+       * against the surface per theme, like the overlay's own submit button.
+       */
+      .modal-btn-primary { background: var(--dialog-primary-bg); color: var(--dialog-primary-fg); }
+      .modal-btn-secondary { background: var(--dialog-secondary-bg); color: var(--dialog-secondary-fg); }
 `;

@@ -2,7 +2,7 @@
  * The iframe shell served at the orchestrator root (`:4747/`).
  *
  * Layout:
- *   ┌─ Top bar (38px): "iris" left; tasks button + viewport switcher right ┐
+ *   ┌─ Top bar (38px): "iris" left; worktree actions + viewport switcher right ┐
  *   │                                                                  │
  *   │  ┌─────────────────────────────────────────────────────────┐   │
  *   │  │ <iframe src="http://localhost:300X/">  (the picked       │   │
@@ -12,11 +12,10 @@
  *
  * Dropdown options update live from WS worktree:created/updated/removed events.
  *
- * The Background Tasks button is the overlay's launcher lifted up here: the
- * drawer belongs to the overlay, but the button is chrome for the whole
- * viewport rather than for the page inside it. Since the two sit on different
- * origins, they talk by postMessage — counts up, toggle down (see the handshake
- * in the script below and its other half in packages/overlay/src/overlay.tsx).
+ * Background Tasks is NOT up here: the overlay's floating launcher (beside
+ * the pill, inside the frame) is the one control, framed or not. A copy in
+ * the bar was tried twice and read as a duplicate both times — the only thing
+ * crossing the origin boundary is the overlay's theme report.
  *
  * Presentation lives in shell-css.ts, interpolated into the <style> below.
  */
@@ -34,39 +33,43 @@ export function shellHtml(mainPort: number): string {
   <body>
     <header>
       <span class="logo">iris</span>
-      <button id="ship-btn" class="ship-btn" type="button" style="display: none;" title="Merge this worktree's branch into your checkout and delete it">Merge locally</button>
-      <button id="pr-btn" class="pr-btn" type="button" style="display: none;" title="Push this branch and open a pull request">Create PR</button>
-      <button id="discard-btn" class="discard-btn" type="button" style="display: none;" title="Tear down this worktree without merging">Discard</button>
-      <span class="status" id="status-text"></span>
-      <button id="tasks-btn" class="tasks-btn" type="button" title="Background tasks" aria-pressed="false">
-        <!-- Stacked sheets, one per queued task — the overlay's BackgroundTasksIcon
-             at the bar's scale (see packages/overlay/src/ui/icons.tsx). -->
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <g stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M7 9.49958L2 11.9996L11.6422 16.8207C11.7734 16.8863 11.839 16.9191 11.9078 16.932C11.9687 16.9434 12.0313 16.9434 12.0922 16.932C12.161 16.9191 12.2266 16.8863 12.3578 16.8207L22 11.9996L17 9.49958" />
-            <path d="M7 14.4996L2 16.9996L11.6422 21.8207C11.7734 21.8863 11.839 21.9191 11.9078 21.932C11.9687 21.9434 12.0313 21.9434 12.0922 21.932C12.161 21.9191 12.2266 21.8863 12.3578 21.8207L22 16.9996L17 14.4996" />
-            <path d="M2 6.99958L11.6422 2.17846C11.7734 2.11287 11.839 2.08008 11.9078 2.06717C11.9687 2.05574 12.0313 2.05574 12.0922 2.06717C12.161 2.08008 12.2266 2.11287 12.3578 2.17846L22 6.99958L12.3578 11.8207C12.2266 11.8863 12.161 11.9191 12.0922 11.932C12.0313 11.9434 11.9687 11.9434 11.9078 11.932C11.839 11.9191 11.7734 11.8863 11.6422 11.8207L2 6.99958Z" />
-          </g>
-        </svg>
-        <span class="tasks-count" id="tasks-count"></span>
-      </button>
-      <label class="viewport-label">
-        viewport
-        <span class="select-wrap">
-          <select id="viewport-switcher">
-            <option value="main" data-port="${mainPort}">main · :${mainPort}</option>
-          </select>
-          <span class="select-measure" id="select-measure" aria-hidden="true"></span>
-          <svg class="select-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </span>
-      </label>
+      <div class="bar-right">
+        <span class="status" id="status-text"></span>
+        <button id="ship-btn" class="ship-btn" type="button" style="display: none;" title="Merge this worktree's branch into your checkout and delete it">Merge locally</button>
+        <button id="pr-btn" class="pr-btn" type="button" style="display: none;" title="Push this branch and open a pull request">Create PR</button>
+        <button id="discard-btn" class="discard-btn" type="button" style="display: none;" title="Tear down this worktree without merging">Discard</button>
+        <label class="viewport-label">
+          viewport
+          <span class="select-wrap">
+            <select id="viewport-switcher">
+              <option value="main" data-port="${mainPort}">main · :${mainPort}</option>
+            </select>
+            <span class="select-measure" id="select-measure" aria-hidden="true"></span>
+            <svg class="select-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+        </label>
+      </div>
     </header>
     <iframe id="viewport" src="http://localhost:${mainPort}/" referrerpolicy="no-referrer-when-downgrade"></iframe>
     <div class="empty" id="empty" style="display:none">
       <div>main dev server isn't responding on :${mainPort}</div>
       <div>Run <code>bun dev</code> (or <code>npm run dev</code>) and refresh.</div>
+    </div>
+    <!-- One dialog, filled in by whoever asks — see askConfirm() below. -->
+    <div class="modal-scrim" id="confirm-scrim" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <div class="modal-head">
+          <h2 class="modal-title" id="confirm-title"></h2>
+          <button class="modal-close" id="confirm-close" type="button" aria-label="Close">&times;</button>
+        </div>
+        <p class="modal-body" id="confirm-body"></p>
+        <div class="modal-actions">
+          <button class="modal-btn modal-btn-secondary" id="confirm-yes" type="button"></button>
+          <button class="modal-btn modal-btn-primary" id="confirm-no" type="button">Cancel</button>
+        </div>
+      </div>
     </div>
     <script>
       (function() {
@@ -76,8 +79,6 @@ export function shellHtml(mainPort: number): string {
         var iframeEl = document.getElementById('viewport');
         var statusEl = document.getElementById('status-text');
         var emptyEl = document.getElementById('empty');
-        var tasksBtn = document.getElementById('tasks-btn');
-        var tasksCountEl = document.getElementById('tasks-count');
         var measureEl = document.getElementById('select-measure');
 
         // A <select> is as wide as its widest option, not its current one. The
@@ -97,62 +98,18 @@ export function shellHtml(mainPort: number): string {
         var caps = null;
         worktrees.set('main', { slug: 'main', port: ${mainPort}, devServerStatus: 'ready' });
 
-        // Post down into the overlay. Addressed at the frame's own origin rather
-        // than '*' so a page that has navigated elsewhere never receives it.
-        function postToOverlay(msg) {
-          var win = iframeEl.contentWindow;
-          if (!win) return;
-          try { win.postMessage(msg, new URL(iframeEl.src).origin); } catch (e) {}
-        }
-
-        // Whether the framed page has answered with an overlay. Cleared on every
-        // navigation: the next page gets its own handshake, and until it speaks
-        // the tasks button stays hidden rather than showing the old page's count.
-        var overlayLinked = false;
-
-        // The overlay lives in the iframe, a different origin, so it reports up
-        // to us: its resolved theme (the top bar would otherwise follow the OS
-        // but not the overlay's own light/dark override) and its task counts
-        // (which drive the Background Tasks button above). Only ever sets an
-        // attribute or paints that button, and only from a localhost frame —
-        // this is the one message channel into the shell, so it stays narrow on
-        // purpose.
+        // The overlay lives in the iframe, a different origin, so it reports its
+        // resolved theme up to us — the bar would otherwise follow the OS while
+        // the overlay honoured its own light/dark override. One way and one
+        // message: it only ever sets an attribute, and only from a localhost
+        // frame, so the shell's single inbound channel stays as narrow as it
+        // can be.
         window.addEventListener('message', function(ev) {
           if (!/^https?:\\/\\/localhost(:\\d+)?$/.test(ev.origin)) return;
           var d = ev.data;
-          if (!d || d.source !== 'iris') return;
-          if (d.type === 'theme') {
-            if (d.theme !== 'light' && d.theme !== 'dark') return;
-            document.documentElement.setAttribute('data-theme', d.theme);
-          } else if (d.type === 'tasks') {
-            renderTasks(d);
-          } else {
-            return;
-          }
-          // Either side may come up first, so the overlay's first message is also
-          // our cue to introduce ourselves — that's what tells it to drop its own
-          // floating launcher in favour of the button up here.
-          if (!overlayLinked) {
-            overlayLinked = true;
-            postToOverlay({ source: 'iris-shell', type: 'shell:hello' });
-          }
-        });
-
-        // Same rule the overlay's launcher followed: the button exists only once
-        // there's work to show. The count is running tasks; the accent border
-        // mirrors the drawer being open, since the drawer itself is out of sight
-        // below the bar.
-        function renderTasks(d) {
-          var total = typeof d.total === 'number' ? d.total : 0;
-          var running = typeof d.running === 'number' ? d.running : 0;
-          tasksBtn.style.display = total > 0 ? 'inline-flex' : 'none';
-          tasksCountEl.textContent = running > 0 ? String(running) : '';
-          tasksBtn.setAttribute('data-open', d.open ? 'true' : 'false');
-          tasksBtn.setAttribute('aria-pressed', d.open ? 'true' : 'false');
-        }
-
-        tasksBtn.addEventListener('click', function() {
-          postToOverlay({ source: 'iris-shell', type: 'tasks:toggle' });
+          if (!d || d.source !== 'iris' || d.type !== 'theme') return;
+          if (d.theme !== 'light' && d.theme !== 'dark') return;
+          document.documentElement.setAttribute('data-theme', d.theme);
         });
 
         // Healthy and still-connecting are both silent — a bar that permanently
@@ -161,6 +118,54 @@ export function shellHtml(mainPort: number): string {
         function setConn(state) {
           statusEl.textContent = state === 'disconnected' ? 'daemon disconnected — retrying' : '';
         }
+
+        // Our own confirm(), asked by both destructive actions — Merge and
+        // Discard — which is why it takes its wording rather than owning it.
+        // Resolves false for every way out that isn't the confirm button, so a
+        // stray Escape or backdrop click can never be read as consent.
+        var scrimEl = document.getElementById('confirm-scrim');
+        var confirmTitleEl = document.getElementById('confirm-title');
+        var confirmBodyEl = document.getElementById('confirm-body');
+        var confirmYesEl = document.getElementById('confirm-yes');
+        var confirmNoEl = document.getElementById('confirm-no');
+        var settleConfirm = null;
+
+        function closeConfirm(answer) {
+          if (!settleConfirm) return;
+          var settle = settleConfirm;
+          settleConfirm = null;
+          scrimEl.hidden = true;
+          document.removeEventListener('keydown', onConfirmKey);
+          settle(answer);
+        }
+
+        function onConfirmKey(ev) {
+          if (ev.key === 'Escape') { ev.preventDefault(); closeConfirm(false); }
+        }
+
+        function askConfirm(opts) {
+          return new Promise(function(resolve) {
+            // A second question over an open one would strand the first
+            // promise; answering it "no" keeps its caller unblocked.
+            closeConfirm(false);
+            confirmTitleEl.textContent = opts.title;
+            confirmBodyEl.textContent = opts.body;
+            confirmYesEl.textContent = opts.confirmLabel;
+            confirmNoEl.textContent = opts.cancelLabel || 'Cancel';
+            scrimEl.hidden = false;
+            settleConfirm = resolve;
+            document.addEventListener('keydown', onConfirmKey);
+            // The safe button takes focus, so Enter on a dialog you didn't
+            // read cancels rather than destroys.
+            confirmNoEl.focus();
+          });
+        }
+
+        confirmYesEl.addEventListener('click', function() { closeConfirm(true); });
+        confirmNoEl.addEventListener('click', function() { closeConfirm(false); });
+        document.getElementById('confirm-close').addEventListener('click', function() { closeConfirm(false); });
+        // The scrim itself, not the dialog sitting on it.
+        scrimEl.addEventListener('click', function(ev) { if (ev.target === scrimEl) closeConfirm(false); });
 
         function render() {
           var prev = selectEl.value;
@@ -203,7 +208,12 @@ export function shellHtml(mainPort: number): string {
         document.getElementById('ship-btn').addEventListener('click', async function() {
           var slug = selectEl.value;
           if (slug === 'main') return;
-          if (!confirm('Merge ' + slug + ' into your checkout? Any uncommitted changes of yours that clash are replaced by the agent\\'s version (recoverable via git stash), and the worktree is deleted.')) return;
+          var ok = await askConfirm({
+            title: 'Merge locally?',
+            body: 'Merging ' + slug + ' into your checkout replaces any uncommitted changes of yours that clash with the agent\\'s version — those are recoverable, with "git stash pop". The worktree is deleted afterwards.',
+            confirmLabel: 'Merge locally',
+          });
+          if (!ok) return;
           var btn = document.getElementById('ship-btn');
           btn.disabled = true; btn.textContent = 'shipping…';
           try {
@@ -224,7 +234,7 @@ export function shellHtml(mainPort: number): string {
           }
         });
 
-        // No confirm(): unlike Merge and Discard this destroys nothing — the
+        // Asks nothing: unlike Merge and Discard this destroys nothing — the
         // worktree and its dev server survive so you can keep iterating.
         document.getElementById('pr-btn').addEventListener('click', async function() {
           var slug = selectEl.value;
@@ -255,7 +265,12 @@ export function shellHtml(mainPort: number): string {
         document.getElementById('discard-btn').addEventListener('click', async function() {
           var slug = selectEl.value;
           if (slug === 'main') return;
-          if (!confirm('Discard worktree ' + slug + '? This kills its dev server and deletes the worktree directory. Its branch lives inside that directory, so any uncommitted or unmerged work there is lost.')) return;
+          var ok = await askConfirm({
+            title: 'Discard worktree?',
+            body: 'Discarding ' + slug + ' kills its dev server and deletes the worktree directory. Its branch lives inside that directory, so any uncommitted or unmerged work there is lost.',
+            confirmLabel: 'Discard',
+          });
+          if (!ok) return;
           try {
             await fetch(daemonOrigin + '/worktrees/' + encodeURIComponent(slug), { method: 'DELETE' });
           } catch (e) {
@@ -304,11 +319,6 @@ export function shellHtml(mainPort: number): string {
         var iframeLoaded = false;
         iframeEl.addEventListener('load', function() {
           iframeLoaded = true; emptyEl.style.display = 'none'; iframeEl.style.display = '';
-          // Fresh page: forget the last one's overlay and re-open the handshake.
-          // The button stays hidden until this page reports tasks of its own.
-          overlayLinked = false;
-          renderTasks({ total: 0, running: 0, open: false });
-          postToOverlay({ source: 'iris-shell', type: 'shell:hello' });
         });
         setTimeout(function() {
           if (!iframeLoaded) { iframeEl.style.display = 'none'; emptyEl.style.display = 'flex'; }

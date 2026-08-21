@@ -1,6 +1,6 @@
 /** @jsxImportSource preact */
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { CheckIcon, ChevronRightIcon } from './icons';
+import { CheckIcon, ChevronDownIcon } from './icons';
 import type { ThemeTokens } from './theme';
 
 // The model catalog lives in @iris/shared (see MODELS there) so the picker, the
@@ -14,6 +14,70 @@ export {
   type ModelProvider,
   type ModelSpec,
 } from '@iris/shared';
+
+/** Widest the menu (or its submenu) gets: `menuPanel`'s min-width plus borders. */
+const MENU_W = 234;
+/**
+ * The right edge, in viewport px, past which this element would be clipped.
+ *
+ * NOT `window.innerWidth`, which is what the flip tests used to ask. The menu
+ * opens inside the task drawer, and the drawer is `overflow: hidden` sitting
+ * 16px in from the right — so a menu can be entirely on-screen by the
+ * viewport's reckoning and still be sliced off by the panel around it, which
+ * is exactly what happened in the chat composer. Walk up to the nearest
+ * ancestor that actually clips (crossing the shadow boundary, since the
+ * overlay lives in a shadow root) and ask *that*.
+ */
+function clipRight(el: HTMLElement): number {
+  let node: HTMLElement | null = el;
+  while (node) {
+    const style = getComputedStyle(node);
+    if (style.overflowX !== 'visible' || style.overflow !== 'visible') {
+      return node.getBoundingClientRect().right;
+    }
+    const parent: Node | null = node.parentElement ?? (node.getRootNode() as ShadowRoot).host;
+    node = (parent as HTMLElement) ?? null;
+  }
+  return window.innerWidth;
+}
+
+/**
+ * The row at the foot of each page that swaps to the other one, showing the
+ * value it would let you change. Reasoning's page carries the model; the
+ * model's page carries the reasoning — so whichever page you're on, the other
+ * setting is still legible without leaving.
+ */
+function DrillRow({ label, onClick, t }: { label: string; onClick: () => void; t: ThemeTokens }) {
+  return (
+    <button
+      type="button"
+      className="la-mp-row la-mp-model-row"
+      onClick={onClick}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        width: '100%',
+        gap: '12px',
+        padding: '6px 8px',
+        marginBottom: '2px',
+        border: 'none',
+        borderRadius: '6px',
+        color: t.textPrimary,
+        fontSize: '13px',
+        fontFamily: 'inherit',
+        letterSpacing: 'inherit',
+        cursor: 'pointer',
+        textAlign: 'left',
+      }}
+    >
+      <span style={{ whiteSpace: 'nowrap' }}>{label}</span>
+      <span style={{ display: 'inline-flex', color: t.textFaint, flexShrink: 0 }}>
+        <ChevronDownIcon />
+      </span>
+    </button>
+  );
+}
 
 function MenuHeader({ label, t }: { label: string; t: ThemeTokens }) {
   return (
@@ -48,6 +112,7 @@ function MenuRow({
         width: '100%',
         gap: '12px',
         padding: '6px 8px',
+        marginBottom: '2px',
         border: 'none',
         borderRadius: '6px',
         // Selected rows keep an inline highlight; others rely on the :hover rule.
@@ -136,9 +201,15 @@ export function ModelReasoningPicker({
   softInk: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [modelOpen, setModelOpen] = useState(false);
+  /**
+   * Which page the menu is showing. Always reset to 'reasoning' on open — the
+   * setting you reach for most is the one that should be in front, and a menu
+   * that reopens wherever you left it makes you re-read it to find out where
+   * you are.
+   */
+  const [page, setPage] = useState<'reasoning' | 'model'>('reasoning');
   const [up, setUp] = useState(false);
-  const [subLeft, setSubLeft] = useState(false);
+  const [menuLeft, setMenuLeft] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -155,11 +226,9 @@ export function ModelReasoningPicker({
       const path = e.composedPath?.() ?? [];
       if (path.includes(root)) return;
       setOpen(false);
-      setModelOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setModelOpen(false);
         setOpen(false);
       }
     };
@@ -179,17 +248,20 @@ export function ModelReasoningPicker({
   }, [open]);
 
   const toggle = () => {
-    // Flip above the trigger when there isn't room below it in the viewport.
     if (!open && wrapRef.current) {
       const r = wrapRef.current.getBoundingClientRect();
+      // Flip above the trigger when there isn't room below it in the viewport.
       setUp(r.bottom + 320 > window.innerHeight);
+      // …and open leftward when growing rightward would run into whatever is
+      // clipping us. In the chat composer that is always true: the picker sits
+      // beside the send button, hard against the drawer's right edge.
+      setMenuLeft(r.left + MENU_W > clipRight(wrapRef.current));
     }
-    setModelOpen(false);
+    setPage('reasoning');
     setOpen((o) => !o);
   };
 
   const close = () => {
-    setModelOpen(false);
     setOpen(false);
   };
 
@@ -237,89 +309,56 @@ export function ModelReasoningPicker({
         <div
           style={{
             position: 'absolute',
-            left: 0,
+            // Right-anchored when flipped, flush with the trigger's own edge.
+            ...(menuLeft ? { right: 0 } : { left: 0 }),
             ...(up ? { bottom: '100%', marginBottom: '6px' } : { top: '100%', marginTop: '6px' }),
             zIndex: 10,
             ...menuPanel(t),
           }}
         >
-          <MenuHeader label="Reasoning" t={t} />
-          {effortOptions.map((o) => (
-            <MenuRow
-              key={o.value}
-              label={o.label}
-              selected={o.value === effort}
-              onClick={() => {
-                onEffortSelect(o.value);
-                close();
-              }}
-              t={t}
-            />
-          ))}
-          {/* Divider, then the current model as an expandable row. */}
-          <div style={{ height: '1px', background: t.controlBorder, margin: '6px 2px' }} />
-          <div style={{ position: 'relative' }}>
-            <button
-              type="button"
-              className="la-mp-row la-mp-model-row"
-              onClick={(e) => {
-                // Open the submenu to the right, flipping left when it would clip.
-                if (!modelOpen) {
-                  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                  setSubLeft(r.right + 248 > window.innerWidth);
-                }
-                setModelOpen((v) => !v);
-              }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                width: '100%',
-                gap: '12px',
-                padding: '6px 8px',
-                border: 'none',
-                borderRadius: '6px',
-                ...(modelOpen ? { background: t.controlBg } : null),
-                color: t.textPrimary,
-                fontSize: '13px',
-                fontFamily: 'inherit',
-                letterSpacing: 'inherit',
-                cursor: 'pointer',
-                textAlign: 'left',
-              }}
-            >
-              <span style={{ whiteSpace: 'nowrap' }}>{modelLabel}</span>
-              <span style={{ display: 'inline-flex', color: t.textFaint, flexShrink: 0 }}>
-                <ChevronRightIcon />
-              </span>
-            </button>
-            {modelOpen ? (
-              <div
-                style={{
-                  position: 'absolute',
-                  // Float beside the model row like a native submenu (flips side).
-                  ...(subLeft ? { right: 'calc(100% + 8px)' } : { left: 'calc(100% + 8px)' }),
-                  bottom: 0,
-                  zIndex: 11,
-                  ...menuPanel(t),
-                }}
-              >
-                <MenuHeader label="Model" t={t} />
-                {models.map((m) => (
-                  <MenuRow
-                    key={m.value}
-                    label={m.label}
-                    selected={m.value === model}
-                    onClick={() => {
-                      onModelSelect(m.value);
-                      close();
-                    }}
-                    t={t}
-                  />
-                ))}
-              </div>
-            ) : null}
-          </div>
+          {page === 'reasoning' ? (
+            <>
+              <MenuHeader label="Reasoning" t={t} />
+              {effortOptions.map((o) => (
+                <MenuRow
+                  key={o.value}
+                  label={o.label}
+                  selected={o.value === effort}
+                  onClick={() => {
+                    onEffortSelect(o.value);
+                    close();
+                  }}
+                  t={t}
+                />
+              ))}
+              {/* Divider, then the model as the row that swaps pages. */}
+              <div style={{ height: '1px', background: t.controlBorder, margin: '6px 2px' }} />
+              <DrillRow label={modelLabel} onClick={() => setPage('model')} t={t} />
+            </>
+          ) : (
+            <>
+              {/* The mirror image: the model list, with reasoning in the slot
+                  the model occupied. One panel that swaps its contents, rather
+                  than a second panel floating beside the first — two 232px
+                  menus and a gap need 472px, and the drawer this opens in is
+                  380, so a submenu was clipped on whichever side it chose. */}
+              <MenuHeader label="Model" t={t} />
+              {models.map((m) => (
+                <MenuRow
+                  key={m.value}
+                  label={m.label}
+                  selected={m.value === model}
+                  onClick={() => {
+                    onModelSelect(m.value);
+                    close();
+                  }}
+                  t={t}
+                />
+              ))}
+              <div style={{ height: '1px', background: t.controlBorder, margin: '6px 2px' }} />
+              <DrillRow label={effortLabel} onClick={() => setPage('reasoning')} t={t} />
+            </>
+          )}
         </div>
       ) : null}
     </div>

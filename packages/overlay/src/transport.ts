@@ -131,6 +131,15 @@ class Transport {
         });
         return;
       }
+      case 'task:removed': {
+        const transcripts = { ...this.state.transcripts };
+        delete transcripts[event.id];
+        this.setState({
+          tasks: this.state.tasks.filter((t) => t.id !== event.id),
+          transcripts,
+        });
+        return;
+      }
       case 'worktree:created':
       case 'worktree:updated': {
         const wt = event.worktree;
@@ -268,6 +277,18 @@ class Transport {
       const body = await res.text().catch(() => '');
       throw new Error(`message ${res.status}: ${body || res.statusText}`);
     }
+  }
+
+  /**
+   * Archive a finished task on the daemon: drops its row, transcript, and
+   * persisted record for good. Fire-and-forget from the drawer — the
+   * `task:removed` broadcast is what actually clears it from every client.
+   */
+  async archiveTask(id: string): Promise<void> {
+    const res = await fetch(`${this.daemonUrl}/tasks/${encodeURIComponent(id)}/archive`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error(await errorText(res));
   }
 
   /** Fetch the daemon's current provider auth status into state. */

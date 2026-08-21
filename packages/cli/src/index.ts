@@ -232,6 +232,10 @@ async function main(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     process.stdout.write(`\n${signal} received, shutting down…\n`);
+    // Deadline, not a wait: if some socket or child refuses to die, exiting
+    // with dev servers already stopped beats a daemon that ignores its signal.
+    const deadline = setTimeout(() => process.exit(0), 3000);
+    deadline.unref?.();
     await orchestrator.stop();
     process.exit(0);
   };
