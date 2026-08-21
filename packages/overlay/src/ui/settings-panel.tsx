@@ -419,7 +419,9 @@ const rowStyle = (_t: ThemeTokens) => ({
   padding: '9px 8px',
   border: 'none',
   borderRadius: '8px',
-  background: 'transparent',
+  // No inline `background` — `.la-sp-row` rests at transparent so its :hover
+  // fill can win. Named here it outranked the rule, and neither settings row
+  // had ever highlighted under the cursor.
   cursor: 'pointer',
   fontFamily: 'inherit',
   letterSpacing: 'inherit',

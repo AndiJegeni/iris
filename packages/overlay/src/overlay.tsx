@@ -13,7 +13,6 @@ import { PickedPopover } from './ui/picked-popover';
 import { PILL_CIRCLE, PILL_TOOLBAR_W, Pill } from './ui/pill';
 import { SettingsPanel } from './ui/settings-panel';
 import { TaskPanel } from './ui/task-panel';
-import { isRunning } from './ui/task-row';
 import type { OverlayTheme } from './ui/theme';
 import { useTransport } from './use-transport';
 
@@ -115,14 +114,6 @@ export function Overlay() {
   // Background Tasks drawer — opened from the tasks button, which only exists
   // while tasks do. Mutually exclusive with the chat/settings panels.
   const [tasksOpen, setTasksOpen] = useState(false);
-  // Counts the orchestrator shell's pings. Non-zero means the shell is there and
-  // owns the Background Tasks button (top bar, left of the viewport switcher),
-  // so we drop our own floating launcher. It's a counter rather than a flag
-  // because the shell re-pings on every navigation, having cleared what it knew
-  // about us — each ping has to pull a fresh report back out. See the handshake
-  // below.
-  const [shellPings, setShellPings] = useState(0);
-  const inShell = shellPings > 0;
   const [pillPos, setPillPos] = useState<PillPos | null>(loadPillPos);
   // Makes the host page inert (see InteractionShield) so clicking around to
   // annotate never triggers the app itself.
@@ -147,6 +138,7 @@ export function Overlay() {
     ship,
     createPr,
     discard,
+    archive,
   } = useTransport();
 
   useEffect(() => {
@@ -203,50 +195,6 @@ export function Overlay() {
     }
     setTasksOpen(next);
   }, []);
-  // Read by the shell's toggle message, whose listener is registered once.
-  const tasksOpenRef = useRef(tasksOpen);
-  tasksOpenRef.current = tasksOpen;
-
-  // Two-way handshake with the orchestrator shell, which hosts the Background
-  // Tasks button in its top bar. It's a different origin, so it can neither read
-  // our task list nor call into the drawer: we post the counts up, it posts a
-  // toggle back. Either side may come up first — the shell pings on iframe load,
-  // and answers our first report with the same ping — so `shell:hello` is what
-  // establishes the connection rather than any particular ordering.
-  useEffect(() => {
-    if (typeof window === 'undefined' || window.parent === window) return;
-    const onMessage = (ev: MessageEvent) => {
-      // Only our own embedder, and only the two messages it may send.
-      if (ev.source !== window.parent) return;
-      const data = ev.data as { source?: string; type?: string } | null;
-      if (!data || data.source !== 'iris-shell') return;
-      if (data.type !== 'shell:hello' && data.type !== 'tasks:toggle') return;
-      setShellPings((n) => n + 1);
-      if (data.type === 'tasks:toggle') openTasksPanel(!tasksOpenRef.current);
-    };
-    window.addEventListener('message', onMessage);
-    return () => {
-      window.removeEventListener('message', onMessage);
-    };
-  }, [openTasksPanel]);
-
-  // Report the drawer's state upward so the shell's button can mirror it: shown
-  // only while there's work (same rule the floating launcher follows), carrying
-  // the running count, and lit while the drawer is open. Re-sent on every ping
-  // as well as on every change, so a shell that has just reset itself gets the
-  // current picture rather than waiting for the next task event. Harmless if
-  // there's no shell — the message just goes nowhere.
-  const taskCount = state.tasks.length;
-  const runningCount = state.tasks.filter(isRunning).length;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: shellPings is the point, not a stale read — a new ping means a shell that has forgotten our counts and needs them re-sent.
-  useEffect(() => {
-    if (typeof window === 'undefined' || window.parent === window) return;
-    window.parent.postMessage(
-      { source: 'iris', type: 'tasks', total: taskCount, running: runningCount, open: tasksOpen },
-      '*',
-    );
-  }, [taskCount, runningCount, tasksOpen, shellPings]);
-
   const toggleBlockInteractions = useCallback((next: boolean) => {
     setBlockInteractions(next);
     try {
@@ -359,8 +307,8 @@ export function Overlay() {
 
   // The launcher shares the pill's row, immediately to its left. The pill keeps
   // a fixed right edge and grows leftward when armed, so offset by whichever
-  // width it currently has and reuse its morph timing — the circle slides in
-  // step with the toolbar instead of being jumped aside.
+  // width it currently has; the morph timing that keeps the circle sliding in
+  // step with the toolbar lives on `.la-tp-launcher` (see task-panel.styles).
   const pillWidth = armed ? PILL_TOOLBAR_W : PILL_CIRCLE;
   const leftOfPill = pillRight + pillWidth + PANEL_GAP;
   // Dragged against the left edge there's no room on that side and the circle
@@ -375,7 +323,6 @@ export function Overlay() {
     bottom: `${pillTopFromBottom - PILL_CIRCLE}px`,
     left: 'auto',
     top: 'auto',
-    transition: 'right 320ms cubic-bezier(0.19, 1, 0.22, 1)',
   };
 
   // The drawer runs from the top edge down to just above the pill row, so it
@@ -471,6 +418,7 @@ export function Overlay() {
         onSendMessage={(id, text, opts) => sendMessage(id, text, opts)}
         onOpenChat={(id) => void fetchTranscript(id)}
         onRetry={(id) => retry(id).then(() => undefined)}
+        onArchiveTask={(id) => void archive(id).catch(() => {})}
         worktrees={state.worktrees}
         remoteAvailable={state.capabilities?.remote ?? true}
         onShip={ship}
@@ -478,7 +426,6 @@ export function Overlay() {
         onDiscard={discard}
         open={tasksOpen}
         onOpenChange={openTasksPanel}
-        showLauncher={!inShell}
         launcherStyle={tasksLauncherStyle}
         anchorStyle={tasksPanelStyle}
       />

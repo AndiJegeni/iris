@@ -135,6 +135,12 @@ export type SurfacePalette = {
   /** Primary action (the send button), inverted against the surface. */
   submitBg: string;
   submitText: string;
+  /**
+   * Wash over everything behind a modal question. Black at two alphas rather
+   * than the ink at one: light's ink is a warm brown-grey, and a scrim tinted
+   * with it reads as a colour cast over the host page instead of a dimming.
+   */
+  scrim: string;
   /** The one hue that isn't ink, because failure has to be legible as failure. */
   error: string;
 };
@@ -150,6 +156,7 @@ export const SURFACE_PALETTE: Record<OverlayTheme, SurfacePalette> = {
     hover: 'rgba(255, 255, 255, 0.06)',
     submitBg: '#f5f5f5',
     submitText: '#18181b',
+    scrim: 'rgba(0, 0, 0, 0.6)',
     error: '#f87171',
   },
   light: {
@@ -165,6 +172,8 @@ export const SURFACE_PALETTE: Record<OverlayTheme, SurfacePalette> = {
     hover: 'rgba(0, 0, 0, 0.05)',
     submitBg: '#373734',
     submitText: '#ffffff',
+    // Lighter than dark's: the same wash over a white page swallows it.
+    scrim: 'rgba(0, 0, 0, 0.35)',
     error: '#dc2626',
   },
 };

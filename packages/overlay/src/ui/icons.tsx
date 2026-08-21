@@ -83,6 +83,27 @@ export function ChevronRightIcon({ size = 12, ...props }: IconProps) {
   );
 }
 
+/**
+ * Down chevron (vb 16×16, sw 1.33333) — the model/reasoning picker's drill row.
+ *
+ * A right chevron there used to mean "a submenu opens beside this". The menu
+ * swaps its own contents in place now, so pointing sideways at a panel that
+ * never appears was a promise the UI stopped keeping.
+ */
+export function ChevronDownIcon({ size = 12, ...props }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true" {...props}>
+      <path
+        d="M4 6L8 10L12 6"
+        stroke="currentColor"
+        stroke-width="1.33333"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
+  );
+}
+
 /** Left chevron (vb 16×16, sw 1.33333) — settings back button. */
 export function ChevronLeftIcon({ size = 16, ...props }: IconProps) {
   return (

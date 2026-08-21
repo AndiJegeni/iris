@@ -7,6 +7,7 @@ import type {
   Worktree,
 } from '@iris/shared';
 import { useEffect, useState } from 'preact/hooks';
+import { ConfirmDialog } from './confirm-dialog';
 import { BackgroundTasksIcon, CloseThinIcon } from './icons';
 import { PILL_PALETTE } from './pill';
 import { TaskChat } from './task-chat';
@@ -70,6 +71,12 @@ type TaskPanelProps = {
    * The drawer is then opened purely through `open`/`onOpenChange`.
    */
   showLauncher?: boolean;
+  /**
+   * Server half of Archive: drops the task's record and transcript on the
+   * daemon, so it doesn't reload at the next boot. The local hide below stays
+   * synchronous — the row vanishes on click, not on round-trip.
+   */
+  onArchiveTask?: (id: string) => void;
   /** Where the drawer sits — top edge down to just above the pill row (overlay.tsx). */
   anchorStyle?: Record<string, string> | undefined;
 };
@@ -122,6 +129,7 @@ export function TaskPanel({
   defaultOpen = false,
   launcherStyle,
   showLauncher = true,
+  onArchiveTask,
   anchorStyle,
 }: TaskPanelProps) {
   const p = surfacePalette(theme);
@@ -139,11 +147,26 @@ export function TaskPanel({
   };
   const [cleared, setCleared] = useState<Set<string>>(() => new Set());
   // "Archive" everywhere below: hide a finished task's row (and its chat tab).
-  const archiveTask = (id: string) => setCleared((prev) => new Set(prev).add(id));
+  // Every route into it is disk-safe — the row's own Archive discards a
+  // standing worktree first, and the other callers only fire when there is no
+  // worktree left — so nothing lands in `cleared` while still owning files.
+  const archiveTask = (id: string) => {
+    setCleared((prev) => new Set(prev).add(id));
+    onArchiveTask?.(id);
+  };
+  // Chat tabs the user closed. Deliberately NOT `cleared`: closing a tab is a
+  // view action, like closing a browser tab — the task keeps its drawer row,
+  // where its worktree (if any) is still visible and actionable. Folding the
+  // two together is what used to strand worktrees: an X on a tab hid the row
+  // and its Merge/Archive buttons while the files stayed on disk.
+  const [closedTabs, setClosedTabs] = useState<Set<string>>(() => new Set());
   // Keyed by TASK id, not worktree slug: a follow-up message reuses one
   // worktree, so two rows can share a slug and each wants its own spinner.
   const [wtState, setWtState] = useState<Record<string, WorktreeRowState>>({});
   const [chatTaskId, setChatTaskId] = useState<string | null>(null);
+  // Whether Clear's confirmation is up. Only ever set when the sweep would
+  // delete a worktree (see the button's onClick).
+  const [confirmingClear, setConfirmingClear] = useState(false);
   const [, setTick] = useState(0);
 
   const running = tasks.filter(isRunning).sort((a, b) => a.createdAt - b.createdAt);
@@ -236,16 +259,62 @@ export function TaskPanel({
 
   // Every chat shown as a tab in the chat header (stable order, cleared hidden).
   const chatTabs = tasks
-    .filter((task) => !cleared.has(task.id) || task.id === chatTaskId)
+    .filter((task) => (!cleared.has(task.id) && !closedTabs.has(task.id)) || task.id === chatTaskId)
     .sort((a, b) => a.createdAt - b.createdAt)
     .map((task) => ({ id: task.id, title: task.prompt, status: task.status }));
 
   const closeTab = (id: string) => {
-    archiveTask(id);
+    setClosedTabs((prev) => new Set(prev).add(id));
     if (id === chatTaskId) {
       const next = chatTabs.find((tb) => tb.id !== id)?.id ?? null;
       setChatTaskId(next);
       if (next) onOpenChat?.(next);
+    }
+  };
+
+  /**
+   * Worktrees the Finished rows still own, deduped — a follow-up message reuses
+   * its parent's worktree, so several rows can name one slug and the set's size
+   * is how many directories a Clear would actually delete.
+   *
+   * Computed on demand rather than captured when the question opens: a task can
+   * finish while it is up, and both the wording and the sweep should describe
+   * the list as it stands when it's answered.
+   */
+  const clearSlugs = () => {
+    const slugs = new Set<string>();
+    for (const task of finished) {
+      if (onDiscard && task.worktreeSlug !== 'main' && bySlug.has(task.worktreeSlug)) {
+        slugs.add(task.worktreeSlug);
+      }
+    }
+    return slugs;
+  };
+
+  /**
+   * Clear is bulk Archive, worktrees included: a row that still owns one has it
+   * discarded rather than skipped, so clearing can never strand files (and a
+   * branch) with no UI left pointing at them.
+   */
+  const clearFinished = () => {
+    const slugs = clearSlugs();
+    // Hidden in one pass up front, so the drawer empties on the click rather
+    // than on the round-trip.
+    setCleared((prev) => {
+      const next = new Set(prev);
+      for (const task of finished) next.add(task.id);
+      return next;
+    });
+    for (const task of finished) {
+      // Discarding a worktree makes the daemon drop its tasks and broadcast
+      // that, so archiving those rows as well would be a second call for the
+      // same work.
+      if (!slugs.has(task.worktreeSlug)) onArchiveTask?.(task.id);
+    }
+    // One discard per worktree. Caught per slug: one worktree that won't
+    // discard must not stop the rest from clearing.
+    for (const slug of slugs) {
+      void onDiscard?.(slug).catch(() => {});
     }
   };
 
@@ -335,8 +404,15 @@ export function TaskPanel({
                       <span>Finished</span>
                       <button
                         type="button"
+                        className="la-tp-soft"
                         style={clearBtn()}
-                        onClick={() => setCleared(new Set(tasks.map((task) => task.id)))}
+                        onClick={() => {
+                          // With no worktree among the finished rows there is
+                          // nothing on disk to lose — clearing is just hiding
+                          // cards, and hiding cards doesn't earn a question.
+                          if (clearSlugs().size === 0) clearFinished();
+                          else setConfirmingClear(true);
+                        }}
                       >
                         Clear
                       </button>
@@ -381,6 +457,41 @@ export function TaskPanel({
           )}
         </div>
       ) : null}
+      {/* Outside the panel, deliberately: the drawer's backdrop-filter makes it
+          the containing block for fixed-position descendants, so its `overflow:
+          hidden` would slice a dialog nested inside it however it is
+          positioned. */}
+      {confirmingClear ? (
+        <ConfirmDialog
+          theme={theme}
+          title="Clear finished tasks?"
+          body={clearWarning(finished.length, clearSlugs().size)}
+          confirmLabel="Clear"
+          onConfirm={() => {
+            setConfirmingClear(false);
+            clearFinished();
+          }}
+          onCancel={() => setConfirmingClear(false)}
+        />
+      ) : null}
     </>
   );
+}
+
+/**
+ * Clear's question, in numbers. A generic "this cannot be undone" is skimmed
+ * past; the count of worktrees about to be deleted is the part that makes
+ * someone stop, so the sentence names it rather than the danger.
+ *
+ * `worktrees` is the deduped slug count, not a count of rows — several tasks
+ * can share one worktree, and it is directories that get deleted.
+ */
+function clearWarning(tasks: number, worktrees: number): string {
+  const one = worktrees === 1;
+  return [
+    `Clears ${tasks} finished ${tasks === 1 ? 'task' : 'tasks'} and deletes`,
+    `${one ? 'the worktree' : `the ${worktrees} worktrees`} ${tasks === 1 ? 'it still owns' : 'they still own'},`,
+    `along with ${one ? 'its branch' : 'their branches'}.`,
+    `Unmerged work in ${one ? 'it' : 'them'} is lost.`,
+  ].join(' ');
 }

@@ -20,8 +20,19 @@ type PillProps = {
 
 // The pill floats over an arbitrary host page, so it carries its own surface in
 // each theme: a light "ink on paper" chip, or a dark chip with a soft rim.
-// `stroke` is the outline + active divider; `hover` is the icon-button halo.
-type PillPalette = { surface: string; stroke: string; icon: string; shadow: string; hover: string };
+// `stroke` is the outline + active divider; `hover` is the icon-button halo;
+// `hoverSurface` is that halo already composited onto `surface`, for the two
+// parked circles (this one and the Background Tasks launcher) that ARE the
+// surface — painting the translucent halo straight onto them would thin the
+// chip out over the host page instead of lifting it.
+type PillPalette = {
+  surface: string;
+  stroke: string;
+  icon: string;
+  shadow: string;
+  hover: string;
+  hoverSurface: string;
+};
 
 // The collapsed launcher is a circle carrying a single glyph; the active
 // toolbar uses 20px glyphs in 28px buttons (4px padding). Both states land on
@@ -74,6 +85,9 @@ export const PILL_PALETTE: Record<OverlayTheme, PillPalette> = {
     icon: '#373734',
     shadow: '0 2px 16px rgba(0, 0, 0, 0.12)',
     hover: 'rgba(55, 55, 52, 0.075)',
+    // #ffffff under the 7.5% ink halo. On paper the lift is downward — a
+    // lighter grey than white would be no lift at all.
+    hoverSurface: '#f0f0f0',
   },
   dark: {
     surface: 'rgba(18, 18, 18, 0.95)', // neutral gray, darker — old zinc read blue
@@ -81,6 +95,9 @@ export const PILL_PALETTE: Record<OverlayTheme, PillPalette> = {
     icon: '#e5e5e5',
     shadow: '0 2px 16px rgba(0, 0, 0, 0.4)',
     hover: 'rgba(255, 255, 255, 0.1)',
+    // rgba(18, 18, 18, 0.95) under the 10% white halo, kept at the surface's
+    // alpha so the hovered circle is the same material, one shade up.
+    hoverSurface: 'rgba(42, 42, 42, 0.95)',
   },
 };
 
@@ -149,9 +166,11 @@ export function Pill({
           the same easing window. Focus rings use the theme accent (keyboard-only
           via :focus-visible) instead of the host browser's default outline. The
           launcher fills the clipped container, so its ring is inset to avoid being
-          cut off; the toolbar buttons sit inside the padding so theirs can sit out. */}
+          cut off; the toolbar buttons sit inside the padding so theirs can sit out.
+          The parked launcher covers the whole chip, so it takes the composited
+          `hoverSurface` — the halo alpha there would just thin the chip out. */}
       <style>
-        {`.la-pill-btn{background:transparent;outline:none;transition:background 90ms,box-shadow 90ms}.la-pill-btn:hover{background:${p.hover};box-shadow:0 0 0 2px ${p.hover}}.la-pill-btn:focus-visible{outline:none;box-shadow:0 0 0 2px ${ACCENT}}.la-pill-layer{transition:opacity 180ms ease}.la-pill-launcher{outline:none}.la-pill-launcher:focus-visible{box-shadow:inset 0 0 0 2px ${ACCENT}}`}
+        {`.la-pill-btn{background:transparent;outline:none;transition:background 90ms,box-shadow 90ms}.la-pill-btn:hover{background:${p.hover};box-shadow:0 0 0 2px ${p.hover}}.la-pill-btn:focus-visible{outline:none;box-shadow:0 0 0 2px ${ACCENT}}.la-pill-layer{transition:opacity 180ms ease}.la-pill-launcher{outline:none;background:transparent;transition:background 90ms}.la-pill-launcher:hover{background:${p.hoverSurface}}.la-pill-launcher:focus-visible{box-shadow:inset 0 0 0 2px ${ACCENT}}`}
       </style>
 
       {/* Parked launcher: the star, pinned to the right CIRCLE px so it sits
@@ -177,7 +196,7 @@ export function Pill({
           justifyContent: 'center',
           padding: 0,
           border: 'none',
-          background: 'transparent',
+          // No inline `background` — `.la-pill-launcher` owns it so :hover wins.
           color: p.icon,
           cursor: 'pointer',
           opacity: active ? 0 : 1,

@@ -47,13 +47,13 @@ export const buttonStyle = (theme: OverlayTheme) => ({
   alignItems: 'center',
   justifyContent: 'center',
   gap: '5px',
-  background: PILL_PALETTE[theme].surface,
   border: `1px solid ${PILL_PALETTE[theme].stroke}`,
   borderRadius: '999px',
   cursor: 'pointer',
   boxShadow: PILL_PALETTE[theme].shadow,
   pointerEvents: 'auto' as const,
-  // No inline `color` — `.la-tp-launcher` owns it so :hover can win.
+  // No inline `color` or `background` — `.la-tp-launcher` owns both so :hover
+  // can win.
   // Same reason the pill sets this: the drawer opens overhead and casts a
   // downward shadow that would otherwise darken this button.
   zIndex: 1,
@@ -151,8 +151,9 @@ export const sectionHeader = (theme: OverlayTheme) => ({
 export const clearBtn = () => ({
   background: 'transparent',
   border: 'none',
-  // Inherits the section header's 50%-ink color.
-  color: 'inherit',
+  // No inline `color` — the call site wears `.la-tp-soft`, which rests at the
+  // section header's soft ink and lifts to full under the cursor, exactly like
+  // the row's own quiet actions. Naming a colour here would outrank its :hover.
   fontSize: '12px',
   cursor: 'pointer',
   padding: 0,
@@ -198,11 +199,21 @@ export const taskPanelCss = (theme: OverlayTheme): string => {
     // Last in the list on purpose: it ties with `.la-tp-soft:hover` on
     // specificity, so source order is what stops a dead Discard from lifting to
     // full ink under the cursor. The `color` here is why that matters — opacity
-    // alone left the hover working on a button that does nothing. Filled buttons
-    // are unaffected: their inline `color` outranks this either way.
+    // alone left the hover working on a button that does nothing, and it only
+    // reaches the label because no `.la-tp-act` names a colour inline.
     `.la-tp-act:disabled{opacity:0.4;color:${p.soft};--la-tp-cursor:default}`,
-    `.la-tp-launcher{color:${pill.icon};background:${pill.surface};transition:background 90ms,box-shadow 90ms}`,
-    `.la-tp-launcher:hover{background:${pill.hover};box-shadow:0 0 0 2px ${pill.hover}}`,
+    // One shade up on hover, matching the pill's parked circle exactly — the two
+    // sit side by side on the same row and have to lift as a pair. It takes the
+    // composited `hoverSurface` rather than the halo alpha for the same reason
+    // the pill's launcher does: this button *is* the chip, so a translucent fill
+    // would thin it out over the host page instead of lightening it.
+    //
+    // The slide rides here too, next to the fade, because `transition` is a
+    // single property: overlay.tsx used to name `right` inline while arming the
+    // pill moves this button along the row, and that inline declaration threw
+    // the hover fade away — the launcher snapped while the pill beside it eased.
+    `.la-tp-launcher{color:${pill.icon};background:${pill.surface};transition:background 90ms,right 320ms cubic-bezier(0.19,1,0.22,1)}`,
+    `.la-tp-launcher:hover{background:${pill.hoverSurface}}`,
     '.la-tp-launcher-in{animation:la-tasks-in 360ms cubic-bezier(0.19,1,0.22,1) both}',
     '@keyframes la-tasks-in{from{opacity:0;transform:scale(0.4)}to{opacity:1;transform:scale(1)}}',
   ].join('');

@@ -105,9 +105,10 @@ export function TaskRow({
 }: TaskRowProps) {
   const failed = task.status === 'failed';
   const p = surfacePalette(theme);
-  // Merge and Discard both destroy the worktree, so they arm before they fire.
+  // Merge and Archive both destroy the worktree, so they arm before they fire.
   // A native confirm() dialog raised from inside the user's own app reads as
-  // the page misbehaving; a label that flips to "Sure?" stays in the overlay.
+  // the page misbehaving, so the question stays in the overlay: it takes over
+  // the action row, in prose, with Yes and No (see `armed` below).
   const [confirming, setConfirming] = useState<'merge' | 'discard' | null>(null);
   const wt = worktree?.available ? worktree : null;
   // A finished task has something to land; a failed one only has a worktree to
@@ -116,6 +117,25 @@ export function TaskRow({
   // Whether there's a button row at all — it owns the gap above it, so an empty
   // one would be 16px of dead space under a running task's status line.
   const hasActions = (failed && onRetry != null) || wt != null || onArchive != null;
+  // The pending question, if either action is armed. One piece of state holds
+  // at most one of them, so arming the second swaps the first's question out
+  // rather than putting two on the row — and there is one place that decides
+  // what a question says and what agreeing to it runs.
+  //
+  // Merge's wording carries what Archive's doesn't need to: Archive throws away
+  // work you can see is the agent's, while Merge quietly takes the agent's side
+  // of anything you had uncommitted in your own checkout.
+  const armed =
+    wt != null && confirming != null
+      ? {
+          question:
+            confirming === 'merge'
+              ? 'Are you sure? Merge replaces your edits.'
+              : 'Are you sure you want to archive?',
+          onYes: confirming === 'merge' ? wt.onShip : wt.onDiscard,
+          pending: wt.pending,
+        }
+      : null;
   return (
     <div style={cardStyle(theme)}>
       <div style={{ display: 'flex', alignItems: 'flex-start' }}>
@@ -127,7 +147,7 @@ export function TaskRow({
               was moving the card's contents instead of marking its heading. */}
           <div
             style={{
-              fontWeight: 500,
+              fontWeight: 400,
               fontSize: '13px',
               lineHeight: 1.5,
               color: p.ink,
@@ -210,104 +230,130 @@ export function TaskRow({
                 marginTop: '20px',
               }}
             >
-              {failed && onRetry ? (
-                <button type="button" style={retryBtn(theme)} onClick={onRetry}>
-                  <RetryIcon size={12} />
-                  Retry
-                </button>
-              ) : null}
-              {/* Once the PR exists it takes the slot Create PR was in, as the
-                  same pill with a new label — the row doesn't re-flow, it just
-                  changes what it says. Creating a second PR for a branch that
-                  already has one isn't the next thing anyone wants, and leaving
-                  the button there at full weight claimed it was.
-
-                  Still a link the user clicks, not an auto-opened window: the
-                  popup would fire after an await, outside the click gesture,
-                  and get blocked. It also lets them come back to it later. */}
-              {wt?.prUrl ? (
-                <a
-                  className="la-tp-soft"
-                  style={prLinkPill(theme)}
-                  href={wt.prUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={wt.prUrl}
-                >
-                  {wt.prLabel ?? 'View PR'} ↗
-                </a>
-              ) : null}
-              {canLand && wt ? (
+              {/* Armed, the question owns the whole row: the controls it is
+                  asking about step aside, so there is one thing being asked
+                  rather than a question wedged in beside the buttons that
+                  raised it. No blur handler anywhere in this branch — with two
+                  answers to move between, cancelling on blur would fire on the
+                  way from Yes to No. "No" is the way out, and it says so. */}
+              {armed ? (
                 <>
-                  {wt.prUrl ? null : (
+                  <span style={confirmQuestion(theme)}>{armed.question}</span>
+                  <div style={confirmAnswers()}>
                     <button
                       type="button"
                       className="la-tp-soft la-tp-act"
-                      style={prBtn(theme)}
-                      disabled={wt.pending || !wt.canCreatePr}
-                      onClick={wt.onCreatePr}
-                      title={
-                        wt.canCreatePr
-                          ? 'Push this branch and open a pull request'
-                          : 'Unavailable — this repository has no git remote'
-                      }
-                    >
-                      {wt.pending ? 'Working…' : 'Create PR'}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="la-tp-soft la-tp-act"
-                    style={mergeBtn(theme)}
-                    disabled={wt.pending}
-                    onClick={() => {
-                      if (confirming === 'merge') {
+                      style={confirmBtn(theme)}
+                      disabled={armed.pending}
+                      onClick={() => {
                         setConfirming(null);
-                        wt.onShip();
-                      } else {
-                        setConfirming('merge');
-                      }
-                    }}
-                    onBlur={() => setConfirming((c) => (c === 'merge' ? null : c))}
-                    title="Merge this worktree into your checkout and delete it"
-                  >
-                    {confirming === 'merge' ? 'Sure?' : 'Merge locally'}
-                  </button>
+                        armed.onYes();
+                      }}
+                    >
+                      Yes
+                    </button>
+                    {/* Never disabled by `pending`: backing out is local state,
+                        and a request in flight is exactly when you might want
+                        to stop agreeing to the next one. */}
+                    <button
+                      type="button"
+                      className="la-tp-soft la-tp-act"
+                      style={confirmBtn(theme)}
+                      onClick={() => setConfirming(null)}
+                    >
+                      No
+                    </button>
+                  </div>
                 </>
-              ) : null}
-              {/* One slot, two weights of the same word. With a worktree still
-                  standing, Archive tears it down too, so it arms first; with
-                  nothing left to delete it just hides the row, no ceremony. */}
-              {wt ? (
-                <button
-                  type="button"
-                  className="la-tp-soft la-tp-act"
-                  style={discardBtn(theme)}
-                  disabled={wt.pending}
-                  onClick={() => {
-                    if (confirming === 'discard') {
-                      setConfirming(null);
-                      wt.onDiscard();
-                    } else {
-                      setConfirming('discard');
-                    }
-                  }}
-                  onBlur={() => setConfirming((c) => (c === 'discard' ? null : c))}
-                  title="Delete this worktree without merging it, and archive the task"
-                >
-                  {confirming === 'discard' ? 'Sure?' : 'Archive'}
-                </button>
-              ) : onArchive ? (
-                <button
-                  type="button"
-                  className="la-tp-soft la-tp-act"
-                  style={discardBtn(theme)}
-                  onClick={onArchive}
-                  title="Remove this task from the list"
-                >
-                  Archive
-                </button>
-              ) : null}
+              ) : (
+                <>
+                  {failed && onRetry ? (
+                    <button type="button" style={retryBtn(theme)} onClick={onRetry}>
+                      <RetryIcon size={12} />
+                      Retry
+                    </button>
+                  ) : null}
+                  {/* Once the PR exists it takes the slot Create PR was in, as
+                      the same pill with a new label — the row doesn't re-flow,
+                      it just changes what it says. Creating a second PR for a
+                      branch that already has one isn't the next thing anyone
+                      wants, and leaving the button there at full weight claimed
+                      it was.
+
+                      Still a link the user clicks, not an auto-opened window:
+                      the popup would fire after an await, outside the click
+                      gesture, and get blocked. It also lets them come back to
+                      it later. */}
+                  {wt?.prUrl ? (
+                    <a
+                      className="la-tp-soft"
+                      style={prLinkPill(theme)}
+                      href={wt.prUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={wt.prUrl}
+                    >
+                      {wt.prLabel ?? 'View PR'} ↗
+                    </a>
+                  ) : null}
+                  {canLand && wt ? (
+                    <>
+                      {wt.prUrl ? null : (
+                        <button
+                          type="button"
+                          className="la-tp-soft la-tp-act"
+                          style={prBtn(theme)}
+                          disabled={wt.pending || !wt.canCreatePr}
+                          onClick={wt.onCreatePr}
+                          title={
+                            wt.canCreatePr
+                              ? 'Push this branch and open a pull request'
+                              : 'Unavailable — this repository has no git remote'
+                          }
+                        >
+                          {wt.pending ? 'Working…' : 'Create PR'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="la-tp-soft la-tp-act"
+                        style={mergeBtn(theme)}
+                        disabled={wt.pending}
+                        onClick={() => setConfirming('merge')}
+                        title="Merge this worktree into your checkout and delete it"
+                      >
+                        Merge locally
+                      </button>
+                    </>
+                  ) : null}
+                  {/* One slot, two weights of the same word. With a worktree
+                      still standing, Archive tears it down too, so it asks
+                      first; with nothing left to delete it just hides the row,
+                      no ceremony. */}
+                  {wt ? (
+                    <button
+                      type="button"
+                      className="la-tp-soft la-tp-act"
+                      style={discardBtn(theme)}
+                      disabled={wt.pending}
+                      onClick={() => setConfirming('discard')}
+                      title="Delete this worktree without merging it, and archive the task"
+                    >
+                      Archive
+                    </button>
+                  ) : onArchive ? (
+                    <button
+                      type="button"
+                      className="la-tp-soft la-tp-act"
+                      style={discardBtn(theme)}
+                      onClick={onArchive}
+                      title="Remove this task from the list"
+                    >
+                      Archive
+                    </button>
+                  ) : null}
+                </>
+              )}
             </div>
           ) : null}
         </div>
@@ -518,6 +564,7 @@ const prBtn = (theme: OverlayTheme) => ({
 const mergeBtn = (theme: OverlayTheme) => ({
   ...quietBtn(theme),
   borderRadius: PILL_RADIUS,
+  marginLeft: '-4px',
 });
 
 // The PR, once there is one, wearing Create PR's pill — same box, same fill,
@@ -566,6 +613,35 @@ const discardBtn = (theme: OverlayTheme) => ({
   marginLeft: 'auto',
 });
 
+// The armed action's question. Prose in the row's secondary ink, the same
+// 13px/1.5 as the status line above it — a fourth thing at button weight would
+// have read as one more control rather than as the thing being asked.
+const confirmQuestion = (theme: OverlayTheme) => ({
+  color: surfacePalette(theme).soft,
+  fontSize: '13px',
+  lineHeight: 1.5,
+  minWidth: 0,
+});
+
+// Yes and No, held together and pushed to the far edge by the same
+// `marginLeft: auto` that used to hold Archive apart. They sit tighter than the
+// row's 8px gap so they read as one pair answering the question — at the row
+// gap they were two independent buttons that happened to be adjacent.
+const confirmAnswers = () => ({
+  display: 'flex',
+  alignItems: 'center',
+  gap: '2px',
+  marginLeft: 'auto',
+});
+
+// Both answers wear the shape of the control that raised them — Merge and
+// Archive are the same quiet text button, split in two, so nothing about the
+// row's weight should change while it is asking.
+const confirmBtn = (theme: OverlayTheme) => ({
+  ...quietBtn(theme),
+  borderRadius: PILL_RADIUS,
+});
+
 // A note or an error from the last worktree action, sitting between the status
 // line and the buttons. Soft ink for a note, the palette's one hue for an
 // error — the same 13px/1.5 as everything else in the row, because it is prose
@@ -593,11 +669,6 @@ const stopRow = () => ({
   paddingTop: '12px',
 });
 
-/**
- * The chat composer's Stop button, unchanged: the popover's inverted circle
- * carrying the same StopIcon. A running task and an in-flight message are the
- * same act, so they get the same control rather than one being a word.
- */
 /**
  * The round icon button — Stop in a running row's corner, Discard in a finished
  * one. 24 across, matching the pills beside it rather than the composer's 26: a
