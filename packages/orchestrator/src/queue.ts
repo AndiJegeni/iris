@@ -1,5 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { join } from 'node:path';
+import {
   type Annotation,
   type Backend,
   MODELS,
@@ -17,6 +27,16 @@ type QueueEntry = {
   request: Omit<RunRequest, 'signal'>;
   runner: AgentRunner;
   abort: AbortController;
+  /**
+   * Resolves when the task's worktree is ready to be edited, or undefined when
+   * it already is (tasks on main, and every follow-up turn).
+   *
+   * A task is enqueued the instant its worktree is *named*, so the row appears
+   * while the clone is still running. This is what holds the agent back until
+   * the files it is about to edit actually exist — and a rejection here surfaces
+   * as a failed row rather than an HTTP error nobody is still listening for.
+   */
+  gate?: Promise<void>;
   /** Backend session id, captured on first run; replayed for follow-ups. */
   sessionId?: string;
 };
@@ -40,7 +60,12 @@ function modelBackend(value: string): Backend | undefined {
  * second waits for the first to finish before starting. Tasks against
  * *different* worktrees run in parallel.
  *
- * State is in-memory; restarting the daemon drops the queue.
+ * State lives in memory and, when a state directory is given, mirrors to one
+ * JSON file per task — so a restarted daemon reloads its history instead of
+ * presenting an empty drawer over worktrees that plainly exist. Anything that
+ * was mid-run when the daemon died reloads as `failed` ("interrupted"): the
+ * row's Retry button and the chat's follow-up path both already know what to
+ * do with a failed task, so an interrupted one needs no machinery of its own.
  */
 export class TaskQueue {
   private waiting = new Map<string, QueueEntry[]>(); // by worktreeSlug
@@ -58,7 +83,131 @@ export class TaskQueue {
   constructor(
     private readonly bus: EventBus,
     private readonly onAuthResult?: (backend: Backend, ok: boolean) => void,
-  ) {}
+    /** Directory for per-task JSON files; omit (non-git repos) to stay memory-only. */
+    private readonly stateDir?: string,
+  ) {
+    if (stateDir && !existsSync(stateDir)) mkdirSync(stateDir, { recursive: true });
+  }
+
+  /**
+   * Reload persisted tasks. `runnerFor` re-binds each task's backend to a live
+   * runner — the one field a JSON file can't carry.
+   *
+   * Call once at boot, before the server accepts connections, so the hello
+   * frame already carries the history.
+   */
+  load(runnerFor: (backend: Backend) => AgentRunner | null): void {
+    if (!this.stateDir) return;
+    let files: string[];
+    try {
+      files = readdirSync(this.stateDir).filter((f) => f.endsWith('.json'));
+    } catch {
+      return;
+    }
+    for (const file of files) {
+      try {
+        const raw = JSON.parse(readFileSync(join(this.stateDir, file), 'utf8')) as {
+          task: Task;
+          transcript: TranscriptEntry[];
+          request: Omit<RunRequest, 'signal'>;
+          sessionId?: string;
+        };
+        const task = { ...raw.task };
+        if (isRunnable(task.status)) {
+          task.status = 'failed';
+          task.message = 'interrupted — the daemon restarted mid-run';
+          task.updatedAt = Date.now();
+        }
+        const runner =
+          runnerFor(task.backend) ??
+          // Backend gone (key removed, CLI uninstalled): the history is still
+          // worth showing, and retry/follow-up will fail with an honest error.
+          async function* unavailable(): AsyncGenerator<
+            { kind: 'error'; message: string },
+            void,
+            unknown
+          > {
+            yield { kind: 'error', message: `backend "${task.backend}" is not available` };
+          };
+        const entry: QueueEntry = {
+          task,
+          request: raw.request,
+          runner: runner as AgentRunner,
+          abort: new AbortController(),
+          ...(raw.sessionId ? { sessionId: raw.sessionId } : {}),
+        };
+        this.byId.set(task.id, entry);
+        this.transcripts.set(task.id, raw.transcript ?? []);
+        if (isRunnable(raw.task.status)) this.persist(entry); // record the demotion
+      } catch (err) {
+        process.stderr.write(`[iris] could not load task ${file}: ${String(err)}\n`);
+      }
+    }
+    if (this.byId.size > 0) {
+      process.stdout.write(`[iris] restored ${this.byId.size} task(s) from a previous run\n`);
+    }
+  }
+
+  /** Mirror one entry to disk. Atomic (tmp+rename) so a crash can't half-write. */
+  private persist(entry: QueueEntry): void {
+    if (!this.stateDir) return;
+    try {
+      const file = join(this.stateDir, `${entry.task.id}.json`);
+      const tmp = `${file}.tmp`;
+      writeFileSync(
+        tmp,
+        JSON.stringify({
+          task: entry.task,
+          transcript: this.transcripts.get(entry.task.id) ?? [],
+          request: entry.request,
+          ...(entry.sessionId ? { sessionId: entry.sessionId } : {}),
+        }),
+      );
+      renameSync(tmp, file);
+    } catch (err) {
+      process.stderr.write(`[iris] could not persist task: ${String(err)}\n`);
+    }
+  }
+
+  private unpersist(taskId: string): void {
+    if (!this.stateDir) return;
+    rmSync(join(this.stateDir, `${taskId}.json`), { force: true });
+  }
+
+  /**
+   * Archive: drop a finished task — row, transcript, and file. This is the
+   * server half of the drawer's Archive; without it, persistence would turn
+   * the drawer into an append-only graveyard that re-fills at every boot.
+   */
+  archive(taskId: string): { ok: true } | { ok: false; error: string } {
+    const entry = this.byId.get(taskId);
+    if (entry && isRunnable(entry.task.status)) {
+      return { ok: false, error: 'task is still running' };
+    }
+    this.byId.delete(taskId);
+    this.transcripts.delete(taskId);
+    this.unpersist(taskId);
+    this.bus.broadcast({ type: 'task:removed', id: taskId });
+    return { ok: true }; // idempotent: archiving the already-gone succeeds
+  }
+
+  /**
+   * Drop every task belonging to a worktree. Called when the worktree is
+   * discarded — records that outlive their worktree would come back at the
+   * next boot as rows whose every button points at deleted files.
+   */
+  removeBySlug(slug: string): void {
+    for (const [id, entry] of this.byId) {
+      if (entry.task.worktreeSlug !== slug) continue;
+      entry.abort.abort();
+      this.byId.delete(id);
+      this.transcripts.delete(id);
+      this.unpersist(id);
+      this.bus.broadcast({ type: 'task:removed', id });
+    }
+    const q = this.waiting.get(slug);
+    if (q) this.waiting.delete(slug);
+  }
 
   /** The full structured transcript for a task (empty if unknown). */
   getTranscript(taskId: string): TranscriptEntry[] {
@@ -81,6 +230,7 @@ export class TaskQueue {
     runner: AgentRunner,
     request: Omit<RunRequest, 'signal'>,
     worktreeSlug: string,
+    gate?: Promise<void>,
   ): Task {
     const now = Date.now();
     const task: Task = {
@@ -100,8 +250,10 @@ export class TaskQueue {
       request,
       runner,
       abort: new AbortController(),
+      ...(gate ? { gate } : {}),
     };
     this.byId.set(task.id, entry);
+    this.persist(entry);
 
     const q = this.waiting.get(worktreeSlug) ?? [];
     q.push(entry);
@@ -167,6 +319,8 @@ export class TaskQueue {
   private appendEntry(taskId: string, entry: TranscriptEntry): void {
     const { entries, merged } = mergeTranscriptEntry(this.transcripts.get(taskId) ?? [], entry);
     this.transcripts.set(taskId, entries);
+    const owner = this.byId.get(taskId);
+    if (owner) this.persist(owner);
     this.bus.broadcast({ type: 'task:entry', id: taskId, entry: merged });
   }
 
@@ -183,6 +337,9 @@ export class TaskQueue {
         q.splice(idx, 1);
         this.updateStatus(entry, 'cancelled');
         this.byId.delete(taskId);
+        // It just left byId, so nothing would ever archive it — without this
+        // the file resurrects a ghost row at the next boot.
+        this.unpersist(taskId);
       }
     }
     return true;
@@ -195,10 +352,14 @@ export class TaskQueue {
     const next = q.shift()!;
     this.running.set(slug, next);
 
-    this.updateStatus(next, 'running');
-
     const req: RunRequest = { ...next.request, signal: next.abort.signal };
     try {
+      // The worktree may still be cloning. Stay 'queued' until it lands, so the
+      // row reads as waiting rather than claiming an agent is already working;
+      // a clone failure falls into the catch below and fails the task properly.
+      if (next.gate) await next.gate;
+      this.updateStatus(next, 'running');
+
       for await (const ev of next.runner(req)) {
         if (next.abort.signal.aborted) break;
         switch (ev.kind) {
@@ -220,6 +381,9 @@ export class TaskQueue {
             break;
           case 'session':
             next.sessionId = ev.sessionId;
+            // The session id is what lets a follow-up resume after a restart,
+            // so it has to reach disk the moment we learn it.
+            this.persist(next);
             break;
           case 'done':
             this.updateStatus(next, 'done', ev.summary);
@@ -270,6 +434,7 @@ export class TaskQueue {
       updatedAt: Date.now(),
       ...(message !== undefined ? { message } : {}),
     };
+    this.persist(entry);
     this.bus.broadcast({ type: 'task:updated', task: entry.task });
   }
 }

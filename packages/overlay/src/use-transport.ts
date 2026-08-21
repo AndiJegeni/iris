@@ -19,6 +19,7 @@ export function useTransport() {
     send: t.sendAnnotation.bind(t),
     cancel: t.cancelTask.bind(t),
     retry: t.retryTask.bind(t),
+    archive: t.archiveTask.bind(t),
     sendMessage: t.sendMessage.bind(t),
     ship: t.shipWorktree.bind(t),
     createPr: t.createPullRequest.bind(t),

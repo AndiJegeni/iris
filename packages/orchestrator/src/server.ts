@@ -1,4 +1,5 @@
 import { createServer } from 'node:net';
+import { join } from 'node:path';
 import { type ServerType, serve } from '@hono/node-server';
 import {
   Annotation,
@@ -119,12 +120,23 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
   });
 
   const bus = new EventBus();
-  const queue = new TaskQueue(bus, (backend, ok) => {
-    const provider = backendProvider(backend);
-    if (!provider) return;
-    if (ok) expired.delete(provider);
-    else expired.add(provider);
-  });
+  // Task history lives under .git/ — never in the working tree, gone with the
+  // repo. A repo without git gets no persistence, matching its no-worktrees
+  // capability: everything about it is already session-scoped.
+  const taskStateDir = isGitRepo(opts.repoRoot)
+    ? join(opts.repoRoot, '.git', 'iris', 'tasks')
+    : undefined;
+  const queue = new TaskQueue(
+    bus,
+    (backend, ok) => {
+      const provider = backendProvider(backend);
+      if (!provider) return;
+      if (ok) expired.delete(provider);
+      else expired.add(provider);
+    },
+    taskStateDir,
+  );
+
   const worktrees = new WorktreeManager(opts.repoRoot, bus, mainPort, {
     devCmd: opts.devCmd,
   });
@@ -140,6 +152,10 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
   // Resolved once: shelling out to `claude --version` per run would add
   // latency to every task for an answer that can't change mid-session.
   const claudeBinary = resolveClaudeBinary();
+
+  // Reload persisted task history — before any client connects, so the hello
+  // frames already carry it. (Down here because runners need `claudeBinary`.)
+  queue.load((backend) => getRunner(backend, auth, claudeBinary));
 
   const app = new Hono();
 
@@ -262,8 +278,12 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
         ? (body as { prompt: string }).prompt
         : undefined;
     try {
-      const wt = await worktrees.spawnWorktree(prompt);
-      return c.json({ worktree: wt });
+      const { worktree, checkout } = await worktrees.spawnWorktree(prompt);
+      // The clone continues past this response. Nobody is awaiting it here, so
+      // swallow the rejection rather than leaving it unhandled — it is already
+      // reported through the worktree's own status.
+      checkout.catch(() => {});
+      return c.json({ worktree });
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
     }
@@ -301,6 +321,9 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
     const slug = c.req.param('slug');
     try {
       await worktrees.remove(slug);
+      // Their records too: rows that outlive their worktree would reload at
+      // the next boot with every button pointing at deleted files.
+      queue.removeBySlug(slug);
       return c.json({ ok: true });
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
@@ -330,18 +353,25 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
       );
     }
 
+    // Gates the agent on the worktree's clone. Undefined for same-worktree runs,
+    // which have nothing to wait for.
+    let checkout: Promise<void> | undefined;
+
     if (annotation.worktreeMode === 'new') {
       try {
-        const wt = await worktrees.spawnWorktree(annotation.prompt);
-        worktreeSlug = wt.slug;
-        worktreePath = wt.path;
+        const pending = await worktrees.spawnWorktree(annotation.prompt);
+        worktreeSlug = pending.worktree.slug;
+        worktreePath = pending.worktree.path;
+        checkout = pending.checkout;
         // Readiness is best-effort (only affects preview availability, not the
         // agent run). Swallow its rejection so a slow/failed dev server can't
         // crash the daemon.
-        worktrees.waitForReady(wt.slug).catch((err) => {
-          console.error(`[iris] worktree ${wt.slug} dev server not ready:`, String(err));
+        worktrees.waitForReady(worktreeSlug).catch((err) => {
+          console.error(`[iris] worktree ${worktreeSlug} dev server not ready:`, String(err));
         });
       } catch (err) {
+        // Only naming/port allocation can fail this early; the clone itself
+        // reports through the task row.
         return c.json({ error: `worktree spawn failed: ${String(err)}` }, 500);
       }
     }
@@ -361,7 +391,7 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
       effort: annotation.reasoningEffort,
     };
 
-    const task = queue.enqueue(annotation, runner, request, worktreeSlug);
+    const task = queue.enqueue(annotation, runner, request, worktreeSlug, checkout);
     return c.json({ task });
   });
 
@@ -369,6 +399,15 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
     const id = c.req.param('id');
     const ok = queue.cancel(id);
     return c.json({ cancelled: ok });
+  });
+
+  // Archive: drop a finished task's row, transcript, and file for good. The
+  // drawer's Archive button calls this alongside its local hide — without the
+  // server half, persistence would resurrect every archived row at boot.
+  app.post('/tasks/:id/archive', (c) => {
+    const result = queue.archive(c.req.param('id'));
+    if (!result.ok) return c.json({ error: result.error }, 409);
+    return c.json({ ok: true });
   });
 
   // Full structured transcript for a task (chat history beyond the live buffer).
@@ -449,9 +488,16 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
     worktrees,
     bus,
     stop: async () => {
-      await worktrees.cleanup();
+      // Stop dev servers but KEEP the worktrees: they're durable now, and the
+      // next boot's reconcile() re-adopts them. Deleting here is how a plain
+      // Ctrl-C used to destroy unmerged agent work.
+      await worktrees.shutdown();
       for (const client of wss.clients) client.terminate();
       wss.close();
+      // `close()` alone waits for idle keep-alive sockets — a single open
+      // browser tab kept the old daemon alive through SIGTERM forever. Sever
+      // them explicitly (guarded: Bun's http shim may not implement it).
+      (server as Partial<{ closeAllConnections: () => void }>).closeAllConnections?.();
       await new Promise<void>((res) => server.close(() => res()));
     },
   };

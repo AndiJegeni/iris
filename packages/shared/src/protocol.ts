@@ -315,6 +315,7 @@ export const WsEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('task:updated'), task: Task }),
   z.object({ type: z.literal('task:log'), id: z.string(), line: z.string() }),
   z.object({ type: z.literal('task:entry'), id: z.string(), entry: TranscriptEntry }),
+  z.object({ type: z.literal('task:removed'), id: z.string() }),
   z.object({ type: z.literal('worktree:created'), worktree: Worktree }),
   z.object({ type: z.literal('worktree:updated'), worktree: Worktree }),
   z.object({ type: z.literal('worktree:removed'), slug: z.string() }),
