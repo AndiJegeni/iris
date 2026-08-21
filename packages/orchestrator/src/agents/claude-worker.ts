@@ -74,6 +74,10 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Hoisted out of the try: the catch below decides whether a thrown turn
+  // limit is a failure or a soft landing by how far the run got.
+  const tracker = new TranscriptTracker();
+
   try {
     const iter = query({
       prompt,
@@ -82,7 +86,11 @@ async function main(): Promise<void> {
         cwd: process.cwd(),
         allowedTools: ['Read', 'Edit', 'Write', 'Bash', 'Glob', 'Grep'],
         permissionMode: 'bypassPermissions',
-        maxTurns: 25,
+        // 25 starved real tasks — an agent that had already landed its edits
+        // burned the remainder trying to verify and hit the wall mid-check,
+        // which surfaced as a hard failure over finished work. 60 gives
+        // verification room while still bounding a genuine runaway.
+        maxTurns: 60,
         // Set when the daemon found a usable `claude` on PATH; omitted otherwise
         // so the SDK falls back to its own vendored executable.
         ...(process.env[CLAUDE_BINARY_ENV]
@@ -97,7 +105,6 @@ async function main(): Promise<void> {
       },
     });
 
-    const tracker = new TranscriptTracker();
     let sessionSent = false;
     let summary: string | undefined;
 
@@ -169,7 +176,30 @@ async function main(): Promise<void> {
     // 401. Flag it as such so the daemon can tell the user to re-authenticate
     // rather than reporting an opaque failure.
     const message = err instanceof Error ? err.message : String(err);
-    emit({ kind: isAuthError(message) ? 'needs-auth' : 'error', message });
+    if (isAuthError(message)) {
+      emit({ kind: 'needs-auth', message });
+      return;
+    }
+    // The SDK throws when the turn cap trips, even if the agent had already
+    // finished the actual work and was only mid-verification — which painted a
+    // completed change as "failed" with an opaque error. If edits landed, call
+    // it done and say what happened; the session is resumable, so a follow-up
+    // picks up exactly where the cap cut in. With no edits at all the cap
+    // really did starve the task, and failure is the honest report.
+    if (/maximum number of turns/i.test(message) && tracker.editedFiles.size > 0) {
+      emitEntry({
+        id: randomUUID(),
+        role: 'error',
+        at: Date.now(),
+        text: 'Ran out of turns while verifying — the edits above are in the worktree. Send a follow-up to continue.',
+      });
+      emit({
+        kind: 'done',
+        summary: `Edited ${tracker.editedFiles.size} file(s), then ran out of turns while verifying`,
+      });
+      return;
+    }
+    emit({ kind: 'error', message });
   }
 }
 

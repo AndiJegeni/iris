@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -192,6 +193,17 @@ export class WorktreeManager {
       if (this.worktrees.has(slug)) continue;
       const path = join(this.worktreeRoot, slug);
 
+      // A tombstone from remove(): the daemon died before the background
+      // delete finished. It still contains a working `.git`, so without this
+      // check it would be adopted — resurrecting a worktree the user already
+      // archived. Resume the delete instead.
+      if (/\.deleting-\d+$/.test(slug)) {
+        void sh(`rm -rf ${quote(path)}`).catch((err: unknown) => {
+          process.stderr.write(`[iris] could not delete leftover ${slug}: ${String(err)}\n`);
+        });
+        continue;
+      }
+
       if (!existsSync(join(path, '.git'))) continue; // not ours — leave it alone
 
       // Metadata is written after the checkout completes. Without it we're
@@ -373,8 +385,26 @@ export class WorktreeManager {
   private async bootDevServer(m: ManagedWorktree): Promise<void> {
     const { slug, path, port } = m.worktree;
 
+    // Archiving can land while the clone is still arriving; the checkout's
+    // completion must not then resurrect the path with a node_modules copy
+    // and a dev server no row points at. `!== m` also covers a re-spawn that
+    // reused the slug — its own checkout boots its own server.
+    if (this.worktrees.get(slug) !== m) return;
+
     // Copy node_modules from main so the dev server starts without install.
     await this.linkNodeModules(path);
+
+    // Re-check after the copy, not just at entry: the copy takes seconds, and
+    // a discard landing inside that window tombstones the directory while
+    // `linkNodeModules`'s mkdir/cp quietly recreate the original path — seen
+    // live as an empty resurrected directory plus a dev server no row points
+    // at, spawned a beat after its worktree was deleted. When the guard trips
+    // here, the recreated path is ours alone (the real clone left via the
+    // tombstone), so cleaning it up is safe.
+    if (this.worktrees.get(slug) !== m) {
+      rmSync(path, { recursive: true, force: true });
+      return;
+    }
 
     // Spawn the dev command via /bin/sh so users can chain (`cd subdir && …`).
     // `detached` gives the command its own process group, so killing `-pid`
@@ -425,20 +455,60 @@ export class WorktreeManager {
     }
   }
 
+  /**
+   * Unregister a worktree and tear it down. Answers as soon as the row can
+   * disappear: the map delete and the broadcast happen inline; killing the dev
+   * server and deleting the directory run behind the response. Deleting inline
+   * used to cost Archive close to a minute — the directory holds a full
+   * node_modules copy, and a synchronous rm of ~23k files also froze the
+   * daemon's event loop for everyone else.
+   *
+   * The directory is renamed to a tombstone first — an O(1) rename — so the
+   * slug and its path are reusable the instant we return: a re-spawn landing
+   * on the same name can't race the background `rm -rf`, because that is
+   * deleting a different path.
+   */
   async remove(slug: string): Promise<void> {
     if (slug === 'main') return; // we don't own main
     const m = this.worktrees.get(slug);
     if (!m) return;
 
-    await this.killDevServer(m);
-
-    // Standalone clone — just delete the directory.
-    if (existsSync(m.worktree.path)) {
-      rmSync(m.worktree.path, { recursive: true, force: true });
-    }
-
     this.worktrees.delete(slug);
     this.bus.broadcast({ type: 'worktree:removed', slug });
+
+    // Standalone clone — deleting the directory is the whole teardown.
+    let doomed = m.worktree.path;
+    try {
+      const tombstone = `${doomed}.deleting-${Date.now()}`;
+      renameSync(doomed, tombstone);
+      doomed = tombstone;
+    } catch {
+      // Already gone, or rename refused — delete in place; the map entry is
+      // gone either way, so at worst a same-slug re-spawn clears the debris.
+    }
+
+    void (async () => {
+      await this.killDevServer(m).catch(() => undefined);
+      // Async rm rather than rmSync: even off the response path, a synchronous
+      // delete of this size would stall every request and WebSocket event.
+      //
+      // Retried, because a discard can land while `linkNodeModules`'s cp is
+      // still copying INTO this tree — the rename moves the inode out from
+      // under the cp, which keeps writing through its open handles, so a
+      // single sweep races the writer and loses (measured: a 268MB tombstone
+      // left behind by exactly this). A few spaced passes outlast any copy;
+      // reconcile() at next boot is the final backstop.
+      for (let attempt = 0; attempt < 6; attempt++) {
+        await sh(`rm -rf ${quote(doomed)}`).catch((err: unknown) => {
+          process.stderr.write(`[iris] could not delete worktree ${slug}: ${String(err)}\n`);
+        });
+        if (!existsSync(doomed)) return;
+        await sleep(3_000);
+      }
+      process.stderr.write(
+        `[iris] worktree ${slug} still has remnants at ${doomed}; reconcile will finish it\n`,
+      );
+    })();
   }
 
   /**

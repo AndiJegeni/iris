@@ -361,8 +361,9 @@ export function TaskPanel({
                 </span>
                 <button
                   type="button"
+                  className="la-tp-soft"
                   onClick={() => setOpen(false)}
-                  style={iconBtn(theme)}
+                  style={iconBtn()}
                   aria-label="Close"
                 >
                   <CloseThinIcon />

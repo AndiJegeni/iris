@@ -1,5 +1,6 @@
 /** @jsxImportSource preact */
 import type { TranscriptEntry } from '@iris/shared';
+import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import { FileIcon } from './icons';
 import { type OverlayTheme, surfacePalette } from './theme';
@@ -79,11 +80,11 @@ export function Entry({ entry, theme }: { entry: TranscriptEntry; theme: Overlay
     case 'user':
       return (
         <div style={promptRow}>
-          <div style={promptBlock(theme)}>{entry.text}</div>
+          <div style={promptBlock(theme)}>{renderInline(entry.text ?? '', theme)}</div>
         </div>
       );
     case 'assistant':
-      return <div style={assistantText(theme)}>{renderInlineCode(entry.text ?? '')}</div>;
+      return <div style={assistantText(theme)}>{renderInline(entry.text ?? '', theme)}</div>;
     case 'thinking':
       return (
         <ActivityRow
@@ -203,20 +204,45 @@ export function WorkingRow({ theme }: { theme: OverlayTheme }) {
 }
 
 /**
- * Backticked spans switch to monospace so filenames and symbols in prose match
- * the ones in the cards above them. Deliberately the only markdown we honour —
- * the agent's prose is short, and a full renderer would be a second design
- * system to maintain.
+ * The two pieces of markdown the transcript honours — `` `code` `` and
+ * `**bold**` — and deliberately nothing else: no headings, lists, links, or
+ * italics, because the agent's prose is short and a full renderer would be a
+ * second design system to maintain. Code spans get the monospace the file cards
+ * already use; bold is how the agent labels its sections ("**What was
+ * wrong:**").
+ *
+ * Code is split out first so a `**` inside backticks stays literal, and both
+ * regexes demand a closed pair — an unclosed marker (or a single `*`) passes
+ * through untouched. Returns plain Preact nodes; agent output must never reach
+ * `dangerouslySetInnerHTML` in an overlay injected into someone's page.
  */
-function renderInlineCode(text: string) {
-  const parts = text.split(/(`[^`]+`)/g);
-  if (parts.length === 1) return text;
+export function renderInline(text: string, theme: OverlayTheme = 'dark'): ComponentChildren {
+  // Capture group in the split ⇒ odd indices are exactly the code spans.
+  const parts = text.split(/(`[^`\n]+`)/g);
+  if (parts.length === 1) return renderBold(text);
   return parts.map((part, i) =>
-    part.startsWith('`') && part.endsWith('`') && part.length > 2 ? (
+    i % 2 === 1 ? (
       // biome-ignore lint/suspicious/noArrayIndexKey: split output is positional
-      <code key={i} style={inlineCode}>
+      <code key={i} style={inlineCode(theme)}>
         {part.slice(1, -1)}
       </code>
+    ) : (
+      renderBold(part)
+    ),
+  );
+}
+
+function renderBold(text: string): ComponentChildren {
+  // `[^*]+` between the markers is what leaves single asterisks — and any
+  // pair wrapping more asterisks — alone.
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  if (parts.length === 1) return text;
+  return parts.map((part, i) =>
+    i % 2 === 1 ? (
+      // biome-ignore lint/suspicious/noArrayIndexKey: split output is positional
+      <strong key={i} style={{ fontWeight: 600 }}>
+        {part.slice(2, -2)}
+      </strong>
     ) : (
       part
     ),
@@ -328,11 +354,15 @@ const fileName = (ink: string) => ({
   whiteSpace: 'nowrap' as const,
 });
 
-// Monospace alone marks it. A chip fill here was another shade for no gain.
-const inlineCode = {
+// The palette's one fill, not a bespoke tint — at 0.9em with 1px of padding it
+// reads as a shade of the same material, not a new container.
+const inlineCode = (theme: OverlayTheme) => ({
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
   fontSize: '0.9em',
-};
+  background: chatInk(theme).fill,
+  borderRadius: '4px',
+  padding: '1px 4px',
+});
 
 // The one hue that isn't ink — the popover's own error red, so a failed turn
 // reads the same here as it does there.

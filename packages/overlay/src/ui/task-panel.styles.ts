@@ -160,10 +160,12 @@ export const clearBtn = () => ({
   fontFamily: 'inherit',
 });
 
-export const iconBtn = (theme: OverlayTheme) => ({
+export const iconBtn = () => ({
   background: 'transparent',
   border: 'none',
-  color: surfacePalette(theme).soft,
+  // No inline `color` — the call site wears `.la-tp-soft` for the same reason
+  // as clearBtn above: naming the resting ink here would outrank the :hover
+  // lift, leaving the close glyph stuck at soft.
   cursor: 'pointer',
   padding: '2px',
   display: 'inline-flex',
