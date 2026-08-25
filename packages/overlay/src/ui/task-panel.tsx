@@ -106,9 +106,7 @@ const IDLE_ROW: WorktreeRowState = {
  *
  * Its launcher is a 40px circle parked to the left of the pill, on the same row.
  * It only exists once there's work to show: with no tasks the overlay is just
- * the pill, and the circle animates in when the first task is queued. Under the
- * orchestrator shell the launcher is suppressed (`showLauncher={false}`) and the
- * drawer is driven from the button in the shell's top bar instead.
+ * the pill, and the circle animates in when the first task is queued.
  */
 export function TaskPanel({
   tasks,

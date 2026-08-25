@@ -1,14 +1,13 @@
 /**
  * The iframe shell served at the orchestrator root (`:4747/`).
  *
- * Layout:
- *   ┌─ Top bar (38px): "iris" left; worktree actions + viewport switcher right ┐
- *   │                                                                  │
- *   │  ┌─────────────────────────────────────────────────────────┐   │
- *   │  │ <iframe src="http://localhost:300X/">  (the picked       │   │
- *   │  │  worktree's dev server — overlay lives inside)           │   │
- *   │  └─────────────────────────────────────────────────────────┘   │
- *   └──────────────────────────────────────────────────────────────────┘
+ * There is no top bar: the iframe fills the window, and the only shell-owned
+ * chrome is a chip floating over the app's top-right corner carrying the
+ * worktree actions (Merge locally / Create PR / Discard) and the viewport
+ * switcher. The chip earns its place — it renders only once a worktree other
+ * than main exists, so an idle Iris adds zero chrome; and the action buttons
+ * within it appear only while an agent worktree is selected (there is nothing
+ * to merge or discard about main).
  *
  * Dropdown options update live from WS worktree:created/updated/removed events.
  *
@@ -31,27 +30,22 @@ export function shellHtml(mainPort: number): string {
     <style>${shellCss}    </style>
   </head>
   <body>
-    <header>
-      <span class="logo">iris</span>
-      <div class="bar-right">
-        <span class="status" id="status-text"></span>
-        <button id="ship-btn" class="ship-btn" type="button" style="display: none;" title="Merge this worktree's branch into your checkout and delete it">Merge locally</button>
-        <button id="pr-btn" class="pr-btn" type="button" style="display: none;" title="Push this branch and open a pull request">Create PR</button>
-        <button id="discard-btn" class="discard-btn" type="button" style="display: none;" title="Tear down this worktree without merging">Discard</button>
-        <label class="viewport-label">
-          viewport
-          <span class="select-wrap">
-            <select id="viewport-switcher">
-              <option value="main" data-port="${mainPort}">main · :${mainPort}</option>
-            </select>
-            <span class="select-measure" id="select-measure" aria-hidden="true"></span>
-            <svg class="select-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </span>
-        </label>
-      </div>
-    </header>
+    <div class="viewport-chip" id="viewport-chip" style="display: none;">
+      <button id="ship-btn" class="chip-btn" type="button" style="display: none;" title="Merge this worktree's branch into your checkout and delete it">Merge locally</button>
+      <button id="pr-btn" class="chip-btn" type="button" style="display: none;" title="Push this branch and open a pull request">Create PR</button>
+      <button id="discard-btn" class="chip-btn" type="button" style="display: none;" title="Tear down this worktree without merging">Discard</button>
+      <span class="chip-divider" id="chip-divider" style="display: none;"></span>
+      <span class="select-wrap">
+        <select id="viewport-switcher">
+          <option value="main" data-port="${mainPort}">main · :${mainPort}</option>
+        </select>
+        <span class="select-measure" id="select-measure" aria-hidden="true"></span>
+        <svg class="select-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </span>
+    </div>
+    <div class="status-toast" id="status-text"></div>
     <iframe id="viewport" src="http://localhost:${mainPort}/" referrerpolicy="no-referrer-when-downgrade"></iframe>
     <div class="empty" id="empty" style="display:none">
       <div>main dev server isn't responding on :${mainPort}</div>
@@ -75,6 +69,7 @@ export function shellHtml(mainPort: number): string {
       (function() {
         var daemonOrigin = window.location.origin;
         var wsUrl = daemonOrigin.replace(/^http/, 'ws') + '/tasks';
+        var chipEl = document.getElementById('viewport-chip');
         var selectEl = document.getElementById('viewport-switcher');
         var iframeEl = document.getElementById('viewport');
         var statusEl = document.getElementById('status-text');
@@ -99,7 +94,7 @@ export function shellHtml(mainPort: number): string {
         worktrees.set('main', { slug: 'main', port: ${mainPort}, devServerStatus: 'ready' });
 
         // The overlay lives in the iframe, a different origin, so it reports its
-        // resolved theme up to us — the bar would otherwise follow the OS while
+        // resolved theme up to us — the chip would otherwise follow the OS while
         // the overlay honoured its own light/dark override. One way and one
         // message: it only ever sets an attribute, and only from a localhost
         // frame, so the shell's single inbound channel stays as narrow as it
@@ -112,7 +107,7 @@ export function shellHtml(mainPort: number): string {
           document.documentElement.setAttribute('data-theme', d.theme);
         });
 
-        // Healthy and still-connecting are both silent — a bar that permanently
+        // Healthy and still-connecting are both silent — a toast that permanently
         // says "connected" is noise. Losing the daemon is the only state worth
         // interrupting for, since nothing in the UI works without it.
         function setConn(state) {
@@ -180,6 +175,9 @@ export function shellHtml(mainPort: number): string {
             selectEl.appendChild(opt);
           });
           if (worktrees.has(prev)) selectEl.value = prev;
+          // The chip only exists once there's a choice to make: with main alone
+          // it would be a dropdown of one and a row of buttons that do nothing.
+          chipEl.style.display = worktrees.size > 1 ? '' : 'none';
           sizeSelect();
         }
 
@@ -197,6 +195,9 @@ export function shellHtml(mainPort: number): string {
           // Stays hidden without a remote — there'd be nowhere to push.
           document.getElementById('pr-btn').style.display =
             isAgent && caps && caps.remote ? '' : 'none';
+          // The divider belongs to the buttons; without them the selector
+          // stands alone and a stray rule would read as a smudge.
+          document.getElementById('chip-divider').style.display = isAgent ? '' : 'none';
         }
 
         selectEl.addEventListener('change', function() {

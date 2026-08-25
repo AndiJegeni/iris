@@ -61,8 +61,7 @@ const TASKS_PANEL_MIN_H = 220;
 // Background Tasks launcher: a 40px circle that widens to carry a running count
 // beside the glyph (40 empty, ~57 with one digit, ~67 with two). Deliberately
 // over-estimated — this only decides which side of the pill it parks on, and
-// guessing wide just flips it a few pixels early. Only drawn when we're standing
-// on our own: under the orchestrator shell the button lives in its top bar.
+// guessing wide just flips it a few pixels early.
 const TASKS_LAUNCHER_W = 68;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi));
@@ -179,8 +178,8 @@ export function Overlay() {
   // Report the resolved theme to the orchestrator shell when we're running in
   // its iframe. The shell is a different origin, so it can't read our state and
   // `prefers-color-scheme` alone would miss the manual sun/moon override — its
-  // top bar would sit dark above a light overlay. Harmless if there's no shell:
-  // the message just goes nowhere.
+  // floating chrome would sit dark over a light overlay. Harmless if there's
+  // no shell: the message just goes nowhere.
   useEffect(() => {
     if (typeof window === 'undefined' || window.parent === window) return;
     window.parent.postMessage({ source: 'iris', type: 'theme', theme }, '*');

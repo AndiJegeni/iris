@@ -82,6 +82,24 @@ export function isGitRepo(dir: string): boolean {
 }
 
 /**
+ * The repo's actual git directory. `join(dir, '.git')` is only right in a
+ * primary checkout — inside a linked worktree `.git` is a pointer *file*, and
+ * treating it as a directory made the daemon fail to boot there.
+ */
+export function gitDir(dir: string): string | undefined {
+  try {
+    const out = execFileSync('git', ['rev-parse', '--absolute-git-dir'], {
+      cwd: dir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return out.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * The remote we'd push a worktree branch to: "origin" if it exists, else the
  * first remote configured, else null.
  *
