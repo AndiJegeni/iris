@@ -51,7 +51,7 @@ export type AuthMethod = z.infer<typeof AuthMethod>;
 export const ProviderAuthStatus = z.object({
   method: AuthMethod,
   configured: z.boolean(),
-  /** Where the credential came from: flag, env, config, oauth, or missing. */
+  /** Where the credential came from: flag, config, oauth, or missing. */
   source: z.string(),
   /**
    * A real run was rejected by this credential (expired subscription session or

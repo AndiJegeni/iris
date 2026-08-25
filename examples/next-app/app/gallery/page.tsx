@@ -1178,28 +1178,28 @@ export default function Gallery() {
           [
             {
               label: 'not connected',
-              hint: 'the first-run state: log in, or paste a key',
+              hint: 'no accounts → the sign-in screen: one auto-detecting key field, logins below',
               anthropic: {},
             },
             {
               label: 'subscription connected',
-              hint: 'the only button is Log out',
+              hint: 'the account list — a Claude row, plus "Add a new account"',
               anthropic: { method: 'oauth', configured: true, source: 'oauth' },
             },
             {
               label: 'API key set',
-              hint: 'the field offers to replace rather than add',
-              anthropic: { method: 'api-key', configured: true, source: 'env' },
+              hint: 'an API-key account row — Remove clears it',
+              anthropic: { method: 'api-key', configured: true, source: 'config' },
             },
             {
               label: 'session expired',
-              hint: 'a real run was rejected — the stored session still looks valid',
+              hint: 'a real run was rejected — red sub-line, Log in again',
               anthropic: { method: 'oauth', configured: true, source: 'oauth', expired: true },
             },
             {
               label: 'API key rejected',
-              hint: 'same signal, different wording for a key',
-              anthropic: { method: 'api-key', configured: true, source: 'env', expired: true },
+              hint: 'Replace jumps back to the sign-in screen',
+              anthropic: { method: 'api-key', configured: true, source: 'config', expired: true },
             },
           ] as const
         ).map((s) => (

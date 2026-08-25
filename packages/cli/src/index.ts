@@ -63,8 +63,8 @@ Options:
   --dev-cmd <cmd>           Command to spawn dev server in a worktree.
                             %PORT% is substituted. Default: inferred from your
                             lockfile (npm / pnpm / yarn / bun).
-  --anthropic-key <key>     Anthropic API key (overrides ANTHROPIC_API_KEY env)
-  --openai-key <key>        OpenAI API key (overrides OPENAI_API_KEY env)
+  --anthropic-key <key>     Anthropic API key (overrides one saved in Settings)
+  --openai-key <key>        OpenAI API key (overrides one saved in Settings)
   -h, --help                Show this message
 `,
   );
@@ -84,12 +84,12 @@ function resolveRepoRoot(cwd: string): string {
   }
 }
 
-function describeAuth(label: string, method: string, source: string, envName: string): string {
+function describeAuth(label: string, method: string, source: string): string {
   if (method === 'oauth') return `  ${label.padEnd(8)} subscription login`;
   if (method === 'api-key') return `  ${label.padEnd(8)} API key (${source})`;
-  // Lead with the subscription login: it's the path that needs no API key at
-  // all, and the one most users already have. The env var is the fallback.
-  return `  ${label.padEnd(8)} \x1b[33mnot connected\x1b[0m — open Settings → Connect (or set ${envName})`;
+  // Ambient env vars are deliberately not read (see resolveApiKey), so the
+  // only remedies to offer are the explicit ones.
+  return `  ${label.padEnd(8)} \x1b[33mnot connected\x1b[0m — open Settings → Accounts to log in or add a key`;
 }
 
 /**
@@ -206,14 +206,8 @@ async function main(): Promise<void> {
         'claude',
         orchestrator.auth.anthropic.method,
         orchestrator.auth.anthropic.source,
-        'ANTHROPIC_API_KEY',
       ),
-      describeAuth(
-        'codex',
-        orchestrator.auth.openai.method,
-        orchestrator.auth.openai.source,
-        'OPENAI_API_KEY',
-      ),
+      describeAuth('codex', orchestrator.auth.openai.method, orchestrator.auth.openai.source),
       ...(isWired(repoRoot)
         ? []
         : [

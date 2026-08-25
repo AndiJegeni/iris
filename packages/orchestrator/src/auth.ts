@@ -5,7 +5,7 @@ import { claudeSubscriptionLoggedIn, codexChatgptLoggedIn } from './credentials'
 
 export type { AuthMethod };
 
-export type AuthSource = 'flag' | 'env' | 'config' | 'oauth' | 'missing';
+export type AuthSource = 'flag' | 'config' | 'oauth' | 'missing';
 
 export type ProviderAuth = {
   method: AuthMethod;
@@ -131,17 +131,22 @@ function pickMethod(
 }
 
 /**
- * Pick the highest-precedence non-empty API key from flag → env → config.
- * Empty/whitespace strings count as absent (a stray `export ANTHROPIC_API_KEY=`
- * must not mask a real key in config), which a plain `??` chain wouldn't catch.
+ * Pick the highest-precedence non-empty API key from flag → config. Empty or
+ * whitespace strings count as absent (a stray `--anthropic-key ""` must not
+ * mask a real key in config), which a plain `??` chain wouldn't catch.
+ *
+ * Deliberately does NOT read ANTHROPIC_API_KEY / OPENAI_API_KEY from the
+ * daemon's environment: every credential that runs tasks is one the user
+ * explicitly handed to Iris (a saved key or a flag), so it shows up in the
+ * Accounts UI and can be removed there. An ambient shell export would be
+ * invisible and unremovable — and the runners already strip these vars from
+ * child processes so an inherited one can't leak into a task either.
  */
 function resolveApiKey(
   flag: string | undefined,
-  env: string | undefined,
   config: string | undefined,
 ): { value: string | null; source: AuthSource } {
   if (flag?.trim()) return { value: flag, source: 'flag' };
-  if (env?.trim()) return { value: env, source: 'env' };
   if (config?.trim()) return { value: config, source: 'config' };
   return { value: null, source: 'missing' };
 }
@@ -149,11 +154,10 @@ function resolveApiKey(
 export function resolveAuth(opts: ResolveAuthOptions): AuthState {
   const config = readConfig(opts.repoRoot);
 
-  // Anthropic: API key from flag/env/config; subscription login owned by the
+  // Anthropic: API key from flag/config; subscription login owned by the
   // claude CLI (the Agent SDK reads its cached session — we only detect it).
   const { value: anthropicKey, source: anthropicKeySource } = resolveApiKey(
     opts.flagAnthropic,
-    process.env.ANTHROPIC_API_KEY,
     config.anthropicApiKey,
   );
   const anthropicOAuth = claudeSubscriptionLoggedIn();
@@ -163,10 +167,9 @@ export function resolveAuth(opts: ResolveAuthOptions): AuthState {
     Boolean(anthropicKey),
   );
 
-  // OpenAI: API key from flag/env/config, subscription login owned by codex CLI.
+  // OpenAI: API key from flag/config, subscription login owned by codex CLI.
   const { value: openaiKey, source: openaiKeySource } = resolveApiKey(
     opts.flagOpenai,
-    process.env.OPENAI_API_KEY,
     config.openaiApiKey,
   );
   const openaiOAuth = codexChatgptLoggedIn();
