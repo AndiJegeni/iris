@@ -74,7 +74,11 @@ export function PickedPopover({
   const errorText = isLight ? '#dc2626' : '#f87171';
   const [prompt, setPrompt] = useState('');
   const [model, setModel] = useState<string>(DEFAULT_MODEL);
-  const [effort, setEffort] = useState<ReasoningEffort>('high');
+  // 'medium' matches the protocol's own default (Annotation.reasoningEffort)
+  // and paces the typical "tweak this element" task; 'high' — the previous
+  // shipped default — made every task pay for deep reasoning up front, and it
+  // is still one click away for the tasks that earn it.
+  const [effort, setEffort] = useState<ReasoningEffort>('medium');
   const [worktreeMode, setWorktreeMode] = useState<WorktreeMode>('new');
 
   const selectedModel = MODELS.find((m) => m.value === model) ?? FALLBACK_MODEL;

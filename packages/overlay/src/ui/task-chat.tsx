@@ -1,10 +1,25 @@
 /** @jsxImportSource preact */
-import type { ReasoningEffort, Task, TranscriptEntry } from '@iris/shared';
+import {
+  type ReasoningEffort,
+  type Task,
+  type TranscriptEntry,
+  nextUnanswered,
+} from '@iris/shared';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { type ChatTab, ChatTabBar } from './chat-tab-bar';
 import { PlusThinIcon, SendIcon, StopIcon } from './icons';
 import { DEFAULT_MODEL, EFFORTS, MODELS, ModelReasoningPicker } from './model-picker';
-import { Entry, WorkingRow, assistantText, chatInk, isQuietEntry } from './task-chat.transcript';
+import {
+  Entry,
+  QuestionCard,
+  ToolRun,
+  WorkingRow,
+  assistantText,
+  chatInk,
+  groupTranscript,
+  isQuietRow,
+  isToolRunLive,
+} from './task-chat.transcript';
 import { type OverlayTheme, SURFACE_PAD, popoverTokens, surfacePalette } from './theme';
 
 export type { ChatTab };
@@ -65,7 +80,7 @@ export function TaskChat({
       ? (task.model as string)
       : (modelChoices.find((m) => m.value === DEFAULT_MODEL) ?? modelChoices[0]!).value,
   );
-  const [effort, setEffort] = useState<ReasoningEffort>('high');
+  const [effort, setEffort] = useState<ReasoningEffort>('medium');
   const selectedModel = modelChoices.find((m) => m.value === model) ?? modelChoices[0]!;
   const effortOptions = EFFORTS[selectedModel.provider];
   const changeModel = (value: string) => {
@@ -73,6 +88,17 @@ export function TaskChat({
     const next = MODELS.find((m) => m.value === value);
     if (next && !EFFORTS[next.provider].some((e) => e.value === effort)) setEffort('high');
   };
+  // A blocked run arrives here as `busy` — it is still running, from the
+  // drawer's point of view — but the composer is exactly what unblocks it, so
+  // this is the one kind of busy that must not lock the input. Declared above
+  // the effects because the auto-scroll below watches it.
+  const pending = task.status === 'awaiting-input' ? task.question : undefined;
+  const asked = pending ? nextUnanswered(pending) : null;
+  // The list's real unit: a run of tool calls is one row, not one row per call.
+  // While that run is in flight it carries the pulse itself, so the Working…
+  // row stands down — two pulsing rows would claim two things were happening.
+  const rows = groupTranscript(entries);
+  const lastRow = rows[rows.length - 1];
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   // The input's width in the one-line pill layout, recorded while we're in it.
@@ -88,7 +114,10 @@ export function TaskChat({
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [entries.length, logsFallback.length, busy]);
+    // `asked` too: the question card is appended below the last entry without
+    // changing the entry count, so without it the one block the user must read
+    // can arrive off the bottom of a scrolled-back transcript.
+  }, [entries.length, logsFallback.length, busy, asked]);
 
   // Grow the composer with its content up to 3 lines, then scroll — and flip
   // between the one-line pill and the expanded card off the same measurement.
@@ -121,8 +150,20 @@ export function TaskChat({
     setMultiline(wraps);
   }, [draft, multiline]);
 
-  const locked = busy || sending;
+  const locked = (busy && !asked) || sending;
   const canSend = !!draft.trim() && !locked;
+  // Picking an option is the same act as typing its wording — it goes out as an
+  // ordinary message and the daemon matches it back to the choice. Rejections
+  // are swallowed the way the composer's own send swallows them: the row's
+  // status is what reports a run that has gone.
+  const answer = (label: string) => {
+    if (sending) return;
+    setSending(true);
+    void Promise.resolve(onSend(label, { model: selectedModel.value, effort })).then(
+      () => setSending(false),
+      () => setSending(false),
+    );
+  };
 
   const submit = async () => {
     const text = draft.trim();
@@ -149,15 +190,23 @@ export function TaskChat({
 
       <div ref={scrollRef} style={messageList}>
         {entries.length > 0
-          ? entries.map((e, i) => {
-              // Two consecutive quiet entries close ranks; anything else gets air.
-              // This grouping is what makes a run of tool calls read as one
-              // column instead of a stack of equally-loud lines.
-              const prev = i > 0 ? entries[i - 1] : undefined;
-              const tight = Boolean(prev && isQuietEntry(prev) && isQuietEntry(e));
+          ? rows.map((row, i) => {
+              // Two consecutive quiet rows close ranks; anything else gets air.
+              const prev = i > 0 ? rows[i - 1] : undefined;
+              const tight = Boolean(prev && isQuietRow(prev) && isQuietRow(row));
               return (
-                <div key={e.id} style={{ marginTop: i === 0 ? 0 : tight ? TIGHT : LOOSE }}>
-                  <Entry entry={e} theme={theme} />
+                <div key={row.key} style={{ marginTop: i === 0 ? 0 : tight ? TIGHT : LOOSE }}>
+                  {row.kind === 'tools' ? (
+                    // Only the last run can be in flight; an earlier one is
+                    // history no matter what its calls last reported.
+                    <ToolRun
+                      entries={row.entries}
+                      live={busy && i === rows.length - 1}
+                      theme={theme}
+                    />
+                  ) : (
+                    <Entry entry={row.entry} theme={theme} />
+                  )}
                 </div>
               );
             })
@@ -167,7 +216,25 @@ export function TaskChat({
                 {line}
               </div>
             ))}
-        {busy ? (
+        {/* The question replaces the "Working…" pulse rather than joining it:
+            nothing is working, and two live-looking rows would say otherwise. */}
+        {asked ? (
+          <div key="question" style={{ marginTop: entries.length === 0 ? 0 : LOOSE }}>
+            <QuestionCard
+              question={asked.question}
+              options={asked.options}
+              header={asked.header}
+              remaining={
+                pending
+                  ? pending.questions.filter((q) => pending.answers[q.question] === undefined)
+                      .length
+                  : 1
+              }
+              theme={theme}
+              onAnswer={answer}
+            />
+          </div>
+        ) : busy && !isToolRunLive(lastRow) ? (
           // Keyed so streaming entries reconcile around it instead of rebuilding
           // it. Tight against a run of quiet rows, but a full block gap after
           // anything loud — right after your own prompt it was the one row
@@ -175,12 +242,7 @@ export function TaskChat({
           <div
             key="working"
             style={{
-              marginTop:
-                entries.length === 0
-                  ? 0
-                  : isQuietEntry(entries[entries.length - 1]!)
-                    ? TIGHT
-                    : LOOSE,
+              marginTop: lastRow == null ? 0 : isQuietRow(lastRow) ? TIGHT : LOOSE,
             }}
           >
             <WorkingRow theme={theme} />
@@ -219,8 +281,10 @@ export function TaskChat({
             void submit();
           }}
           rows={1}
-          placeholder={busy ? 'Agent is working…' : 'Reply or ask a follow-up'}
-          disabled={busy}
+          placeholder={
+            asked ? 'Answer to continue' : busy ? 'Agent is working…' : 'Reply or ask a follow-up'
+          }
+          disabled={busy && !asked}
           style={{
             ...composerInput(),
             ...(multiline
@@ -250,7 +314,10 @@ export function TaskChat({
             t={t}
           />
         </div>
-        {onCancel && busy ? (
+        {/* Stop yields to Send while a question is up: stopping is still on the
+            row in the drawer, and the one control in the composer should be the
+            one that gets the run moving again. */}
+        {onCancel && busy && !asked ? (
           <button
             type="button"
             className="la-tc-send la-tc-stop"

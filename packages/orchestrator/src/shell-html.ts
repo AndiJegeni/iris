@@ -3,7 +3,7 @@
  *
  * There is no top bar: the iframe fills the window, and the only shell-owned
  * chrome is a chip floating over the app's top-right corner carrying the
- * worktree actions (Merge locally / Create PR / Discard) and the viewport
+ * worktree actions (Create PR / Merge locally / Discard) and the viewport
  * switcher. The chip earns its place — it renders only once a worktree other
  * than main exists, so an idle Iris adds zero chrome; and the action buttons
  * within it appear only while an agent worktree is selected (there is nothing
@@ -31,8 +31,12 @@ export function shellHtml(mainPort: number): string {
   </head>
   <body>
     <div class="viewport-chip" id="viewport-chip" style="display: none;">
-      <button id="ship-btn" class="chip-btn" type="button" style="display: none;" title="Merge this worktree's branch into your checkout and delete it">Merge locally</button>
+      <!-- Create PR leads, as it does on the drawer's task rows: it's the
+           default way to land work, and Merge locally the alternative beside
+           it. Hiding it (no remote) leaves no gap — flex gaps skip
+           display:none children, so Merge simply takes the front. -->
       <button id="pr-btn" class="chip-btn" type="button" style="display: none;" title="Push this branch and open a pull request">Create PR</button>
+      <button id="ship-btn" class="chip-btn" type="button" style="display: none;" title="Merge this worktree's branch into your checkout and delete it">Merge locally</button>
       <button id="discard-btn" class="chip-btn" type="button" style="display: none;" title="Tear down this worktree without merging">Discard</button>
       <span class="chip-divider" id="chip-divider" style="display: none;"></span>
       <span class="select-wrap">
@@ -190,11 +194,11 @@ export function shellHtml(mainPort: number): string {
 
         function updateShipButtons() {
           var isAgent = selectEl.value !== 'main';
-          document.getElementById('ship-btn').style.display = isAgent ? '' : 'none';
-          document.getElementById('discard-btn').style.display = isAgent ? '' : 'none';
           // Stays hidden without a remote — there'd be nowhere to push.
           document.getElementById('pr-btn').style.display =
             isAgent && caps && caps.remote ? '' : 'none';
+          document.getElementById('ship-btn').style.display = isAgent ? '' : 'none';
+          document.getElementById('discard-btn').style.display = isAgent ? '' : 'none';
           // The divider belongs to the buttons; without them the selector
           // stands alone and a stray rule would read as a smudge.
           document.getElementById('chip-divider').style.display = isAgent ? '' : 'none';
@@ -204,6 +208,34 @@ export function shellHtml(mainPort: number): string {
           switchTo(selectEl.value);
           updateShipButtons();
           sizeSelect();
+        });
+
+        // Asks nothing: unlike Merge and Discard this destroys nothing — the
+        // worktree and its dev server survive so you can keep iterating.
+        document.getElementById('pr-btn').addEventListener('click', async function() {
+          var slug = selectEl.value;
+          if (slug === 'main') return;
+          var btn = document.getElementById('pr-btn');
+          btn.disabled = true; btn.textContent = 'opening…';
+          try {
+            var res = await fetch(daemonOrigin + '/worktrees/' + encodeURIComponent(slug) + '/pr', { method: 'POST' });
+            var json = await res.json();
+            if (!res.ok) throw new Error(json.error || 'create PR failed');
+            // A popup opened after an await can be blocked, so the URL is also
+            // spelled out — never leave the user without a way to reach it.
+            var opened = json.url ? window.open(json.url, '_blank', 'noopener') : null;
+            // The escape is doubled on purpose. This file is one big template
+            // literal, so a single one is consumed right here and emits a real
+            // newline into the browser's source, leaving the string unterminated
+            // and killing the whole inline script. Same reason the origin-check
+            // regex above doubles its slashes.
+            if (json.url && !opened) alert('Pushed ' + json.branch + '. Open:\\n' + json.url);
+            else if (!json.url) alert(json.note || ('Pushed ' + json.branch + '.'));
+          } catch (e) {
+            alert('Create PR failed: ' + (e && e.message ? e.message : String(e)));
+          } finally {
+            btn.disabled = false; btn.textContent = 'Create PR';
+          }
         });
 
         document.getElementById('ship-btn').addEventListener('click', async function() {
@@ -232,34 +264,6 @@ export function shellHtml(mainPort: number): string {
             alert('Merge failed: ' + (e && e.message ? e.message : String(e)));
           } finally {
             btn.disabled = false; btn.textContent = 'Merge locally';
-          }
-        });
-
-        // Asks nothing: unlike Merge and Discard this destroys nothing — the
-        // worktree and its dev server survive so you can keep iterating.
-        document.getElementById('pr-btn').addEventListener('click', async function() {
-          var slug = selectEl.value;
-          if (slug === 'main') return;
-          var btn = document.getElementById('pr-btn');
-          btn.disabled = true; btn.textContent = 'opening…';
-          try {
-            var res = await fetch(daemonOrigin + '/worktrees/' + encodeURIComponent(slug) + '/pr', { method: 'POST' });
-            var json = await res.json();
-            if (!res.ok) throw new Error(json.error || 'create PR failed');
-            // A popup opened after an await can be blocked, so the URL is also
-            // spelled out — never leave the user without a way to reach it.
-            var opened = json.url ? window.open(json.url, '_blank', 'noopener') : null;
-            // The escape is doubled on purpose. This file is one big template
-            // literal, so a single one is consumed right here and emits a real
-            // newline into the browser's source, leaving the string unterminated
-            // and killing the whole inline script. Same reason the origin-check
-            // regex above doubles its slashes.
-            if (json.url && !opened) alert('Pushed ' + json.branch + '. Open:\\n' + json.url);
-            else if (!json.url) alert(json.note || ('Pushed ' + json.branch + '.'));
-          } catch (e) {
-            alert('Create PR failed: ' + (e && e.message ? e.message : String(e)));
-          } finally {
-            btn.disabled = false; btn.textContent = 'Create PR';
           }
         });
 
