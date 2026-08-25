@@ -8,24 +8,31 @@
  * parallel tasks (each its own process) never clobber each other's cwd.
  *
  * Protocol:
- *   - stdin:  one JSON line `{ prompt, resume?, model?, effort? }`
- *             (`resume` is a prior SDK session id, for follow-up messages;
- *             `model`/`effort` are the user's picks, already in SDK spelling)
+ *   - stdin:  JSON lines, and the stream stays OPEN for the life of the run.
+ *             The first line is the start payload
+ *             `{ prompt, resume?, model?, effort? }` (`resume` is a prior SDK
+ *             session id, for follow-up messages; `model`/`effort` are the
+ *             user's picks, already in SDK spelling). Every later line is an
+ *             answer `{ type: 'answer', id, answers }` to a question this
+ *             worker asked — see askUser below. Without a second direction
+ *             there is nowhere for a human answer to go, and a blocked agent
+ *             could only ever give up.
  *   - stdout: JSON-line RunEvents — besides the legacy `log`/`edit`/`status`/
  *             `done`/`error`, we now emit structured `entry` events (one per
- *             assistant text / thinking block / tool call) and a `session`
- *             event carrying the resumable session id.
+ *             assistant text / thinking block / tool call), a `session` event
+ *             carrying the resumable session id, and a `question` event when
+ *             the agent needs the user before it can continue.
  *   ANTHROPIC_API_KEY is inherited from the spawn env.
  */
 import { randomUUID } from 'node:crypto';
-import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { TranscriptEntry } from '@iris/shared';
+import { type CanUseTool, query } from '@anthropic-ai/claude-agent-sdk';
+import type { AgentQuestion, TranscriptEntry } from '@iris/shared';
 import { isAuthError } from '../auth-errors';
 import { CLAUDE_BINARY_ENV } from '../claude-binary';
 // The parent parses stdout back into this exact union, so it is the wire format
 // between the two processes — import it rather than restating it here, where a
 // silent drift would only surface as a dropped event at runtime.
-import type { RunEvent } from './types';
+import { LineBuffer, type RunEvent } from './types';
 
 function emit(ev: RunEvent): void {
   process.stdout.write(`${JSON.stringify(ev)}\n`);
@@ -35,13 +42,64 @@ function emitEntry(entry: TranscriptEntry): void {
   emit({ kind: 'entry', entry });
 }
 
-function readStdin(): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    process.stdin.on('data', (c: Buffer) => chunks.push(c));
-    process.stdin.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    process.stdin.on('error', reject);
-  });
+/**
+ * The SDK's built-in tool for putting a multiple-choice question to the user.
+ *
+ * It is reachable under `permissionMode: 'bypassPermissions'` and without being
+ * named in `allowedTools`: the tool declares `requiresUserInteraction`, and the
+ * CLI returns its "ask" decision *before* it consults either the permission mode
+ * or the allow rules. So the only thing standing between the agent and a human
+ * is the `canUseTool` callback below.
+ */
+const ASK_USER_QUESTION = 'AskUserQuestion';
+
+/**
+ * The line-oriented half of stdin, shared by the start payload and every answer
+ * that follows.
+ *
+ * Nothing here unrefs the stream: before `query()` is running there is no other
+ * work holding the event loop open, so an unref'd stdin would let the process
+ * exit before the first line even arrived. `main` destroys it on the way out
+ * instead, which is what actually lets the worker exit once the run is over.
+ */
+class StdinLines {
+  private readonly buffer = new LineBuffer();
+  private readonly pending: ((line: string | null) => void)[] = [];
+  private readonly queued: string[] = [];
+  private ended = false;
+
+  constructor() {
+    process.stdin.on('data', (chunk: Buffer) => {
+      for (const line of this.buffer.push(chunk)) this.offer(line);
+    });
+    const end = () => {
+      for (const line of this.buffer.flush()) this.offer(line);
+      this.ended = true;
+      // The parent closed the pipe (or died). Wake everyone waiting so the run
+      // unwinds instead of hanging on an answer that can no longer arrive.
+      for (const resolve of this.pending.splice(0)) resolve(null);
+    };
+    process.stdin.on('end', end);
+    process.stdin.on('error', end);
+  }
+
+  /** The next line, or null once the stream has ended. */
+  next(): Promise<string | null> {
+    const queued = this.queued.shift();
+    if (queued !== undefined) return Promise.resolve(queued);
+    if (this.ended) return Promise.resolve(null);
+    return new Promise((resolve) => this.pending.push(resolve));
+  }
+
+  close(): void {
+    process.stdin.destroy();
+  }
+
+  private offer(line: string): void {
+    const waiter = this.pending.shift();
+    if (waiter) waiter(line);
+    else this.queued.push(line);
+  }
 }
 
 /**
@@ -52,14 +110,169 @@ function readStdin(): Promise<string> {
  */
 const SDK_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 
+/**
+ * The turn cap and the note that makes the agent aware of it. 25 starved real
+ * tasks — an agent that had already landed its edits burned the remainder
+ * verifying and hit the wall mid-check, which surfaced as a hard failure over
+ * finished work. 60 gives verification room while still bounding a runaway —
+ * but the cap is an external guillotine the model can't see, so the note below
+ * rides in on the system prompt to turn it into something it paces against.
+ * One constant for both so the number the agent is told is the number that
+ * kills it.
+ */
+const MAX_TURNS = 60;
+const TURN_BUDGET_NOTE = [
+  `Turn budget: this run is hard-capped at ${MAX_TURNS} agentic turns (each of`,
+  'your messages, including one batch of tool calls, costs a turn). The cap is',
+  'enforced externally and cuts the run off mid-action with no warning, so pace',
+  'against it:',
+  '- Land the requested change first. Then verify with the cheapest check that',
+  '  gives real signal (a targeted typecheck or one focused test), not an',
+  '  exhaustive sweep.',
+  '- Batch independent tool calls into a single message; every extra',
+  '  round-trip costs a turn and gets slower as the conversation grows.',
+  '- If the work remaining looks like more turns than you plausibly have left,',
+  '  stop and report instead: say what you changed, what you verified, and',
+  '  what remains. A clean handoff beats being cut off mid-edit — the session',
+  '  is resumable, so the user can send a follow-up to continue.',
+].join('\n');
+
+/**
+ * Routes answers arriving on stdin back to the `canUseTool` calls waiting on
+ * them, keyed by the agent's tool-call id.
+ *
+ * One reader, not one per question: the SDK may run two tool calls from the
+ * same assistant message concurrently, and several `next()` waiters racing over
+ * a shared stream would hand answers to whichever happened to be first in the
+ * queue rather than to the call they name.
+ */
+class AnswerRouter {
+  private readonly waiting = new Map<string, (answers: Record<string, string> | null) => void>();
+  private closed = false;
+
+  constructor(private readonly lines: StdinLines) {}
+
+  /** Read until the parent closes stdin, dispatching each answer to its caller. */
+  async pump(): Promise<void> {
+    while (true) {
+      const line = await this.lines.next();
+      if (line === null) break;
+      let msg: { type?: unknown; id?: unknown; answers?: unknown };
+      try {
+        msg = JSON.parse(line) as typeof msg;
+      } catch {
+        continue; // a malformed line is not worth killing a live run over
+      }
+      if (msg.type !== 'answer' || typeof msg.id !== 'string') continue;
+      const resolve = this.waiting.get(msg.id);
+      if (!resolve) continue;
+      this.waiting.delete(msg.id);
+      resolve(
+        msg.answers && typeof msg.answers === 'object'
+          ? (msg.answers as Record<string, string>)
+          : {},
+      );
+    }
+    this.closed = true;
+    for (const [id, resolve] of this.waiting) {
+      this.waiting.delete(id);
+      resolve(null);
+    }
+  }
+
+  /** The answers for `id`, or null if the channel closed first. */
+  await(id: string, signal: AbortSignal): Promise<Record<string, string> | null> {
+    if (this.closed) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const settle = (answers: Record<string, string> | null) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(answers);
+      };
+      const onAbort = () => {
+        this.waiting.delete(id);
+        settle(null);
+      };
+      // The SDK aborts this signal when the run is torn down. Without unhooking
+      // here, cancelling a task while a question was up would leave the promise
+      // pending and the process alive with nothing left to do.
+      if (signal.aborted) {
+        settle(null);
+        return;
+      }
+      signal.addEventListener('abort', onAbort, { once: true });
+      this.waiting.set(id, settle);
+    });
+  }
+}
+
+/**
+ * Reads the agent's `AskUserQuestion` input into the shape the UI renders.
+ * Returns null for anything that doesn't look like a question set, so an
+ * unexpected schema falls back to letting the tool run rather than blocking a
+ * run on a question nobody can see.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: SDK tool input shape
+function parseQuestions(input: any): AgentQuestion[] | null {
+  const raw = input?.questions;
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const questions: AgentQuestion[] = [];
+  for (const q of raw) {
+    if (!q || typeof q.question !== 'string' || !q.question.trim()) return null;
+    questions.push({
+      question: q.question,
+      header: typeof q.header === 'string' ? q.header : '',
+      options: Array.isArray(q.options)
+        ? q.options
+            .filter((o: unknown): o is { label: string; description?: unknown } =>
+              Boolean(o && typeof (o as { label?: unknown }).label === 'string'),
+            )
+            .map((o: { label: string; description?: unknown }) => ({
+              label: o.label,
+              description: typeof o.description === 'string' ? o.description : '',
+            }))
+        : [],
+    });
+  }
+  return questions;
+}
+
+/**
+ * The permission callback, and the hinge of the whole feature.
+ *
+ * `canUseTool` is async and the SDK holds the turn open for as long as its
+ * promise is pending — so awaiting a human here *is* the pause. Answering is an
+ * `allow` carrying an `updatedInput`: the tool reads `answers` out of its own
+ * input, which is exactly how the interactive CLI feeds a choice back, so the
+ * agent receives a real tool result ("Your questions have been answered: …")
+ * and continues the same turn rather than being told it was denied.
+ */
+function permissionHandler(router: AnswerRouter): CanUseTool {
+  return async (toolName, input, { signal, toolUseID }) => {
+    if (toolName !== ASK_USER_QUESTION) return { behavior: 'allow' };
+    const questions = parseQuestions(input);
+    if (!questions) return { behavior: 'allow' };
+
+    emit({ kind: 'question', id: toolUseID, questions });
+    const answers = await router.await(toolUseID, signal);
+    if (!answers) {
+      // Cancelled, or the daemon went away. Deny with a reason rather than
+      // hanging: if anything is still listening, the agent gets a coherent
+      // tool result instead of a stall.
+      return { behavior: 'deny', message: 'The user did not answer; stop and wait for them.' };
+    }
+    return { behavior: 'allow', updatedInput: { ...input, answers } };
+  };
+}
+
 async function main(): Promise<void> {
-  const input = await readStdin();
+  const lines = new StdinLines();
+  const first = await lines.next();
   let prompt: string;
   let resume: string | undefined;
   let model: string | undefined;
   let effort: string | undefined;
   try {
-    const parsed = JSON.parse(input) as {
+    const parsed = JSON.parse(first ?? '') as {
       prompt: string;
       resume?: string;
       model?: string;
@@ -71,8 +284,14 @@ async function main(): Promise<void> {
     effort = parsed.effort && SDK_EFFORTS.has(parsed.effort) ? parsed.effort : undefined;
   } catch {
     emit({ kind: 'error', message: 'worker: invalid input' });
+    lines.close();
     return;
   }
+
+  const router = new AnswerRouter(lines);
+  // Deliberately not awaited: it runs until stdin closes, which is after this
+  // function returns. Its rejection can only come from a destroyed stream.
+  void router.pump().catch(() => {});
 
   // Hoisted out of the try: the catch below decides whether a thrown turn
   // limit is a failure or a soft landing by how far the run got.
@@ -86,11 +305,15 @@ async function main(): Promise<void> {
         cwd: process.cwd(),
         allowedTools: ['Read', 'Edit', 'Write', 'Bash', 'Glob', 'Grep'],
         permissionMode: 'bypassPermissions',
-        // 25 starved real tasks — an agent that had already landed its edits
-        // burned the remainder trying to verify and hit the wall mid-check,
-        // which surfaced as a hard failure over finished work. 60 gives
-        // verification room while still bounding a genuine runaway.
-        maxTurns: 60,
+        // Everything except a question is allowed straight through — the mode
+        // above already decided that. This is here for AskUserQuestion, whose
+        // "ask" the CLI raises regardless of mode (see ASK_USER_QUESTION).
+        canUseTool: permissionHandler(router),
+        maxTurns: MAX_TURNS,
+        // The default Claude Code prompt plus our budget note — the preset form
+        // appends; a plain string would REPLACE the default prompt and
+        // lobotomize the agent's tool use.
+        systemPrompt: { type: 'preset', preset: 'claude_code', append: TURN_BUDGET_NOTE },
         // Set when the daemon found a usable `claude` on PATH; omitted otherwise
         // so the SDK falls back to its own vendored executable.
         ...(process.env[CLAUDE_BINARY_ENV]
@@ -200,6 +423,11 @@ async function main(): Promise<void> {
       return;
     }
     emit({ kind: 'error', message });
+  } finally {
+    // stdin stayed open for the whole run so answers could arrive on it. Its
+    // 'data' listener is also the last thing holding the event loop, so without
+    // this the worker would sit there, finished, forever.
+    lines.close();
   }
 }
 
@@ -339,6 +567,13 @@ function truncate(s: string, n: number): string {
 // biome-ignore lint/suspicious/noExplicitAny: SDK tool input shape
 function summarizeInput(name: string, input: any): string {
   if (input && typeof input === 'object') {
+    // The question, not the JSON. This is the one tool whose input is prose the
+    // user is about to read anyway, and it lands in the transcript right above
+    // their own answer.
+    if (name === ASK_USER_QUESTION) {
+      const asked = parseQuestions(input);
+      if (asked) return truncate(asked.map((q) => q.question).join(' · '), MAX_INPUT);
+    }
     if (name === 'Bash' && typeof input.command === 'string') {
       return truncate(`$ ${input.command}`, MAX_INPUT);
     }

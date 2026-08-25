@@ -13,6 +13,7 @@ import { PickedPopover } from './ui/picked-popover';
 import { PILL_CIRCLE, PILL_TOOLBAR_W, Pill } from './ui/pill';
 import { SettingsPanel } from './ui/settings-panel';
 import { TaskPanel } from './ui/task-panel';
+import { DRAWER_WIDTH } from './ui/task-panel.styles';
 import type { OverlayTheme } from './ui/theme';
 import { useTransport } from './use-transport';
 
@@ -63,6 +64,21 @@ const TASKS_PANEL_MIN_H = 220;
 // over-estimated — this only decides which side of the pill it parks on, and
 // guessing wide just flips it a few pixels early.
 const TASKS_LAUNCHER_W = 68;
+/**
+ * Where the drawer's top edge sits: below the orchestrator shell's floating
+ * worktree chip, which is fixed at `top: 12px` with a `height: 32px` over the
+ * same top-right corner, plus the row gap.
+ *
+ * Hard-coded because it has to be: that chip belongs to the shell document,
+ * which is a different origin from the iframe this overlay runs in, so there is
+ * nothing here to measure it with. The numbers mirror `.viewport-chip` in
+ * packages/orchestrator/src/shell-css.ts — the source of truth they must be kept
+ * in sync with. Applied unconditionally for the same reason: cross-origin, the
+ * overlay can't tell whether it is framed by the shell at all, and 44px of
+ * unused margin above a standalone drawer is invisible next to the chip landing
+ * on top of the task list.
+ */
+const TASKS_PANEL_TOP = 12 + 32 + PANEL_GAP;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi));
 
@@ -114,6 +130,10 @@ export function Overlay() {
   // while tasks do. Mutually exclusive with the chat/settings panels.
   const [tasksOpen, setTasksOpen] = useState(false);
   const [pillPos, setPillPos] = useState<PillPos | null>(loadPillPos);
+  // True from the moment a press turns into a drag until the button comes back
+  // up. Only the tasks launcher reads it (see below): everything else anchored
+  // to `pillPos` already moves without easing.
+  const [dragging, setDragging] = useState(false);
   // Makes the host page inert (see InteractionShield) so clicking around to
   // annotate never triggers the app itself.
   const [blockInteractions, setBlockInteractions] = useState(loadBlockInteractions);
@@ -261,6 +281,7 @@ export function Overlay() {
       const dx = me.clientX - d.startX;
       const dy = me.clientY - d.startY;
       if (!d.moved && Math.abs(dx) + Math.abs(dy) < DRAG_THRESHOLD) return;
+      if (!d.moved) setDragging(true);
       d.moved = true;
       me.preventDefault();
       // Dragging right (positive dx) shrinks the distance from the right edge.
@@ -273,6 +294,10 @@ export function Overlay() {
       dragRef.current = null;
       window.removeEventListener('mousemove', onMove, true);
       window.removeEventListener('mouseup', onUp, true);
+      // Unconditionally, ahead of the click-vs-drag split: a press that never
+      // crossed the threshold never set the flag, but leaving it to the branch
+      // below is how it would eventually get stuck on.
+      setDragging(false);
       if (!d?.moved) return;
       // Eat the click that fires right after a drag so it doesn't toggle the pill.
       const swallow = (ce: MouseEvent) => {
@@ -333,8 +358,9 @@ export function Overlay() {
     top: 'auto',
   };
 
-  // The drawer runs from the top edge down to just above the pill row, so it
-  // gets nearly the full height without ever sharing space with the toolbar.
+  // The drawer runs from just under the shell's chip down to the bottom margin,
+  // stopping above the pill row where that row would otherwise be under it — so
+  // it gets nearly the full height without ever sharing space with the toolbar.
   //
   // It docks to the right edge of the *window*, not to the pill. The settings
   // and chat panels track the pill because they belong to it — they open out of
@@ -343,15 +369,27 @@ export function Overlay() {
   // the screen because the toolbar was dragged made it read as a menu hanging
   // off the pill rather than somewhere tasks live.
   //
-  // Vertically it still clears the pill row wherever that has been dragged to,
-  // and the bottom is clamped so a pill parked near the top can't invert the
-  // drawer into a negative height.
-  const tasksPanelBottom = Math.min(
-    pillTopFromBottom + PANEL_GAP,
-    Math.max(MARGIN, window.innerHeight - TASKS_PANEL_MIN_H - MARGIN),
-  );
+  // Vertically it stops above the pill row only when that row is actually in the
+  // way — i.e. when it overlaps the drawer's column. Everything here is measured
+  // as distance from the right edge, the anchor both the drawer and the pill are
+  // pinned to: the drawer runs from MARGIN out to MARGIN + DRAWER_WIDTH, and the
+  // row spans the pill together with the launcher parked beside it (on whichever
+  // flank there was room for). Reserving the space unconditionally is what made
+  // a pill dragged to the far side of the window still lop the bottom off a
+  // drawer it comes nowhere near.
+  const rowNear = Math.min(pillRight, tasksRight);
+  const rowFar = Math.max(pillRight + pillWidth, tasksRight + TASKS_LAUNCHER_W);
+  const rowUnderDrawer = rowNear < MARGIN + DRAWER_WIDTH && rowFar > MARGIN;
+  // Clamped so a pill parked near the top can't invert the drawer into a
+  // negative height — the floor accounts for the reserved top strip.
+  const tasksPanelBottom = rowUnderDrawer
+    ? Math.min(
+        pillTopFromBottom + PANEL_GAP,
+        Math.max(MARGIN, window.innerHeight - TASKS_PANEL_MIN_H - TASKS_PANEL_TOP),
+      )
+    : MARGIN;
   const tasksPanelStyle = {
-    top: `${MARGIN}px`,
+    top: `${TASKS_PANEL_TOP}px`,
     right: `${MARGIN}px`,
     bottom: `${tasksPanelBottom}px`,
     left: 'auto',
@@ -435,6 +473,7 @@ export function Overlay() {
         open={tasksOpen}
         onOpenChange={openTasksPanel}
         launcherStyle={tasksLauncherStyle}
+        launcherDragging={dragging}
         anchorStyle={tasksPanelStyle}
       />
       {showSettings ? (

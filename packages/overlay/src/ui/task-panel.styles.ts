@@ -216,6 +216,16 @@ export const taskPanelCss = (theme: OverlayTheme): string => {
     // the hover fade away — the launcher snapped while the pill beside it eased.
     `.la-tp-launcher{color:${pill.icon};background:${pill.surface};transition:background 90ms,right 320ms cubic-bezier(0.19,1,0.22,1)}`,
     `.la-tp-launcher:hover{background:${pill.hoverSurface}}`,
+    // Worn only while the pill is being dragged. That slide is right for the
+    // arm/disarm morph, where `right` moves once and the launcher should ride
+    // the toolbar's easing — but a drag rewrites `right` on every mousemove, and
+    // easing each of those turns the launcher into something chasing the pill a
+    // third of a second behind the cursor.
+    //
+    // Same specificity as the rule above, so source order is what makes it win;
+    // it restates the fade because `transition` is a single property, and
+    // dropping the slide by omission would take the hover's timing with it.
+    '.la-tp-launcher-drag{transition:background 90ms}',
     '.la-tp-launcher-in{animation:la-tasks-in 360ms cubic-bezier(0.19,1,0.22,1) both}',
     '@keyframes la-tasks-in{from{opacity:0;transform:scale(0.4)}to{opacity:1;transform:scale(1)}}',
   ].join('');

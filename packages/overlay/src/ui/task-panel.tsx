@@ -65,6 +65,12 @@ type TaskPanelProps = {
   /** Where the launcher circle parks — left of the pill (see overlay.tsx). */
   launcherStyle?: Record<string, string> | undefined;
   /**
+   * True while the pill is being dragged, which rewrites `right` on every
+   * mousemove. Drops the launcher's slide for the duration so it stays bolted to
+   * the pill instead of easing after it (see `.la-tp-launcher-drag`).
+   */
+  launcherDragging?: boolean;
+  /**
    * Draw the launcher circle. False when something else owns the Background
    * Tasks button — the orchestrator shell puts it in its top bar, next to the
    * viewport switcher, and two copies of the same control would be one too many.
@@ -126,6 +132,7 @@ export function TaskPanel({
   onOpenChange,
   defaultOpen = false,
   launcherStyle,
+  launcherDragging = false,
   showLauncher = true,
   onArchiveTask,
   anchorStyle,
@@ -326,7 +333,14 @@ export function TaskPanel({
       {showLauncher && tasks.length > 0 ? (
         <button
           type="button"
-          className="la-tp-launcher la-tp-launcher-in"
+          // Spelled out on both branches rather than composed with a template
+          // literal: inline-vs-hover.test reads class names out of the source,
+          // and only sees them as quoted literals.
+          className={
+            launcherDragging
+              ? 'la-tp-launcher la-tp-launcher-in la-tp-launcher-drag'
+              : 'la-tp-launcher la-tp-launcher-in'
+          }
           onClick={() => setOpen((o) => !o)}
           style={{ ...buttonStyle(theme), ...launcherStyle }}
           title="Background tasks"

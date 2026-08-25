@@ -228,8 +228,67 @@ export type PullRequestResult = z.infer<typeof PullRequestResult>;
 
 // ---------- Task ----------
 
-export const TaskStatus = z.enum(['queued', 'running', 'editing', 'done', 'failed', 'cancelled']);
+/**
+ * `awaiting-input` is the agent asking and getting nothing back: the run is
+ * live — its process is up, its worktree slot is held, its session is mid-turn —
+ * but no work is happening until the user answers. It is deliberately neither
+ * `running` (nothing is happening) nor `done` (it isn't), because the whole
+ * problem it solves is a question that read as a finished task.
+ */
+export const TaskStatus = z.enum([
+  'queued',
+  'running',
+  'editing',
+  'awaiting-input',
+  'done',
+  'failed',
+  'cancelled',
+]);
 export type TaskStatus = z.infer<typeof TaskStatus>;
+
+// ---------- Agent questions ----------
+
+/** One choice the agent offered for a question. */
+export const QuestionOption = z.object({
+  label: z.string(),
+  /** What picking this means — the agent writes it; may be empty. */
+  description: z.string().default(''),
+});
+export type QuestionOption = z.infer<typeof QuestionOption>;
+
+export const AgentQuestion = z.object({
+  question: z.string(),
+  /** The agent's own short chip label for the question (≤12 chars). */
+  header: z.string().default(''),
+  /** 2-4 choices. Always answerable in free text as well — see PendingQuestion. */
+  options: z.array(QuestionOption).default([]),
+});
+export type AgentQuestion = z.infer<typeof AgentQuestion>;
+
+/**
+ * A question set the agent is blocked on. In-memory on the daemon for exactly
+ * as long as the agent process is alive: it is persisted with the task, but the
+ * promise it is holding open lives in that process, so a reload can only ever
+ * find a question nobody can answer. `TaskQueue.load` therefore strips it along
+ * with demoting the status — see the invariant there.
+ *
+ * The agent may ask up to four questions at once. They are answered one at a
+ * time (`answers` is what has come back so far) and the run resumes only once
+ * every one of them has an answer.
+ */
+export const PendingQuestion = z.object({
+  /** The agent's tool-call id — what routes an answer back to the right promise. */
+  id: z.string(),
+  questions: z.array(AgentQuestion).min(1),
+  /** Answers so far, keyed by question text (the shape the agent expects back). */
+  answers: z.record(z.string(), z.string()).default({}),
+});
+export type PendingQuestion = z.infer<typeof PendingQuestion>;
+
+/** The first question in the set that has no answer yet, or null when complete. */
+export function nextUnanswered(pending: PendingQuestion): AgentQuestion | null {
+  return pending.questions.find((q) => pending.answers[q.question] === undefined) ?? null;
+}
 
 export const Task = z.object({
   id: z.string(),
@@ -241,6 +300,8 @@ export const Task = z.object({
   source: SourceLocation.nullable(),
   status: TaskStatus,
   message: z.string().optional(),
+  /** Set exactly while `status` is `awaiting-input`; see PendingQuestion. */
+  question: PendingQuestion.optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });

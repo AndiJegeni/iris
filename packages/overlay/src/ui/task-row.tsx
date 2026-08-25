@@ -1,15 +1,34 @@
 /** @jsxImportSource preact */
-import { type Task, modelLabel } from '@iris/shared';
+import { type Task, modelLabel, nextUnanswered } from '@iris/shared';
 import { useState } from 'preact/hooks';
 import { RetryIcon, StopIcon } from './icons';
 import { type OverlayTheme, surfacePalette } from './theme';
 
+/**
+ * A task with a live run behind it. Blocked-on-you counts: the agent process is
+ * up and the turn is still open, so the row belongs under Running (where Stop
+ * is the offered control) rather than under Finished, where Merge and Archive
+ * would invite landing a worktree the agent is halfway through.
+ */
 export function isRunning(t: Task): boolean {
-  return t.status === 'queued' || t.status === 'running' || t.status === 'editing';
+  return (
+    t.status === 'queued' ||
+    t.status === 'running' ||
+    t.status === 'editing' ||
+    t.status === 'awaiting-input'
+  );
+}
+
+/** The agent asked something and cannot go on until it is answered. */
+export function isWaitingOnUser(t: Task): boolean {
+  return t.status === 'awaiting-input';
 }
 
 export function elapsed(t: Task): string {
-  const end = isRunning(t) ? Date.now() : t.updatedAt;
+  // A blocked run's clock stops. A ticking timer is this row's one signal that
+  // work is happening, and running it over a stalled agent says the opposite of
+  // what the row is there to say.
+  const end = isRunning(t) && !isWaitingOnUser(t) ? Date.now() : t.updatedAt;
   const secs = Math.max(0, Math.round((end - t.createdAt) / 1000));
   if (secs < 60) return `${secs}s`;
   const m = Math.floor(secs / 60);
@@ -31,6 +50,11 @@ export function statusLine(t: Task): string {
       return model;
     case 'editing':
       return t.message ?? model;
+    // Second person, and a demand rather than a description: "Waiting for input"
+    // reads as something the system is doing, which is how these questions got
+    // missed in the first place.
+    case 'awaiting-input':
+      return 'Needs your answer';
     case 'done':
       return `${model} · Completed`;
     case 'failed':
@@ -45,13 +69,16 @@ export function capitalize(s: string): string {
 }
 
 /**
- * Only the failed row draws a dot (see TaskRow), and it takes the popover's
- * error red. The other states are ink — a blue "running" and a purple "editing"
- * were two more hues in a palette that otherwise has none.
+ * Two rows draw a dot (see TaskRow): the failed one, in the popover's error red,
+ * and the one waiting on you, in full ink — the loudest thing the palette has
+ * that isn't a hue, which is the point, since the row is a request. The other
+ * states are soft: a blue "running" and a purple "editing" were two more hues in
+ * a palette that otherwise has none.
  */
 export function dotColor(status: Task['status'], theme: OverlayTheme): string {
   const p = surfacePalette(theme);
-  return status === 'failed' ? p.error : p.soft;
+  if (status === 'failed') return p.error;
+  return status === 'awaiting-input' ? p.ink : p.soft;
 }
 
 /**
@@ -104,6 +131,11 @@ export function TaskRow({
   onArchive,
 }: TaskRowProps) {
   const failed = task.status === 'failed';
+  const waiting = isWaitingOnUser(task);
+  // What the agent is actually stuck on. The row shows only the question still
+  // outstanding, not the whole set — a card in the drawer is a summons to open
+  // the chat, and the chat is where the choices live.
+  const asked = waiting && task.question ? nextUnanswered(task.question)?.question : undefined;
   const p = surfacePalette(theme);
   // Merge and Archive both destroy the worktree, so they arm before they fire.
   // A native confirm() dialog raised from inside the user's own app reads as
@@ -156,7 +188,7 @@ export function TaskRow({
               gap: '7px',
             }}
           >
-            {failed ? <span style={statusDot(task.status, theme)} /> : null}
+            {failed || waiting ? <span style={statusDot(task.status, theme)} /> : null}
             <span style={{ minWidth: 0 }}>{task.prompt}</span>
           </div>
           {/* "View chat" rides the status line, just past the elapsed time. It
@@ -180,8 +212,12 @@ export function TaskRow({
               flexWrap: 'wrap',
             }}
           >
-            <span>
-              {statusLine(task)} · {elapsed(task)}
+            {/* The blocked row drops the elapsed time. It is frozen anyway
+                (see elapsed), and a stopped clock beside "Needs your answer"
+                invites reading the number as how long you have been keeping it
+                waiting — which is not the point. */}
+            <span style={waiting ? { color: p.ink } : undefined}>
+              {waiting ? statusLine(task) : `${statusLine(task)} · ${elapsed(task)}`}
             </span>
             {/* Always on offer: the daemon keeps the transcript for every task
                 it knows about, so gating this on the client having already
@@ -205,6 +241,10 @@ export function TaskRow({
               here is what happened to it, here is what you can still do. It also
               puts a failure directly above the controls that produced it, where
               the next click is going to be. */}
+          {/* The question itself, in full ink, directly under the status line:
+              the row has to carry enough for the user to know whether this
+              needs them now, not just that something does. */}
+          {asked ? <div style={outcomeText(p.ink)}>{asked}</div> : null}
           {wt?.note ? <div style={outcomeText(p.soft)}>{wt.note}</div> : null}
           {wt?.error ? <div style={outcomeText(p.error)}>{wt.error}</div> : null}
           {/* Failed rows show Retry — a clear way to re-run. Finished rows show

@@ -5,7 +5,7 @@ import { authFailureMessage } from '../auth-errors';
 import { CLAUDE_BINARY_ENV, type ClaudeBinary } from '../claude-binary';
 import { imagesAppendix, stageImages } from './images';
 import { buildPrompt } from './prompt';
-import type { AgentRunner, RunEvent, RunRequest } from './types';
+import { type AgentRunner, LineBuffer, type RunEvent, type RunRequest } from './types';
 
 // Dev runs this module as `.ts` under Bun; the built daemon runs as `.js` under
 // Node. Spawn the matching worker with the matching runtime.
@@ -66,9 +66,11 @@ export function createClaudeRunner(auth: ProviderAuth, claudeBinary?: ClaudeBina
       stdio: ['pipe', 'pipe', 'inherit'],
     });
 
-    // Send the prompt (+ optional resume session id for follow-ups), then close
-    // stdin. On a follow-up turn the prompt is the raw user message — the
-    // worktree context was already established by the original run's session.
+    // Send the prompt (+ optional resume session id for follow-ups). stdin is
+    // NOT closed: it stays open as a JSON-lines channel so an answer to a
+    // question the agent asks can reach the live process (see claude-worker.ts).
+    // On a follow-up turn the prompt is the raw user message — the worktree
+    // context was already established by the original run's session.
     let workerPrompt = req.resumeSessionId ? req.prompt : buildPrompt(req);
     // Attached screenshots ride along as staged files the agent Reads — the
     // fresh run only, since a resumed session already saw them. Best-effort: a
@@ -81,14 +83,28 @@ export function createClaudeRunner(auth: ProviderAuth, claudeBinary?: ClaudeBina
       }
     }
     proc.stdin?.write(
-      JSON.stringify({
+      `${JSON.stringify({
         prompt: workerPrompt,
         ...(req.resumeSessionId ? { resume: req.resumeSessionId } : {}),
         ...(req.model ? { model: req.model } : {}),
         ...(req.effort ? { effort: req.effort } : {}),
-      }),
+      })}\n`,
     );
-    proc.stdin?.end();
+
+    // Answers travel the other way down the same pipe. Installed for as long as
+    // the child can still take one and torn down in the `finally` below, so a
+    // click that lands after the run ends is dropped by the queue rather than
+    // written into a closed stream.
+    const channel = req.answers;
+    if (channel) {
+      channel.deliver = (answer) => {
+        try {
+          proc.stdin?.write(`${JSON.stringify({ type: 'answer', ...answer })}\n`);
+        } catch {
+          // child already gone; the run is unwinding anyway
+        }
+      };
+    }
 
     // Bridge stdout 'data' events (JSON-lines) to the generator via a queue.
     const queue: RunEvent[] = [];
@@ -100,28 +116,19 @@ export function createClaudeRunner(auth: ProviderAuth, claudeBinary?: ClaudeBina
     };
     let exited = false;
     let exitCode: number | null = null;
-    let buffer = '';
+    const stdout = new LineBuffer();
 
     const pushLine = (line: string) => {
-      const trimmed = line.trim();
-      if (!trimmed) return;
-      const ev = parseEvent(trimmed);
+      const ev = parseEvent(line);
       if (ev) queue.push(ev);
     };
 
     proc.stdout?.on('data', (chunk: Buffer) => {
-      buffer += chunk.toString('utf8');
-      let nl = buffer.indexOf('\n');
-      while (nl !== -1) {
-        pushLine(buffer.slice(0, nl));
-        buffer = buffer.slice(nl + 1);
-        nl = buffer.indexOf('\n');
-      }
+      for (const line of stdout.push(chunk)) pushLine(line);
       wake();
     });
     proc.on('close', (code) => {
-      if (buffer.trim()) pushLine(buffer);
-      buffer = '';
+      for (const line of stdout.flush()) pushLine(line);
       exitCode = code ?? -1;
       exited = true;
       wake();
@@ -167,6 +174,12 @@ export function createClaudeRunner(auth: ProviderAuth, claudeBinary?: ClaudeBina
       }
     } finally {
       req.signal.removeEventListener('abort', onAbort);
+      if (channel) channel.deliver = null;
+      try {
+        proc.stdin?.end();
+      } catch {
+        // already closed with the process
+      }
     }
   };
 }

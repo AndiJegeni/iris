@@ -13,13 +13,15 @@ import {
   type Annotation,
   type Backend,
   MODELS,
+  type PendingQuestion,
   type ReasoningEffort,
   type Task,
   type TaskStatus,
   type TranscriptEntry,
   mergeTranscriptEntry,
+  nextUnanswered,
 } from '@iris/shared';
-import type { AgentRunner, RunRequest } from './agents/types';
+import type { AgentRunner, AnswerChannel, RunRequest } from './agents/types';
 import type { EventBus } from './events';
 
 type QueueEntry = {
@@ -39,13 +41,32 @@ type QueueEntry = {
   gate?: Promise<void>;
   /** Backend session id, captured on first run; replayed for follow-ups. */
   sessionId?: string;
+  /**
+   * The live run's inbound channel. Recreated per run (see pump) because it is
+   * bound to one agent process — the entry outlives many.
+   */
+  answers: AnswerChannel;
 };
 
 /** Result of a follow-up message attempt. */
 export type ContinueResult = { ok: true; task: Task } | { ok: false; error: string };
 
+/**
+ * A task with a live run behind it — one that owns a worktree slot and cannot
+ * be archived, retried, or reloaded as-is.
+ *
+ * `awaiting-input` belongs here even though nothing is executing: its agent
+ * process is up, holding a turn open on a promise, and the worktree it is
+ * halfway through editing is not free for the next task. It is the state's
+ * whole point that it is *not* finished.
+ */
 function isRunnable(status: TaskStatus): boolean {
-  return status === 'queued' || status === 'running' || status === 'editing';
+  return (
+    status === 'queued' ||
+    status === 'running' ||
+    status === 'editing' ||
+    status === 'awaiting-input'
+  );
 }
 
 /** Which runner a model value belongs to, or undefined if it's not in the catalog. */
@@ -112,8 +133,13 @@ export class TaskQueue {
           request: Omit<RunRequest, 'signal'>;
           sessionId?: string;
         };
-        const task = { ...raw.task };
-        if (isRunnable(task.status)) {
+        // A pending question is dropped on the floor here, always. The promise
+        // it was holding lived in an agent process that died with the daemon,
+        // so a reloaded row still asking would be a question with nothing
+        // behind it — the answer would go nowhere and the task would sit there
+        // blocked forever. Its status is demoted below for the same reason.
+        const { question: _dead, ...task } = { ...raw.task } as Task;
+        if (isRunnable(raw.task.status)) {
           task.status = 'failed';
           task.message = 'interrupted — the daemon restarted mid-run';
           task.updatedAt = Date.now();
@@ -134,11 +160,14 @@ export class TaskQueue {
           request: raw.request,
           runner: runner as AgentRunner,
           abort: new AbortController(),
+          answers: { deliver: null },
           ...(raw.sessionId ? { sessionId: raw.sessionId } : {}),
         };
         this.byId.set(task.id, entry);
         this.transcripts.set(task.id, raw.transcript ?? []);
-        if (isRunnable(raw.task.status)) this.persist(entry); // record the demotion
+        // Record the demotion (and the dropped question) rather than leaving
+        // the file claiming a state the daemon no longer believes.
+        if (isRunnable(raw.task.status) || raw.task.question) this.persist(entry);
       } catch (err) {
         process.stderr.write(`[iris] could not load task ${file}: ${String(err)}\n`);
       }
@@ -250,6 +279,7 @@ export class TaskQueue {
       request,
       runner,
       abort: new AbortController(),
+      answers: { deliver: null },
       ...(gate ? { gate } : {}),
     };
     this.byId.set(task.id, entry);
@@ -283,6 +313,11 @@ export class TaskQueue {
   ): ContinueResult {
     const entry = this.byId.get(taskId);
     if (!entry) return { ok: false, error: 'task not found' };
+    // A blocked run has already claimed this message: the agent is mid-turn
+    // waiting on an answer, so starting a second turn would resume the same
+    // session underneath the one that is still open. The composer is the only
+    // way to reply in free text, so the reply has to land here.
+    if (entry.task.status === 'awaiting-input') return this.answer(entry, text);
     if (isRunnable(entry.task.status)) return { ok: false, error: 'task is still running' };
 
     const model =
@@ -313,6 +348,69 @@ export class TaskQueue {
     this.waiting.set(slug, q);
     void this.pump(slug);
     return { ok: true, task: entry.task };
+  }
+
+  /**
+   * Answer the question a blocked run is waiting on.
+   *
+   * The agent may ask up to four questions in one call and expects them all
+   * back together, but a chat composer sends one message at a time — so answers
+   * accumulate on the pending question and the run only resumes once the last
+   * one lands. Until then the task stays `awaiting-input` and the UI moves on
+   * to the next question.
+   *
+   * `text` is matched against the current question's option labels, so clicking
+   * a choice and typing its wording are the same act; anything else is passed
+   * through verbatim, which is the agent's always-available "Other".
+   */
+  private answer(entry: QueueEntry, text: string): ContinueResult {
+    const pending = entry.task.question;
+    if (!pending) return { ok: false, error: 'no question is pending' };
+    const target = nextUnanswered(pending);
+    if (!target) return { ok: false, error: 'no question is pending' };
+
+    const trimmed = text.trim();
+    const matched = target.options.find((o) => o.label.toLowerCase() === trimmed.toLowerCase());
+    const answers = { ...pending.answers, [target.question]: matched?.label ?? trimmed };
+    const next: PendingQuestion = { ...pending, answers };
+
+    // The answer is part of the conversation, so it reads back as one — the
+    // agent's question and the user's reply, in order, like any other turn.
+    this.appendEntry(entry.task.id, {
+      id: randomUUID(),
+      role: 'user',
+      at: Date.now(),
+      text: matched?.label ?? trimmed,
+    });
+
+    if (nextUnanswered(next)) {
+      this.setQuestion(entry, next);
+      return { ok: true, task: entry.task };
+    }
+
+    const deliver = entry.answers.deliver;
+    if (!deliver) {
+      // The run went away between the question being asked and this answer —
+      // there is no promise left to resolve, so say so rather than flipping the
+      // row back to `running` over a process that no longer exists.
+      this.updateStatus(entry, 'failed', 'the agent stopped before the answer reached it');
+      return { ok: false, error: 'the run is no longer waiting for an answer' };
+    }
+    deliver({ id: pending.id, answers });
+    this.updateStatus(entry, 'running');
+    return { ok: true, task: entry.task };
+  }
+
+  /** Put a task into the blocked state, carrying the question it is blocked on. */
+  private setQuestion(entry: QueueEntry, question: PendingQuestion): void {
+    entry.task = {
+      ...entry.task,
+      status: 'awaiting-input',
+      question,
+      updatedAt: Date.now(),
+    };
+    this.persist(entry);
+    this.bus.broadcast({ type: 'task:updated', task: entry.task });
   }
 
   /** Append a transcript entry, or update one in place when its id already exists. */
@@ -352,7 +450,14 @@ export class TaskQueue {
     const next = q.shift()!;
     this.running.set(slug, next);
 
-    const req: RunRequest = { ...next.request, signal: next.abort.signal };
+    // A fresh channel per run: the old one pointed at a process that is gone,
+    // and a stale `deliver` would write an answer into a closed pipe.
+    next.answers = { deliver: null };
+    const req: RunRequest = {
+      ...next.request,
+      answers: next.answers,
+      signal: next.abort.signal,
+    };
     try {
       // The worktree may still be cloning. Stay 'queued' until it lands, so the
       // row reads as waiting rather than claiming an agent is already working;
@@ -378,6 +483,13 @@ export class TaskQueue {
             break;
           case 'entry':
             this.appendEntry(next.task.id, ev.entry);
+            break;
+          case 'question':
+            // The run is now parked on a promise inside the agent process. The
+            // worktree slot stays claimed on purpose: those files are half
+            // edited, and letting the next task in would have it working over
+            // the top of a turn that is still open.
+            this.setQuestion(next, { id: ev.id, questions: ev.questions, answers: {} });
             break;
           case 'session':
             next.sessionId = ev.sessionId;
@@ -410,7 +522,14 @@ export class TaskQueue {
         }
       }
       // Generator exited without explicit done/error.
-      if (next.task.status === 'running' || next.task.status === 'editing') {
+      if (next.task.status === 'awaiting-input') {
+        // Ending with the question still open is not "done" — whatever it asked
+        // about never got decided. Cancelled if the user did it; otherwise the
+        // agent (or its process) went away mid-question, and the row has to say
+        // so rather than sitting there asking on its behalf.
+        if (next.abort.signal.aborted) this.updateStatus(next, 'cancelled');
+        else this.updateStatus(next, 'failed', 'the agent stopped while waiting for your answer');
+      } else if (next.task.status === 'running' || next.task.status === 'editing') {
         this.updateStatus(next, next.abort.signal.aborted ? 'cancelled' : 'done');
       }
     } catch (err) {
@@ -428,8 +547,12 @@ export class TaskQueue {
   }
 
   private updateStatus(entry: QueueEntry, status: TaskStatus, message?: string): void {
+    // The invariant every other call-site relies on: a task carries a question
+    // exactly while it is `awaiting-input`. Leaving one attached through a
+    // status change is how a cancelled or finished row ends up still asking.
+    const { question: _resolved, ...task } = entry.task;
     entry.task = {
-      ...entry.task,
+      ...task,
       status,
       updatedAt: Date.now(),
       ...(message !== undefined ? { message } : {}),
