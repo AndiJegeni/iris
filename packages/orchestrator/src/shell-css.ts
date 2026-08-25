@@ -1,9 +1,7 @@
 /**
  * Every rule the orchestrator shell paints with, lifted out of shell-html.ts so
  * that file stays readable as a document: markup and behaviour there,
- * presentation here. Pure motion: every rule came across untouched, and the
- * served page is byte-for-byte what it was apart from one comment whose "below"
- * now points at the other file.
+ * presentation here.
  *
  * Interpolated into the shell's <style> verbatim, so the indentation written
  * here is the indentation served.
@@ -15,25 +13,21 @@ export const shellCss = `
        * resolved theme up (see the message listener in shell-html.ts), which is the
        * only way to follow its manual sun/moon override — that's a choice made
        * inside the iframe, invisible to prefers-color-scheme out here.
-       *
-       * Status hues (green/yellow/red dot, the Ship green) are intentionally
-       * shared across themes, mirroring the overlay's own tokens.
        */
       :root {
         --bg: #0a0a0a;
-        --header-bg: #18181b;
-        --header-border: #27272a;
+        --chrome-bg: #18181b;
+        --chrome-border: #27272a;
         --text: #f4f4f5;
-        --logo: rgba(255, 255, 255, 0.4);
         --muted: #a1a1aa;
         --soft: rgba(244, 244, 245, 0.4);
         --faint: #71717a;
-        --control-border: #3f3f46;
         --code-bg: #18181b;
         --code-text: #e4e4e7;
         --accent: #3b82f6;
         --danger: #f87171;
         --scrim: rgba(0, 0, 0, 0.6);
+        --chip-shadow: 0 2px 16px rgba(0, 0, 0, 0.4);
         --dialog-primary-bg: #f4f4f5;
         --dialog-primary-fg: #18181b;
         --dialog-secondary-bg: #3f3f46;
@@ -42,20 +36,17 @@ export const shellCss = `
       @media (prefers-color-scheme: light) {
         :root {
           --bg: #f4f4f5;
-          --header-bg: #ffffff;
-          --header-border: #e4e4e7;
+          --chrome-bg: #ffffff;
+          --chrome-border: #e4e4e7;
           --text: #18181b;
-          /* The dark-mode wordmark is white at 40%; on a white bar that would be
-             invisible, so light mode mirrors it as the foreground at 40%. */
-          --logo: rgba(0, 0, 0, 0.4);
           --muted: #52525b;
           --soft: rgba(24, 24, 27, 0.5);
           --faint: #71717a;
-          --control-border: #d4d4d8;
           --code-bg: #e4e4e7;
           --code-text: #27272a;
           --danger: #dc2626;
           --scrim: rgba(0, 0, 0, 0.35);
+          --chip-shadow: 0 2px 16px rgba(0, 0, 0, 0.12);
           --dialog-primary-bg: #18181b;
           --dialog-primary-fg: #ffffff;
           --dialog-secondary-bg: #e4e4e7;
@@ -64,18 +55,17 @@ export const shellCss = `
       }
       :root[data-theme="dark"] {
         --bg: #0a0a0a;
-        --header-bg: #18181b;
-        --header-border: #27272a;
+        --chrome-bg: #18181b;
+        --chrome-border: #27272a;
         --text: #f4f4f5;
-        --logo: rgba(255, 255, 255, 0.4);
         --muted: #a1a1aa;
         --soft: rgba(244, 244, 245, 0.4);
         --faint: #71717a;
-        --control-border: #3f3f46;
         --code-bg: #18181b;
         --code-text: #e4e4e7;
         --danger: #f87171;
         --scrim: rgba(0, 0, 0, 0.6);
+        --chip-shadow: 0 2px 16px rgba(0, 0, 0, 0.4);
         --dialog-primary-bg: #f4f4f5;
         --dialog-primary-fg: #18181b;
         --dialog-secondary-bg: #3f3f46;
@@ -83,18 +73,17 @@ export const shellCss = `
       }
       :root[data-theme="light"] {
         --bg: #f4f4f5;
-        --header-bg: #ffffff;
-        --header-border: #e4e4e7;
+        --chrome-bg: #ffffff;
+        --chrome-border: #e4e4e7;
         --text: #18181b;
-        --logo: rgba(0, 0, 0, 0.4);
         --muted: #52525b;
         --soft: rgba(24, 24, 27, 0.5);
         --faint: #71717a;
-        --control-border: #d4d4d8;
         --code-bg: #e4e4e7;
         --code-text: #27272a;
         --danger: #dc2626;
         --scrim: rgba(0, 0, 0, 0.35);
+        --chip-shadow: 0 2px 16px rgba(0, 0, 0, 0.12);
         --dialog-primary-bg: #18181b;
         --dialog-primary-fg: #ffffff;
         --dialog-secondary-bg: #e4e4e7;
@@ -104,20 +93,50 @@ export const shellCss = `
       * { box-sizing: border-box; }
       html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--text); font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
       body { display: flex; flex-direction: column; }
-      header {
-        height: 38px;
-        background: var(--header-bg);
-        border-bottom: 1px solid var(--header-border);
+
+      /*
+       * The one piece of shell chrome: worktree actions + viewport switcher,
+       * floating over the app's top-right corner. Dressed as the overlay's own
+       * chip material (rounded, bordered, soft shadow) so it reads as the same
+       * toolkit even though it lives a frame above. Hidden entirely until a
+       * second worktree exists — see render() in shell-html.ts.
+       */
+      .viewport-chip {
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        z-index: 5;
         display: flex;
         align-items: center;
-        padding: 0 12px;
-        gap: 12px;
+        gap: 10px;
+        height: 32px;
+        padding: 0 6px 0 12px;
+        background: var(--chrome-bg);
+        border: 1px solid var(--chrome-border);
+        border-radius: 999px;
+        box-shadow: var(--chip-shadow);
         font-size: 12px;
         /* Matches the overlay's own dark/light crossfade rather than snapping. */
         transition: background 120ms ease, border-color 120ms ease;
       }
-      .logo { font-weight: 300; letter-spacing: -0.01em; color: var(--logo); }
-      .viewport-label { display: flex; align-items: center; gap: 6px; color: var(--logo); }
+      /* The task rows' quiet idiom: text-only, regular weight, soft ink
+         lifting to full under the cursor — same reasoning as the drawer's own
+         copies of these actions, which these buttons mirror.
+
+         Ink is --soft, not --muted: the rows' soft is the ink thinned to
+         40/50%, and --muted is a flat step-down that lands visibly heavier
+         on this surface. */
+      .chip-btn {
+        background: transparent; color: var(--soft); border: none;
+        border-radius: 6px; padding: 4px 2px; font-size: 12px; font-weight: 400;
+        cursor: pointer; font-family: inherit; transition: color 90ms ease;
+      }
+      .chip-btn:hover:not(:disabled) { color: var(--text); }
+      .chip-btn:disabled { opacity: 0.6; cursor: default; }
+      /* Separates the destructive verbs from the switcher they act on behalf
+         of; hidden with them (see updateShipButtons in shell-html.ts). */
+      .chip-divider { width: 1px; height: 14px; background: var(--chrome-border); flex-shrink: 0; }
+
       /*
        * The chevron is ours, not the native one: a platform <select> gives no
        * control over where its arrow sits. appearance:none drops the native
@@ -126,7 +145,7 @@ export const shellCss = `
        */
       .select-wrap { position: relative; display: inline-flex; align-items: center; }
       /* Off-screen twin of the selected label, in the select's own type — see
-         sizeSelect() below for why the width has to be measured. */
+         sizeSelect() in shell-html.ts for why the width has to be measured. */
       .select-measure {
         position: absolute;
         visibility: hidden;
@@ -151,9 +170,6 @@ export const shellCss = `
         border-radius: 6px;
         /* right = 4 (gutter) + 10 (chevron) + 6 (gap to the text) */
         padding: 0 20px 0 4px;
-        /* Stated rather than intrinsic so the Background Tasks button beside it
-           can land on the same height — two controls sharing a row read as
-           misaligned at a 1px difference. */
         height: 24px;
         font-size: 12px;
         font-family: inherit;
@@ -162,28 +178,33 @@ export const shellCss = `
       }
       /* The border used to carry focus; with none to tint, the ring goes outside
          the box. :focus-visible rather than :focus so a plain click doesn't leave
-         a blue ring sitting on the bar afterwards. */
+         a blue ring sitting on the chip afterwards. */
       select:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
       /*
        * The platform paints the open dropdown from the select's own colors, and
        * a transparent select leaves that list unreadable — so the options carry
-       * the bar's surface explicitly.
+       * the chip's surface explicitly.
        */
-      option { background: var(--header-bg); color: var(--text); }
-      /*
-       * Everything but the wordmark, held together so the margin-left:auto can
-       * live on the group rather than on any one member. It used to sit on
-       * .status, which worked only because that span is always present — now
-       * that the worktree buttons ride along on the right, and all three of
-       * them are display:none off an agent worktree, no single member is
-       * reliably there to carry it.
-       */
-      .bar-right { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+      option { background: var(--chrome-bg); color: var(--text); }
+
       /* Silent while the daemon is reachable — it only ever speaks up to report
-         that it isn't. Out of flow entirely when it has nothing to say, or the
-         group would still spend a 12px gap on an empty span. */
-      .status { color: var(--danger); font-size: 11px; }
-      .status:empty { display: none; }
+         that it isn't. */
+      .status-toast {
+        position: fixed;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 6;
+        background: var(--chrome-bg);
+        border: 1px solid var(--chrome-border);
+        border-radius: 999px;
+        box-shadow: var(--chip-shadow);
+        color: var(--danger);
+        font-size: 11px;
+        padding: 6px 12px;
+      }
+      .status-toast:empty { display: none; }
+
       iframe { flex: 1; border: none; background: white; }
       .empty {
         flex: 1; display: flex; align-items: center; justify-content: center;
@@ -193,25 +214,6 @@ export const shellCss = `
         background: var(--code-bg); padding: 2px 6px; border-radius: 4px;
         font-family: ui-monospace, monospace; color: var(--code-text);
       }
-      /* The task rows' quiet idiom, up here too: text-only, regular weight,
-         soft ink lifting to full under the cursor. The old green Merge pill
-         made the bar's copy of these controls louder than the drawer's — the
-         same action wearing two costumes. One filled chip and one outline
-         chip went with it; hover ink is now the whole affordance, exactly as
-         it is on the rows. 12px rather than the rows' 13 because everything
-         in this bar sits on the 12px line.
-
-         Ink is --soft, not --muted: the rows' soft is the ink thinned to 40/50%,
-         and --muted is a flat step-down that lands visibly heavier over this
-         bar. Written the same way, they still didn't look the same weight. */
-      .ship-btn, .pr-btn, .discard-btn {
-        background: transparent; color: var(--soft); border: none;
-        border-radius: 6px; padding: 4px 6px; font-size: 12px; font-weight: 400;
-        cursor: pointer; font-family: inherit; transition: color 90ms ease;
-      }
-      .ship-btn:hover:not(:disabled), .pr-btn:hover:not(:disabled),
-      .discard-btn:hover:not(:disabled) { color: var(--text); }
-      .ship-btn:disabled, .pr-btn:disabled { opacity: 0.6; cursor: default; }
 
       /*
        * The confirmation dialog, standing in for confirm(). The native one
@@ -228,8 +230,8 @@ export const shellCss = `
       .modal-scrim[hidden] { display: none; }
       .modal {
         width: min(430px, 100%);
-        background: var(--header-bg);
-        border: 1px solid var(--header-border);
+        background: var(--chrome-bg);
+        border: 1px solid var(--chrome-border);
         border-radius: 28px;
         padding: 24px 28px 28px;
         box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
@@ -237,7 +239,7 @@ export const shellCss = `
       .modal-head {
         display: flex; align-items: center; justify-content: space-between;
         gap: 12px; padding-bottom: 16px;
-        border-bottom: 1px solid var(--header-border);
+        border-bottom: 1px solid var(--chrome-border);
       }
       .modal-title {
         margin: 0; font-size: 20px; font-weight: 700;

@@ -19,7 +19,7 @@ import { type ClaudeBinary, resolveClaudeBinary } from './claude-binary';
 import { EventBus } from './events';
 import { loginAnthropic, loginOpenai, logoutAnthropic, logoutOpenai } from './login';
 import { getOverlayJs } from './overlay-bundle';
-import { hasGhCli, isGitRepo, resolveRemoteName } from './project';
+import { gitDir, hasGhCli, isGitRepo, resolveRemoteName } from './project';
 import { TaskQueue } from './queue';
 import { shellHtml } from './shell-html';
 import { WorktreeManager } from './worktrees';
@@ -123,9 +123,10 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
   // Task history lives under .git/ — never in the working tree, gone with the
   // repo. A repo without git gets no persistence, matching its no-worktrees
   // capability: everything about it is already session-scoped.
-  const taskStateDir = isGitRepo(opts.repoRoot)
-    ? join(opts.repoRoot, '.git', 'iris', 'tasks')
-    : undefined;
+  // gitDir, not join(repoRoot, '.git'): in a linked worktree `.git` is a
+  // pointer file, and mkdir'ing "inside" it threw ENOTDIR on boot.
+  const resolvedGitDir = isGitRepo(opts.repoRoot) ? gitDir(opts.repoRoot) : undefined;
+  const taskStateDir = resolvedGitDir ? join(resolvedGitDir, 'iris', 'tasks') : undefined;
   const queue = new TaskQueue(
     bus,
     (backend, ok) => {
