@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'bun:test';
+import { type ChildProcess, execSync, spawn } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { EventBus } from './events';
 import { WorktreeManager, slugifyPrompt } from './worktrees';
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 describe('slugifyPrompt', () => {
   test('drops stopwords and keeps the descriptive words', () => {
@@ -107,4 +113,98 @@ describe('allocateSlug', () => {
     expect(take(mgr)).toBe('agent-1');
     expect(take(mgr, 'landing text blue')).toBe('landing-text-blue-2');
   });
+});
+
+describe('killDevServer', () => {
+  test('resolves only after the process group is actually dead', async () => {
+    const mgr = newManager() as unknown as {
+      killDevServer(m: { proc: ChildProcess }): Promise<void>;
+    };
+    // A shell that shrugs off SIGTERM and restarts its sleep forever — the
+    // kill has to escalate to SIGKILL and then WAIT for the exit, not just
+    // fire the signal and return. It reports readiness through a marker
+    // file: signalling before the trap is installed would kill it plain.
+    const base = mkdtempSync(join(tmpdir(), 'iris-kill-test-'));
+    const ready = join(base, 'ready');
+    const proc = spawn('sh', ['-c', `trap "" TERM; touch "${ready}"; while :; do sleep 1; done`], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    try {
+      for (let i = 0; i < 200 && !existsSync(ready); i++) {
+        await sleep(25);
+      }
+      expect(existsSync(ready)).toBe(true);
+
+      await mgr.killDevServer({ proc });
+      // If killDevServer returned before the exit event, signalCode is still
+      // null here — exactly the window that let a dying dev server write its
+      // cache into a directory remove() had already deleted.
+      expect(proc.signalCode).toBe('SIGKILL');
+    } finally {
+      if (proc.pid && proc.exitCode === null && proc.signalCode === null) {
+        try {
+          process.kill(-proc.pid, 'SIGKILL');
+        } catch {
+          // already gone
+        }
+      }
+      rmSync(base, { recursive: true, force: true });
+    }
+  }, 15_000);
+});
+
+describe('remove', () => {
+  test('a dev server that flushes state on SIGTERM cannot resurrect the directory', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'iris-wt-test-'));
+    try {
+      // A tiny real repo, because spawnWorktree does a real clone.
+      const repo = join(base, 'repo');
+      mkdirSync(repo);
+      writeFileSync(join(repo, 'a.txt'), 'hi\n');
+      execSync(
+        'git init -q -b main && git add -A && ' +
+          'git -c user.email=t@t -c user.name=t commit -q -m init',
+        { cwd: repo, stdio: 'ignore' },
+      );
+
+      // Fake dev server that mimics the observed race: on SIGTERM it
+      // recreates its original directory (cache writers resolve absolute
+      // paths, so the tombstone rename doesn't redirect them), drops a
+      // ".next" cache file there, and only then exits.
+      const marker = join(base, 'sigterm-ran');
+      const devCmd = `d="$PWD"; trap 'mkdir -p "$d/.next" && touch "$d/.next/cache" && touch "${marker}"; exit 0' TERM; sleep 60`;
+      const mgr = new WorktreeManager(repo, new EventBus(), 3000, { devCmd });
+
+      const pending = await mgr.spawnWorktree('discard race sim');
+      const slug = pending.worktree.slug;
+      await pending.checkout;
+      // The dev server boots behind the checkout promise; wait for its pid.
+      const internals = mgr as unknown as {
+        worktrees: Map<string, { proc: ChildProcess | null }>;
+      };
+      for (let i = 0; i < 100 && !internals.worktrees.get(slug)?.proc; i++) {
+        await sleep(50);
+      }
+      expect(internals.worktrees.get(slug)?.proc).toBeTruthy();
+
+      await mgr.remove(slug);
+
+      // Deletion runs behind the response; wait for it to settle.
+      const worktreeRoot = join(base, '.iris-worktrees');
+      const clean = () =>
+        !existsSync(pending.worktree.path) &&
+        readdirSync(worktreeRoot).every((e) => !e.startsWith(slug));
+      for (let i = 0; i < 200 && !clean(); i++) {
+        await sleep(100);
+      }
+
+      // The SIGTERM handler really did run and recreate the directory…
+      expect(existsSync(marker)).toBe(true);
+      // …and neither the tombstone nor the resurrected original survived.
+      expect(clean()).toBe(true);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  }, 30_000);
 });

@@ -488,6 +488,10 @@ export class WorktreeManager {
     }
 
     void (async () => {
+      // The dev server must be DEAD, not just signalled, before the rm below:
+      // a `next dev` handling SIGTERM flushes its webpack cache to disk on the
+      // way out, and that flush landing after the rm resurrected the original
+      // directory holding nothing but `.next` cache files.
       await this.killDevServer(m).catch(() => undefined);
       // Async rm rather than rmSync: even off the response path, a synchronous
       // delete of this size would stall every request and WebSocket event.
@@ -498,11 +502,21 @@ export class WorktreeManager {
       // single sweep races the writer and loses (measured: a 268MB tombstone
       // left behind by exactly this). A few spaced passes outlast any copy;
       // reconcile() at next boot is the final backstop.
+      const original = m.worktree.path;
+      // A dying process can also recreate the ORIGINAL path (cache writers
+      // resolve absolute paths, so the tombstone rename doesn't redirect
+      // them). Sweep it too — unless a re-spawn owns the slug again, in which
+      // case its own checkout clears any debris before cloning.
+      const sweepOriginal = () =>
+        doomed !== original && !this.worktrees.has(slug) && existsSync(original);
       for (let attempt = 0; attempt < 6; attempt++) {
         await sh(`rm -rf ${quote(doomed)}`).catch((err: unknown) => {
           process.stderr.write(`[iris] could not delete worktree ${slug}: ${String(err)}\n`);
         });
-        if (!existsSync(doomed)) return;
+        if (sweepOriginal()) {
+          await sh(`rm -rf ${quote(original)}`).catch(() => undefined);
+        }
+        if (!existsSync(doomed) && !sweepOriginal()) return;
         await sleep(3_000);
       }
       process.stderr.write(
@@ -774,23 +788,36 @@ export class WorktreeManager {
     await sleep(200);
   }
 
-  /** SIGTERM the dev command's whole process group, escalating to SIGKILL. */
+  /**
+   * SIGTERM the dev command's whole process group, escalating to SIGKILL —
+   * and resolve only once the process has actually exited. Callers delete the
+   * worktree directory right after this, and a dev server still mid-shutdown
+   * flushes its bundler cache to disk on SIGTERM: returning before the exit
+   * let that flush land *after* the rm, resurrecting the directory as a husk
+   * of webpack cache files.
+   */
   private async killDevServer(m: ManagedWorktree): Promise<void> {
-    const pid = m.proc?.pid;
-    if (!pid || m.proc?.exitCode !== null) return;
+    const proc = m.proc;
+    const pid = proc?.pid;
+    if (!proc || !pid) return;
+    if (proc.exitCode !== null || proc.signalCode !== null) return; // already exited
+    const exited = new Promise<void>((resolve) => proc.once('exit', () => resolve()));
     try {
       process.kill(-pid, 'SIGTERM');
     } catch {
       return; // group already gone
     }
-    await new Promise<void>((resolve) => setTimeout(resolve, 800));
-    if (m.proc?.exitCode === null) {
+    await Promise.race([exited, sleep(800)]);
+    if (proc.exitCode === null && proc.signalCode === null) {
       try {
         process.kill(-pid, 'SIGKILL');
       } catch {
         // raced its own exit — fine
       }
     }
+    // SIGKILL cannot be blocked, but delivery is still asynchronous; the
+    // timeout is only a backstop against a pid that somehow never reaps.
+    await Promise.race([exited, sleep(5_000)]);
   }
 
   /**
