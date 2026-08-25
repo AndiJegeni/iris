@@ -85,17 +85,31 @@ export type SourceConfidence = z.infer<typeof SourceConfidence>;
 export const ImageMediaType = z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 export type ImageMediaType = z.infer<typeof ImageMediaType>;
 
+/**
+ * Upper bound on one attachment's base64 payload (~10MB of image). The daemon
+ * parses the whole JSON body before validating, so without a per-image cap the
+ * count cap below still admits an effectively unbounded POST.
+ */
+export const MAX_IMAGE_BASE64_CHARS = 14_000_000;
+
 export const AttachedImage = z.object({
   /** Original filename when known — helps the agent and debugging. */
   name: z.string().optional(),
   mediaType: ImageMediaType,
   /** Raw base64 payload, WITHOUT the `data:<type>;base64,` URI prefix. */
-  dataBase64: z.string().min(1),
+  dataBase64: z.string().min(1).max(MAX_IMAGE_BASE64_CHARS),
 });
 export type AttachedImage = z.infer<typeof AttachedImage>;
 
 /** Soft cap on attachments per annotation (keeps the JSON POST reasonable). */
 export const MAX_IMAGES_PER_ANNOTATION = 6;
+
+/**
+ * Attachments on a follow-up message (`POST /tasks/:id/message`) — same shape
+ * and cap as an annotation's, so the two composers can't drift apart on what
+ * an image is allowed to be.
+ */
+export const FollowUpImages = z.array(AttachedImage).max(MAX_IMAGES_PER_ANNOTATION);
 
 // ---------- Annotation ----------
 
@@ -218,6 +232,12 @@ export const PullRequestResult = z.object({
   pushed: z.literal(true),
   /** A new PR was opened. False = one already existed, or `url` is a compare page. */
   created: z.boolean(),
+  /**
+   * `url` is a compare page rather than a pull request — the GitHub CLI is
+   * missing or refused, so opening it is still on the user. `created` can't
+   * answer this on its own: it is equally false when an existing PR was found.
+   */
+  compare: z.boolean().default(false),
   /** PR, existing-PR, or compare URL. Null when there's none to name (non-GitHub host). */
   url: z.string().nullable(),
   branch: z.string(),

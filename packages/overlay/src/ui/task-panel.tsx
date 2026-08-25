@@ -1,5 +1,6 @@
 /** @jsxImportSource preact */
 import type {
+  AttachedImage,
   PullRequestResult,
   ReasoningEffort,
   Task,
@@ -35,12 +36,13 @@ type TaskPanelProps = {
   onCancel: (id: string) => void;
   /**
    * Send a follow-up message to a task (resumes its session). `opts` carries
-   * the chat composer's model + reasoning pickers for that turn.
+   * the chat composer's model + reasoning pickers and attached images for
+   * that turn.
    */
   onSendMessage?: (
     id: string,
     text: string,
-    opts: { model: string; effort: ReasoningEffort },
+    opts: { model: string; effort: ReasoningEffort; images: AttachedImage[] },
   ) => void | Promise<void>;
   /** Called when a task's chat is opened (e.g. to load its full transcript). */
   onOpenChat?: (id: string) => void;
@@ -96,6 +98,20 @@ type WorktreeRowState = {
   note: string | null;
   error: string | null;
 };
+
+/**
+ * The one modal question the drawer can have up, if any. A single slot rather
+ * than a flag per dialog: two of these on screen would be two scrims and two
+ * Escape handlers over the same keypress, and one piece of state makes that
+ * unrepresentable instead of merely unlikely.
+ *
+ * A row's Archive is here rather than on the row because ConfirmDialog has to
+ * mount at the overlay root — the drawer's `backdrop-filter` makes it the
+ * containing block for fixed descendants, so its `overflow: hidden` would slice
+ * a dialog rendered inside it. The row asks (WorktreeAction.onDiscard); the
+ * panel, which already holds the per-row worktree state, does the asking.
+ */
+type PanelDialog = { kind: 'clear' } | { kind: 'discard'; taskId: string; slug: string };
 
 const IDLE_ROW: WorktreeRowState = {
   pending: false,
@@ -169,9 +185,9 @@ export function TaskPanel({
   // worktree, so two rows can share a slug and each wants its own spinner.
   const [wtState, setWtState] = useState<Record<string, WorktreeRowState>>({});
   const [chatTaskId, setChatTaskId] = useState<string | null>(null);
-  // Whether Clear's confirmation is up. Only ever set when the sweep would
-  // delete a worktree (see the button's onClick).
-  const [confirmingClear, setConfirmingClear] = useState(false);
+  // The modal question currently up, if any (see PanelDialog). Clear only ever
+  // sets it when the sweep would delete a worktree (see the button's onClick).
+  const [dialog, setDialog] = useState<PanelDialog | null>(null);
   const [, setTick] = useState(0);
 
   const running = tasks.filter(isRunning).sort((a, b) => a.createdAt - b.createdAt);
@@ -220,6 +236,21 @@ export function TaskPanel({
   };
 
   /**
+   * Delete one row's worktree, then hide the row. Archiving is part of the same
+   * action: the card's whole point was the worktree, and a row that survives its
+   * own Discard just sits there looking like the click didn't work. Only on
+   * success — a failed discard leaves the row (and its error line) where the
+   * user can see it.
+   */
+  const discardWorktree = (taskId: string, slug: string) => {
+    if (!onDiscard) return;
+    runAction(taskId, async () => {
+      await onDiscard(slug);
+      archiveTask(taskId);
+    });
+  };
+
+  /**
    * The ship/PR/discard controls for a finished row, or undefined when there's
    * no worktree to act on — a task that ran in the user's own checkout ("main"),
    * or one whose worktree has since been shipped or discarded.
@@ -238,15 +269,9 @@ export function TaskPanel({
       note: row?.note ?? null,
       error: row?.error ?? null,
       onShip: () => runAction(task.id, () => onShip(slug)),
-      // Archiving is part of the same action: the card's whole point was the
-      // worktree, and a row that survives its own Discard just sits there
-      // looking like the click didn't work. Only on success — a failed discard
-      // leaves the row (and its error line) where the user can see it.
-      onDiscard: () =>
-        runAction(task.id, async () => {
-          await onDiscard(slug);
-          archiveTask(task.id);
-        }),
+      // Raises the question; discardWorktree below does the deed once it is
+      // answered.
+      onDiscard: () => setDialog({ kind: 'discard', taskId: task.id, slug }),
       onCreatePr: () =>
         runAction(task.id, async () => {
           const res = await onCreatePr(slug);
@@ -424,7 +449,7 @@ export function TaskPanel({
                           // nothing on disk to lose — clearing is just hiding
                           // cards, and hiding cards doesn't earn a question.
                           if (clearSlugs().size === 0) clearFinished();
-                          else setConfirmingClear(true);
+                          else setDialog({ kind: 'clear' });
                         }}
                       >
                         Clear
@@ -474,17 +499,33 @@ export function TaskPanel({
           the containing block for fixed-position descendants, so its `overflow:
           hidden` would slice a dialog nested inside it however it is
           positioned. */}
-      {confirmingClear ? (
+      {dialog?.kind === 'clear' ? (
         <ConfirmDialog
           theme={theme}
           title="Clear finished tasks?"
           body={clearWarning(finished.length, clearSlugs().size)}
           confirmLabel="Clear"
           onConfirm={() => {
-            setConfirmingClear(false);
+            setDialog(null);
             clearFinished();
           }}
-          onCancel={() => setConfirmingClear(false)}
+          onCancel={() => setDialog(null)}
+        />
+      ) : null}
+      {dialog?.kind === 'discard' ? (
+        <ConfirmDialog
+          theme={theme}
+          title="Archive task?"
+          body={discardWarning(dialog.slug)}
+          // The verb the button the user just pressed carries. "Discard" is what
+          // this does to the worktree, but the row calls it Archive, and a dialog
+          // that renames the action mid-question reads as a different one.
+          confirmLabel="Archive"
+          onConfirm={() => {
+            setDialog(null);
+            discardWorktree(dialog.taskId, dialog.slug);
+          }}
+          onCancel={() => setDialog(null)}
         />
       ) : null}
     </>
@@ -499,6 +540,19 @@ export function TaskPanel({
  * `worktrees` is the deduped slug count, not a count of rows — several tasks
  * can share one worktree, and it is directories that get deleted.
  */
+/**
+ * A row's Archive, in the same terms the shell's Discard modal uses — same
+ * product asking the same question, so it names the worktree and says what
+ * goes with it rather than warning in the abstract.
+ */
+export function discardWarning(slug: string): string {
+  return [
+    `Archiving kills ${slug}'s dev server and deletes the worktree directory.`,
+    'Its branch lives inside that directory, so any uncommitted or unmerged work',
+    'there is lost.',
+  ].join(' ');
+}
+
 function clearWarning(tasks: number, worktrees: number): string {
   const one = worktrees === 1;
   return [

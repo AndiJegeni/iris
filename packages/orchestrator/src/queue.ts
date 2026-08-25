@@ -11,6 +11,7 @@ import {
 import { join } from 'node:path';
 import {
   type Annotation,
+  type AttachedImage,
   type Backend,
   MODELS,
   type PendingQuestion,
@@ -309,15 +310,24 @@ export class TaskQueue {
   continue(
     taskId: string,
     text: string,
-    opts: { model?: string; effort?: ReasoningEffort } = {},
+    opts: { model?: string; effort?: ReasoningEffort; images?: AttachedImage[] } = {},
   ): ContinueResult {
     const entry = this.byId.get(taskId);
     if (!entry) return { ok: false, error: 'task not found' };
+    const images = opts.images ?? [];
     // A blocked run has already claimed this message: the agent is mid-turn
     // waiting on an answer, so starting a second turn would resume the same
     // session underneath the one that is still open. The composer is the only
-    // way to reply in free text, so the reply has to land here.
-    if (entry.task.status === 'awaiting-input') return this.answer(entry, text);
+    // way to reply in free text, so the reply has to land here. Images can't:
+    // an answer resolves a promise inside the live agent process, and there is
+    // no file-staging path into a turn that is already open — refusing beats
+    // quietly delivering the words without the pictures they referred to.
+    if (entry.task.status === 'awaiting-input') {
+      if (images.length > 0) {
+        return { ok: false, error: 'answer the pending question first — images go on a follow-up' };
+      }
+      return this.answer(entry, text);
+    }
     if (isRunnable(entry.task.status)) return { ok: false, error: 'task is still running' };
 
     const model =
@@ -330,11 +340,19 @@ export class TaskQueue {
     const priorTranscript = this.getTranscript(taskId);
 
     // Record the follow-up, then re-arm the entry to resume with the new prompt.
-    this.appendEntry(taskId, { id: randomUUID(), role: 'user', at: Date.now(), text });
+    // An image-only message still gets a visible transcript row — the images
+    // themselves aren't in the transcript, so an empty text would read back as
+    // a blank turn.
+    const shown = text || `[${images.length} image${images.length === 1 ? '' : 's'} attached]`;
+    this.appendEntry(taskId, { id: randomUUID(), role: 'user', at: Date.now(), text: shown });
     entry.abort = new AbortController();
     entry.request = {
       ...entry.request,
       prompt: text,
+      // Always replaced, never inherited: the request still carries the
+      // previous turn's images, and the backends stage whatever is present —
+      // carrying them over would re-attach old screenshots to every follow-up.
+      images,
       ...(entry.sessionId ? { resumeSessionId: entry.sessionId } : {}),
       ...(priorTranscript.length > 0 ? { priorTranscript } : {}),
       ...(model ? { model } : {}),

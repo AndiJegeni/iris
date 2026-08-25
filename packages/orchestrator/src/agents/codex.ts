@@ -74,12 +74,13 @@ export function createCodexRunner(auth: ProviderAuth): AgentRunner {
     // turn it is continuing. Replay the conversation into the prompt instead.
     const followUp = Boolean(req.priorTranscript?.length);
     const prompt = followUp ? buildFollowUpPrompt(req) : buildPrompt(req);
-    // Attached screenshots go in through `codex exec -i` as staged files, on
-    // the fresh run only (a follow-up replays the conversation as text; its
-    // first answer already accounted for the images). Best-effort — a staging
-    // failure drops the attachments, not the run.
+    // Attached screenshots go in through `codex exec -i` as staged files.
+    // Every run, follow-up included: the queue replaces `images` with each
+    // turn's own attachments, so whatever is here belongs to exactly this
+    // message. Best-effort — a staging failure drops the attachments, not the
+    // run.
     let imageArgs: string[] = [];
-    if (!followUp && req.images.length > 0) {
+    if (req.images.length > 0) {
       try {
         imageArgs = (await stageImages(req.images)).flatMap((p) => ['-i', p]);
       } catch (err) {

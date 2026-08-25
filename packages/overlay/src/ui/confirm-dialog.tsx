@@ -20,9 +20,9 @@ type ConfirmDialogProps = {
  * The Preact twin of the orchestrator shell's askConfirm() (shell-html.ts), down
  * to the inverted buttons — same product, same question, so they look the same.
  *
- * Single-row actions do not use this: a row's own Merge and Archive ask inline,
- * on the row being acted on (see TaskRow). This is for the bulk ones, where the
- * thing at stake is a count rather than the card under the cursor.
+ * Every question the overlay asks comes through here — the drawer's Clear and a
+ * row's own Archive alike. A row cannot raise one itself (see the mounting note
+ * below); it asks the panel to, and the panel owns the dialog.
  *
  * Mount it at the overlay root, never inside a panel. The drawer sets
  * `backdrop-filter`, which makes it the containing block for its fixed-position
@@ -85,17 +85,17 @@ export function ConfirmDialog({
         </div>
         <p style={bodyStyle(p)}>{body}</p>
         <div style={actionsStyle()}>
-          <button type="button" className="la-cd-btn" style={secondaryBtn(p)} onClick={onConfirm}>
-            {confirmLabel}
-          </button>
           <button
             ref={cancelRef}
             type="button"
             className="la-cd-btn"
-            style={primaryBtn(p)}
+            style={secondaryBtn(p)}
             onClick={onCancel}
           >
             Cancel
+          </button>
+          <button type="button" className="la-cd-btn" style={primaryBtn(p)} onClick={onConfirm}>
+            {confirmLabel}
           </button>
         </div>
       </div>
@@ -131,11 +131,11 @@ const scrimStyle = (p: SurfacePalette) => ({
  * to an edge, and at the drawer's geometry it read as a torn-off scrap of it.
  */
 const cardStyle = (p: SurfacePalette, theme: OverlayTheme) => ({
-  width: 'min(430px, 100%)',
+  width: 'min(340px, 100%)',
   background: p.surface,
   border: `1px solid ${p.stroke}`,
-  borderRadius: '28px',
-  padding: '24px 28px 28px',
+  borderRadius: '18px',
+  padding: '18px 20px 20px',
   boxShadow:
     theme === 'light' ? '0 16px 48px rgba(0, 0, 0, 0.2)' : '0 16px 48px rgba(0, 0, 0, 0.45)',
   color: p.ink,
@@ -146,24 +146,29 @@ const headStyle = (p: SurfacePalette) => ({
   alignItems: 'center',
   justifyContent: 'space-between',
   gap: '12px',
-  paddingBottom: '16px',
+  paddingBottom: '12px',
   borderBottom: `1px solid ${p.stroke}`,
 });
 
 const titleStyle = (p: SurfacePalette) => ({
-  fontSize: '20px',
-  fontWeight: 700,
+  fontSize: '15px',
+  fontWeight: 500,
   letterSpacing: '-0.01em',
   color: p.ink,
 });
 
-// Negative margin buys the × a real hit target without pushing the glyph off
-// the title's baseline or the card's gutter.
+// A fixed square, both axes centred: the glyph is centred by geometry rather
+// than by its own em box, which is what left it sitting off the title's centre.
+// The small negative margin keeps the hit target from widening the gutter.
 const closeBtn = () => ({
   display: 'inline-flex',
   alignItems: 'center',
-  padding: '6px',
-  margin: '-6px',
+  justifyContent: 'center',
+  width: '24px',
+  height: '24px',
+  flexShrink: 0,
+  padding: 0,
+  margin: '-2px -4px -2px 0',
   background: 'transparent',
   border: 'none',
   cursor: 'pointer',
@@ -171,9 +176,9 @@ const closeBtn = () => ({
 });
 
 const bodyStyle = (p: SurfacePalette) => ({
-  margin: '16px 0 0',
-  fontSize: '15px',
-  lineHeight: 1.6,
+  margin: '12px 0 0',
+  fontSize: '13px',
+  lineHeight: 1.5,
   color: p.soft,
 });
 
@@ -181,28 +186,29 @@ const bodyStyle = (p: SurfacePalette) => ({
 // card's width, not small text buttons tucked in a corner.
 const actionsStyle = () => ({
   display: 'flex',
-  gap: '12px',
-  marginTop: '24px',
+  gap: '8px',
+  marginTop: '18px',
 });
 
 const btnBase = () => ({
   flex: 1,
   minWidth: 0,
-  height: '48px',
+  height: '36px',
   border: 'none',
   borderRadius: '999px',
-  padding: '0 16px',
-  fontSize: '15px',
-  fontWeight: 700,
+  padding: '0 14px',
+  fontSize: '13px',
+  fontWeight: 400,
   fontFamily: 'inherit',
   letterSpacing: 'inherit',
   cursor: 'pointer',
 });
 
 /**
- * Inverted from where the eye expects them: Cancel wears the filled primary and
- * the destructive verb the quiet fill, so the button that throws work away is
- * never the inviting one.
+ * The confirming action wears the filled primary — it is what the dialog is
+ * asking about, so it reads as the answer rather than as an afterthought beside
+ * Cancel. The safety is carried by focus instead of by colour: Cancel takes it
+ * on open (see the effect above), so a blind Enter still backs out.
  */
 const primaryBtn = (p: SurfacePalette) => ({
   ...btnBase(),

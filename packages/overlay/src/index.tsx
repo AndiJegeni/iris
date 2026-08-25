@@ -7,6 +7,25 @@ import { Overlay } from './overlay';
 // importing the id elsewhere doesn't trigger this module's auto-mount below.
 export { OVERLAY_HOST_ID };
 
+/**
+ * Our own selection colour, because the host page's leaks in.
+ *
+ * A shadow root encapsulates ordinary selectors, but ::selection is a highlight
+ * pseudo-element and those inherit down the flat tree — a bare ::selection rule
+ * in the page paints text inside our shadow root too, and "all: initial" on the
+ * host does not stop it. So selecting a prompt in our composer came out in
+ * whatever the site brands its selection; on vercila that is a lime green, which
+ * reads as Iris changing colour depending on the site it is pointed at.
+ *
+ * Neutral mid-grey rather than a themed colour: one rule covers both our light
+ * and dark surfaces, since a translucent grey darkens the light one and lightens
+ * the dark one without having to know which it landed on.
+ *
+ * Declared out here rather than inside the CSS below: a comment in there would
+ * ship to every page Iris mounts on, and backticks in it would end the string.
+ */
+const SELECTION_RESET = '::selection { background: rgba(120, 120, 120, 0.35); color: inherit; }';
+
 const SHADOW_RESET = `
   :host {
     all: initial;
@@ -19,6 +38,7 @@ const SHADOW_RESET = `
     box-sizing: border-box;
     font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   }
+  ${SELECTION_RESET}
 `;
 
 /**

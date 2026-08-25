@@ -1,5 +1,7 @@
 /** @jsxImportSource preact */
 import {
+  type AttachedImage,
+  MAX_IMAGES_PER_ANNOTATION,
   type ReasoningEffort,
   type Task,
   type TranscriptEntry,
@@ -9,6 +11,8 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { type ChatTab, ChatTabBar } from './chat-tab-bar';
 import { PlusThinIcon, SendIcon, StopIcon } from './icons';
 import { DEFAULT_MODEL, EFFORTS, MODELS, ModelReasoningPicker } from './model-picker';
+import { DragOverlay, ImageStrip } from './picked-popover.parts';
+import { ACCEPTED_IMAGE_TYPES, fileToImage } from './picked-popover.styles';
 import {
   Entry,
   QuestionCard,
@@ -37,7 +41,10 @@ type TaskChatProps = {
   onBack: () => void;
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
-  onSend: (text: string, opts: { model: string; effort: ReasoningEffort }) => void | Promise<void>;
+  onSend: (
+    text: string,
+    opts: { model: string; effort: ReasoningEffort; images: AttachedImage[] },
+  ) => void | Promise<void>;
   onCancel?: () => void;
 };
 
@@ -64,6 +71,13 @@ export function TaskChat({
   const t = popoverTokens(theme);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  // Attachments for the next follow-up, same pipeline as the popover's
+  // (fileToImage → AttachedImage). Attaching is never blocked on the task's
+  // state: images picked while a question is pending simply wait in the strip
+  // and ride the next regular follow-up (see submit).
+  const [images, setImages] = useState<AttachedImage[]>([]);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   // One line → compact pill; wrapped text → the two-row card. Derived from the
   // textarea's real scrollHeight (not a character count) so soft wrapping counts.
   const [multiline, setMultiline] = useState(false);
@@ -150,8 +164,38 @@ export function TaskChat({
     setMultiline(wraps);
   }, [draft, multiline]);
 
+  const addFiles = async (files: FileList | File[]) => {
+    const encoded = await Promise.all(Array.from(files).map(fileToImage));
+    const valid = encoded.filter((x): x is AttachedImage => x !== null);
+    if (valid.length === 0) return;
+    setImages((prev) => [...prev, ...valid].slice(0, MAX_IMAGES_PER_ANNOTATION));
+  };
+
+  const removeImage = (idx: number) => setImages((prev) => prev.filter((_, i) => i !== idx));
+
+  // biome-ignore lint/suspicious/noExplicitAny: Preact clipboard event typed against root React types
+  const handlePaste = (e: any) => {
+    const items: DataTransferItemList | undefined = e.clipboardData?.items;
+    if (!items) return;
+    const files: File[] = [];
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        const f = item.getAsFile();
+        if (f) files.push(f);
+      }
+    }
+    if (files.length > 0) {
+      e.preventDefault();
+      void addFiles(files);
+    }
+  };
+
   const locked = (busy && !asked) || sending;
-  const canSend = !!draft.trim() && !locked;
+  const atImageLimit = images.length >= MAX_IMAGES_PER_ANNOTATION;
+  // An image with no words is a legitimate message ("make it look like this")
+  // — but not as an answer, which delivers plain text into the agent's open
+  // question and has no image channel.
+  const canSend = (!!draft.trim() || (!asked && images.length > 0)) && !locked;
   // Picking an option is the same act as typing its wording — it goes out as an
   // ordinary message and the daemon matches it back to the choice. Rejections
   // are swallowed the way the composer's own send swallows them: the row's
@@ -159,7 +203,7 @@ export function TaskChat({
   const answer = (label: string) => {
     if (sending) return;
     setSending(true);
-    void Promise.resolve(onSend(label, { model: selectedModel.value, effort })).then(
+    void Promise.resolve(onSend(label, { model: selectedModel.value, effort, images: [] })).then(
       () => setSending(false),
       () => setSending(false),
     );
@@ -167,18 +211,39 @@ export function TaskChat({
 
   const submit = async () => {
     const text = draft.trim();
-    if (!text || locked) return;
+    // While a question is up the message is the answer, and answers travel as
+    // plain text — attached images stay in the strip for the next follow-up
+    // rather than silently vanishing into a channel that can't carry them.
+    const imgs = asked ? [] : images;
+    if ((!text && imgs.length === 0) || locked) return;
     setDraft('');
     setSending(true);
     try {
-      await onSend(text, { model: selectedModel.value, effort });
+      await onSend(text, { model: selectedModel.value, effort, images: imgs });
+      if (imgs.length > 0) setImages([]);
     } finally {
       setSending(false);
     }
   };
 
   return (
-    <div style={shell(theme)}>
+    <div
+      style={shell(theme)}
+      onDragOver={(e) => {
+        e.preventDefault();
+        if (!dragOver) setDragOver(true);
+      }}
+      onDragLeave={(e) => {
+        // Only clear when the cursor actually leaves the chat, not on child enter.
+        if (e.currentTarget === e.target) setDragOver(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        if (e.dataTransfer?.files?.length) void addFiles(e.dataTransfer.files);
+      }}
+    >
+      {dragOver ? <DragOverlay t={t} theme={theme} /> : null}
       <ChatTabBar
         tabs={tabs}
         activeId={task.id}
@@ -255,14 +320,47 @@ export function TaskChat({
           footer beneath it (picker left, attach · send right). One DOM structure
           for both, flipped with flex-wrap + `order`, so crossing the line
           boundary never remounts the textarea and typing keeps its focus. */}
-      <div style={composerCard(theme, multiline)}>
+      <div style={composerCard(theme, multiline || images.length > 0)}>
         <style>{chatCss(theme)}</style>
+        {/* Attached thumbnails, on their own full-width row above the input —
+            order -1 keeps them first regardless of the pill/card flip. */}
+        {images.length > 0 ? (
+          <div style={{ flexBasis: '100%', order: -1 }}>
+            <ImageStrip images={images} onRemove={removeImage} t={t} />
+          </div>
+        ) : null}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={ACCEPTED_IMAGE_TYPES.join(',')}
+          multiple
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            const input = e.target as HTMLInputElement;
+            if (input.files?.length) void addFiles(input.files);
+            input.value = '';
+          }}
+        />
         <button
           type="button"
           className="la-tc-icon"
-          style={{ ...attachBtn(), order: multiline ? 2 : 0 }}
-          onClick={() => inputRef.current?.focus()}
-          aria-label="Add"
+          style={{
+            ...attachBtn(),
+            // Leads the control row either way: on one line it precedes the
+            // input, and once the input takes its own row it leads what is left
+            // beneath. Ordering it after the picker when wrapped made the two
+            // swap places as you typed.
+            order: multiline ? 1 : 0,
+            ...(atImageLimit ? { opacity: 0.3, cursor: 'not-allowed' } : {}),
+          }}
+          disabled={atImageLimit}
+          onClick={() => fileInputRef.current?.click()}
+          title={
+            atImageLimit
+              ? `Max ${MAX_IMAGES_PER_ANNOTATION} images`
+              : 'Attach images (or paste / drop)'
+          }
+          aria-label="Attach images"
         >
           <PlusThinIcon />
         </button>
@@ -280,6 +378,7 @@ export function TaskChat({
             e.preventDefault();
             void submit();
           }}
+          onPaste={handlePaste}
           rows={1}
           placeholder={
             asked ? 'Answer to continue' : busy ? 'Agent is working…' : 'Reply or ask a follow-up'
@@ -297,7 +396,8 @@ export function TaskChat({
             display: 'inline-flex',
             alignItems: 'center',
             flexShrink: 0,
-            order: multiline ? 1 : 2,
+            // Always after the attach button — see its comment above.
+            order: 2,
             ...(multiline ? { marginRight: 'auto' } : {}),
           }}
         >
@@ -365,7 +465,9 @@ const chatCss = (theme: OverlayTheme): string => {
   const p = surfacePalette(theme);
   return [
     '.la-tc-icon{background:transparent;transition:background 90ms,box-shadow 90ms}',
-    `.la-tc-icon:hover{background:${p.hover};box-shadow:0 0 0 2px ${p.hover}}`,
+    // :not(:disabled): the attach circle disables at the image limit, and a
+    // hover halo on a dead control reads as pressable.
+    `.la-tc-icon:hover:not(:disabled){background:${p.hover};box-shadow:0 0 0 2px ${p.hover}}`,
     // `transition` is one property, so it can only be declared in one place —
     // and the circle used to declare it inline, which silently dropped the
     // background fade `.la-tc-stop` asks for below. Both circles get their
@@ -393,6 +495,8 @@ const shell = (theme: OverlayTheme) => ({
   flexDirection: 'column' as const,
   height: '100%',
   minHeight: 0,
+  // Anchors the drag-and-drop overlay (absolute, inset 0) to the chat.
+  position: 'relative' as const,
   background: surfacePalette(theme).surface,
   color: chatInk(theme).ink,
 });

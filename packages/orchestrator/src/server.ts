@@ -3,8 +3,10 @@ import { join } from 'node:path';
 import { type ServerType, serve } from '@hono/node-server';
 import {
   Annotation,
+  type AttachedImage,
   type AuthStatus,
   type Capabilities,
+  FollowUpImages,
   type HealthResponse,
   ReasoningEffort,
   VERSION,
@@ -49,6 +51,46 @@ export type Orchestrator = {
 };
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+/** A follow-up message body, validated. Failures carry the message for the 400. */
+export type FollowUpMessage =
+  | {
+      ok: true;
+      text: string;
+      images: AttachedImage[];
+      model?: string;
+      effort?: ReasoningEffort;
+    }
+  | { ok: false; error: string };
+
+/**
+ * Validate a `POST /tasks/:id/message` body. Exported for tests — the route
+ * itself is just this plus `queue.continue`.
+ *
+ * Tolerant where an older client might differ (a bad model/effort is dropped,
+ * not fatal), strict where the payload could hurt: images must match the shared
+ * schema and cap, because silently dropping a malformed attachment would send
+ * the user's words without the picture they were about.
+ */
+export function parseFollowUpMessage(raw: unknown): FollowUpMessage {
+  const body =
+    raw && typeof raw === 'object'
+      ? (raw as { text?: unknown; model?: unknown; reasoningEffort?: unknown; images?: unknown })
+      : {};
+  const text = typeof body.text === 'string' ? body.text.trim() : '';
+  const images = FollowUpImages.safeParse(body.images ?? []);
+  if (!images.success) return { ok: false, error: 'invalid images' };
+  // An image with no words is a legitimate message; no words and no images is not.
+  if (!text && images.data.length === 0) return { ok: false, error: 'message text required' };
+  const effort = ReasoningEffort.safeParse(body.reasoningEffort);
+  return {
+    ok: true,
+    text,
+    images: images.data,
+    ...(typeof body.model === 'string' && body.model ? { model: body.model } : {}),
+    ...(effort.success ? { effort: effort.data } : {}),
+  };
+}
 
 /**
  * Reject with the real listen error (EADDRINUSE / EACCES) if `port` can't be
@@ -417,23 +459,17 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
     return c.json({ entries: queue.getTranscript(id) });
   });
 
-  // Follow-up message: resume the task's session with a new prompt.
+  // Follow-up message: resume the task's session with a new prompt. The body
+  // carries the chat composer's model + effort pickers (so a thread can change
+  // either mid-turn) and any attached images — see parseFollowUpMessage.
   app.post('/tasks/:id/message', async (c) => {
     const id = c.req.param('id');
-    const raw = (await c.req.json().catch(() => null)) as {
-      text?: unknown;
-      model?: unknown;
-      reasoningEffort?: unknown;
-    } | null;
-    const text = typeof raw?.text === 'string' ? raw.text.trim() : '';
-    if (!text) return c.json({ error: 'message text required' }, 400);
-    // The chat composer carries its own model + effort pickers, so a follow-up
-    // can change either mid-thread. Both are optional: an older client that
-    // sends only `text` keeps whatever the previous turn ran with.
-    const effort = ReasoningEffort.safeParse(raw?.reasoningEffort);
-    const result = queue.continue(id, text, {
-      ...(typeof raw?.model === 'string' && raw.model ? { model: raw.model } : {}),
-      ...(effort.success ? { effort: effort.data } : {}),
+    const parsed = parseFollowUpMessage(await c.req.json().catch(() => null));
+    if (!parsed.ok) return c.json({ error: parsed.error }, 400);
+    const result = queue.continue(id, parsed.text, {
+      images: parsed.images,
+      ...(parsed.model ? { model: parsed.model } : {}),
+      ...(parsed.effort ? { effort: parsed.effort } : {}),
     });
     if (!result.ok) {
       const status = result.error === 'task not found' ? 404 : 409;

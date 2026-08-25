@@ -16,6 +16,19 @@ export type ThemeTokens = {
   pillShadow: string;
   // Cards — picked popover + task tiles
   surfaceBg: string;
+  /**
+   * A surface that floats *on top of* another surface — the model/reasoning
+   * menu over the composer, and anything else that opens above a panel rather
+   * than above the host page.
+   *
+   * Dark needs its own value. Unifying every dark fill on one black was right
+   * for panels sitting on the page, but it left a menu and the card beneath it
+   * painted identically, separated by nothing but a hairline — which reads as
+   * the menu being see-through rather than stacked. Elevation is the one place
+   * a lighter step earns its keep. Light already separates by shadow against
+   * white, so it keeps the same fill.
+   */
+  surfaceRaised: string;
   surfaceBorder: string;
   surfaceShadow: string;
   // Subtle inset tile inside a surface (e.g. a task row card)
@@ -47,10 +60,11 @@ export const THEME_TOKENS: Record<OverlayTheme, ThemeTokens> = {
   dark: {
     // Neutral (R=G=B) grays — the old zinc tones read slightly blue. Every dark
     // surface shares the same rgb(15,15,15) base; only the alpha varies by role.
-    pillBg: 'rgba(15, 15, 15, 0.9)',
+    pillBg: 'rgb(15, 15, 15)',
     pillText: '#ffffff',
     pillShadow: '0 2px 16px rgba(0, 0, 0, 0.25)',
-    surfaceBg: 'rgba(15, 15, 15, 0.98)',
+    surfaceBg: 'rgb(15, 15, 15)',
+    surfaceRaised: 'rgb(24, 24, 24)',
     surfaceBorder: 'rgba(255, 255, 255, 0.06)',
     surfaceShadow: '0 20px 50px rgba(0, 0, 0, 0.5)',
     cardBg: 'rgba(255, 255, 255, 0.04)',
@@ -72,10 +86,12 @@ export const THEME_TOKENS: Record<OverlayTheme, ThemeTokens> = {
     submitText: '#18181b',
   },
   light: {
-    pillBg: 'rgba(255, 255, 255, 0.95)',
+    pillBg: '#ffffff',
     pillText: '#18181b',
     pillShadow: '0 4px 16px rgba(0, 0, 0, 0.16)',
-    surfaceBg: 'rgba(255, 255, 255, 0.98)',
+    surfaceBg: '#ffffff',
+    // Light separates by shadow against white; a lighter step has nowhere to go.
+    surfaceRaised: '#ffffff',
     surfaceBorder: 'rgba(0, 0, 0, 0.1)',
     surfaceShadow: '0 20px 50px rgba(0, 0, 0, 0.2)',
     cardBg: 'rgba(55, 55, 52, 0.03)',
@@ -119,7 +135,7 @@ export function tokens(theme: OverlayTheme = 'dark'): ThemeTokens {
  * these values have exactly one definition and cannot drift apart.
  */
 export type SurfacePalette = {
-  /** Panel background. Near-opaque, paired with a backdrop blur. */
+  /** Panel background. Fully opaque — nothing behind a panel should show through. */
   surface: string;
   /** Outline, dividers, and the containers drawn with a line instead of a fill. */
   stroke: string;
@@ -148,7 +164,7 @@ export type SurfacePalette = {
 
 export const SURFACE_PALETTE: Record<OverlayTheme, SurfacePalette> = {
   dark: {
-    surface: 'rgba(15, 15, 15, 0.98)',
+    surface: 'rgb(15, 15, 15)',
     stroke: 'rgba(255, 255, 255, 0.06)',
     ink: '#f5f5f5',
     soft: 'rgba(245, 245, 245, 0.4)',
@@ -216,6 +232,7 @@ export function popoverTokens(theme: OverlayTheme): ThemeTokens {
   return {
     ...base,
     surfaceBg: p.surface,
+    surfaceRaised: p.surface,
     surfaceBorder: p.stroke,
     textPrimary: p.ink,
     textMuted: p.ink,
