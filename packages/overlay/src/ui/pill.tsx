@@ -90,14 +90,16 @@ export const PILL_PALETTE: Record<OverlayTheme, PillPalette> = {
     hoverSurface: '#f0f0f0',
   },
   dark: {
-    surface: 'rgba(18, 18, 18, 0.95)', // neutral gray, darker — old zinc read blue
+    // The one dark base every surface shares — rgb(15,15,15), the panels'
+    // SURFACE_PALETTE black — at the pill's own alpha.
+    surface: 'rgba(15, 15, 15, 0.95)',
     stroke: 'rgba(255, 255, 255, 0.07)',
     icon: '#e5e5e5',
     shadow: '0 2px 16px rgba(0, 0, 0, 0.4)',
     hover: 'rgba(255, 255, 255, 0.1)',
-    // rgba(18, 18, 18, 0.95) under the 10% white halo, kept at the surface's
+    // rgba(15, 15, 15, 0.95) under the 10% white halo, kept at the surface's
     // alpha so the hovered circle is the same material, one shade up.
-    hoverSurface: 'rgba(42, 42, 42, 0.95)',
+    hoverSurface: 'rgba(39, 39, 39, 0.95)',
   },
 };
 

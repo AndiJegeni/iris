@@ -45,8 +45,9 @@ export type ThemeTokens = {
 
 export const THEME_TOKENS: Record<OverlayTheme, ThemeTokens> = {
   dark: {
-    // Neutral (R=G=B) grays, a step darker — the old zinc tones read slightly blue.
-    pillBg: 'rgba(16, 16, 16, 0.9)',
+    // Neutral (R=G=B) grays — the old zinc tones read slightly blue. Every dark
+    // surface shares the same rgb(15,15,15) base; only the alpha varies by role.
+    pillBg: 'rgba(15, 15, 15, 0.9)',
     pillText: '#ffffff',
     pillShadow: '0 2px 16px rgba(0, 0, 0, 0.25)',
     surfaceBg: 'rgba(15, 15, 15, 0.98)',
