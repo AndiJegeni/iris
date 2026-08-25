@@ -15,14 +15,20 @@ export const shellCss = `
        * inside the iframe, invisible to prefers-color-scheme out here.
        */
       :root {
-        --bg: #0a0a0a;
-        --chrome-bg: #18181b;
-        --chrome-border: #27272a;
+        /* One black. #0f0f0f is the overlay's own dark surface (rgb(15,15,15)
+           in its SURFACE_PALETTE) — the page ground and the chrome share it so
+           no two fills read as slightly different darks, and the neutral
+           R=G=B replaces the old zinc values, which read blue next to it. */
+        --bg: #0f0f0f;
+        --chrome-bg: #0f0f0f;
+        --chrome-border: #272727;
         --text: #f4f4f5;
         --muted: #a1a1aa;
         --soft: rgba(244, 244, 245, 0.4);
         --faint: #71717a;
-        --code-bg: #18181b;
+        /* The inset chip a step up from the shared black — white @ 6% over
+           #0f0f0f, matching the overlay's own fill tint. */
+        --code-bg: #1d1d1d;
         --code-text: #e4e4e7;
         --accent: #3b82f6;
         --danger: #f87171;
@@ -30,7 +36,7 @@ export const shellCss = `
         --chip-shadow: 0 2px 16px rgba(0, 0, 0, 0.4);
         --dialog-primary-bg: #f4f4f5;
         --dialog-primary-fg: #18181b;
-        --dialog-secondary-bg: #3f3f46;
+        --dialog-secondary-bg: #3f3f3f;
         --dialog-secondary-fg: #f4f4f5;
       }
       @media (prefers-color-scheme: light) {
@@ -54,21 +60,21 @@ export const shellCss = `
         }
       }
       :root[data-theme="dark"] {
-        --bg: #0a0a0a;
-        --chrome-bg: #18181b;
-        --chrome-border: #27272a;
+        --bg: #0f0f0f;
+        --chrome-bg: #0f0f0f;
+        --chrome-border: #272727;
         --text: #f4f4f5;
         --muted: #a1a1aa;
         --soft: rgba(244, 244, 245, 0.4);
         --faint: #71717a;
-        --code-bg: #18181b;
+        --code-bg: #1d1d1d;
         --code-text: #e4e4e7;
         --danger: #f87171;
         --scrim: rgba(0, 0, 0, 0.6);
         --chip-shadow: 0 2px 16px rgba(0, 0, 0, 0.4);
         --dialog-primary-bg: #f4f4f5;
         --dialog-primary-fg: #18181b;
-        --dialog-secondary-bg: #3f3f46;
+        --dialog-secondary-bg: #3f3f3f;
         --dialog-secondary-fg: #f4f4f5;
       }
       :root[data-theme="light"] {
