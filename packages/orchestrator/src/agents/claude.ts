@@ -72,10 +72,11 @@ export function createClaudeRunner(auth: ProviderAuth, claudeBinary?: ClaudeBina
     // On a follow-up turn the prompt is the raw user message — the worktree
     // context was already established by the original run's session.
     let workerPrompt = req.resumeSessionId ? req.prompt : buildPrompt(req);
-    // Attached screenshots ride along as staged files the agent Reads — the
-    // fresh run only, since a resumed session already saw them. Best-effort: a
-    // full disk shouldn't kill the run, just the attachments.
-    if (!req.resumeSessionId && req.images.length > 0) {
+    // Attached screenshots ride along as staged files the agent Reads. Every
+    // run, resumed or fresh: the queue replaces `images` with each turn's own
+    // attachments, so whatever is here belongs to exactly this message.
+    // Best-effort: a full disk shouldn't kill the run, just the attachments.
+    if (req.images.length > 0) {
       try {
         workerPrompt += imagesAppendix(await stageImages(req.images));
       } catch (err) {

@@ -235,37 +235,41 @@ export const shellCss = `
       /* display:flex would otherwise outrank the hidden attribute. */
       .modal-scrim[hidden] { display: none; }
       .modal {
-        width: min(430px, 100%);
+        width: min(340px, 100%);
         background: var(--chrome-bg);
         border: 1px solid var(--chrome-border);
-        border-radius: 28px;
-        padding: 24px 28px 28px;
+        border-radius: 18px;
+        padding: 18px 20px 20px;
         box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
       }
       .modal-head {
         display: flex; align-items: center; justify-content: space-between;
-        gap: 12px; padding-bottom: 16px;
+        gap: 12px; padding-bottom: 12px;
         border-bottom: 1px solid var(--chrome-border);
       }
       .modal-title {
-        margin: 0; font-size: 20px; font-weight: 700;
+        margin: 0; font-size: 15px; font-weight: 500;
         letter-spacing: -0.01em; color: var(--text);
       }
       /* Negative margin buys the × a real hit target without pushing the glyph
          off the title's baseline or the card's gutter. */
+      /* A fixed square with both axes centred: "×" does not sit centred inside
+         its own em box, so padding alone left it off the title's centre. */
       .modal-close {
-        background: transparent; border: none; padding: 6px; margin: -6px;
-        line-height: 1; font-size: 24px; color: var(--soft); cursor: pointer;
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 24px; height: 24px; flex-shrink: 0;
+        background: transparent; border: none; padding: 0; margin: -2px -4px -2px 0;
+        line-height: 1; font-size: 18px; color: var(--soft); cursor: pointer;
         font-family: inherit; transition: color 90ms ease;
       }
       .modal-close:hover { color: var(--text); }
-      .modal-body { margin: 16px 0 0; font-size: 15px; line-height: 1.6; color: var(--muted); }
+      .modal-body { margin: 12px 0 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
       /* The row that makes it read as the reference: two equal pills filling
          the card's width, not small text buttons tucked in a corner. */
-      .modal-actions { display: flex; gap: 12px; margin-top: 24px; }
+      .modal-actions { display: flex; gap: 8px; margin-top: 18px; }
       .modal-btn {
-        flex: 1; min-width: 0; height: 48px; border: none; border-radius: 999px;
-        padding: 0 16px; font-size: 15px; font-weight: 700; font-family: inherit;
+        flex: 1; min-width: 0; height: 36px; border: none; border-radius: 999px;
+        padding: 0 14px; font-size: 13px; font-weight: 400; font-family: inherit;
         cursor: pointer; transition: opacity 90ms ease;
       }
       .modal-btn:hover { opacity: 0.85; }

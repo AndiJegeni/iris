@@ -64,8 +64,12 @@ export function shellHtml(mainPort: number): string {
         </div>
         <p class="modal-body" id="confirm-body"></p>
         <div class="modal-actions">
-          <button class="modal-btn modal-btn-secondary" id="confirm-yes" type="button"></button>
-          <button class="modal-btn modal-btn-primary" id="confirm-no" type="button">Cancel</button>
+          <!-- The confirming action is the filled primary: it is the thing the
+               dialog is asking about, so it reads as the answer. Cancel stays
+               the muted secondary — but keeps focus on open (see askConfirm),
+               so a blind Enter still backs out rather than destroying. -->
+          <button class="modal-btn modal-btn-secondary" id="confirm-no" type="button">Cancel</button>
+          <button class="modal-btn modal-btn-primary" id="confirm-yes" type="button"></button>
         </div>
       </div>
     </div>
@@ -241,12 +245,11 @@ export function shellHtml(mainPort: number): string {
         document.getElementById('ship-btn').addEventListener('click', async function() {
           var slug = selectEl.value;
           if (slug === 'main') return;
-          var ok = await askConfirm({
-            title: 'Merge locally?',
-            body: 'Merging ' + slug + ' into your checkout replaces any uncommitted changes of yours that clash with the agent\\'s version — those are recoverable, with "git stash pop". The worktree is deleted afterwards.',
-            confirmLabel: 'Merge locally',
-          });
-          if (!ok) return;
+          // Asks nothing, unlike Discard: merging *keeps* the agent's work rather
+          // than destroying it, and the one thing it can overwrite — uncommitted
+          // files of yours that clash — is stashed first and reported below. A
+          // confirmation here was friction in front of the button you press when
+          // the work is good.
           var btn = document.getElementById('ship-btn');
           btn.disabled = true; btn.textContent = 'shipping…';
           try {

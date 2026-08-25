@@ -150,10 +150,11 @@ function MenuRow({
 const menuPanel = (t: ThemeTokens) =>
   ({
     minWidth: '232px',
-    // Match the composer surface so the dropdown reads as the same design
-    // language: same fill / hairline border / drop shadow / rounding (14px) /
-    // backdrop blur as the message-input modal above.
-    background: t.surfaceBg,
+    // Raised, not the composer's own fill. Matching it exactly made the menu and
+    // the card beneath it one undifferentiated mass in dark mode — the hairline
+    // border was the only thing between them, which read as the menu being
+    // see-through. A step lighter is what says "this is on top".
+    background: t.surfaceRaised,
     border: `1px solid ${t.surfaceBorder}`,
     borderRadius: '10px',
     // Deliberately tighter than `surfaceShadow` (0 20px 50px @ 20%). This menu

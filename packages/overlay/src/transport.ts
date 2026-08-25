@@ -1,5 +1,6 @@
 import {
   type Annotation,
+  type AttachedImage,
   type AuthStatus,
   type Capabilities,
   type PullRequestResult,
@@ -256,14 +257,14 @@ class Transport {
   /**
    * Send a follow-up message to an existing task (resumes its session).
    *
-   * `opts` is the chat composer's model + reasoning picks for this turn; the
-   * daemon applies them to the resumed run and ignores a model belonging to a
-   * different backend than the task's.
+   * `opts` is the chat composer's model + reasoning picks for this turn, plus
+   * any attached images; the daemon applies them to the resumed run and
+   * ignores a model belonging to a different backend than the task's.
    */
   async sendMessage(
     id: string,
     text: string,
-    opts?: { model: string; effort: ReasoningEffort },
+    opts?: { model: string; effort: ReasoningEffort; images?: AttachedImage[] },
   ): Promise<void> {
     const res = await fetch(`${this.daemonUrl}/tasks/${encodeURIComponent(id)}/message`, {
       method: 'POST',
@@ -271,6 +272,7 @@ class Transport {
       body: JSON.stringify({
         text,
         ...(opts ? { model: opts.model, reasoningEffort: opts.effort } : {}),
+        ...(opts?.images?.length ? { images: opts.images } : {}),
       }),
     });
     if (!res.ok) {
