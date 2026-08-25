@@ -149,7 +149,16 @@ export function Overlay() {
           setHoverLabel(null);
         }
       },
-      onArmedChange: setArmed,
+      onArmedChange: (a) => {
+        setArmed(a);
+        // The settings panel and chat composer anchor to the expanded toolbar;
+        // collapsing it (the pill's ✕, from any path) takes them with it —
+        // a floating panel above a parked circle reads as a leak.
+        if (!a) {
+          setShowSettings(false);
+          setChatOpen(false);
+        }
+      },
       onHover: (el) => {
         setHovered(el);
         setHoverLabel(el ? describeHover(el) : null);
