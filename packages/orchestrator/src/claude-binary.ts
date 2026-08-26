@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 
@@ -101,6 +101,59 @@ export function resolveClaudeBinary(): ClaudeBinary {
   }
 
   return { kind: 'borrowed', path, version };
+}
+
+/**
+ * Locate the executable vendored inside the Agent SDK's platform package
+ * (`@anthropic-ai/claude-agent-sdk-<platform>-<arch>`), mirroring the SDK's own
+ * fallback resolution — resolved as a sibling of the SDK so we find the copy
+ * the SDK itself would run. Returns null when the optional dependency is
+ * absent (e.g. installed with --omit=optional).
+ */
+function bundledClaudeBinary(): string | null {
+  try {
+    const require = createRequire(import.meta.url);
+    const sdkRequire = createRequire(require.resolve('@anthropic-ai/claude-agent-sdk'));
+    const ext = process.platform === 'win32' ? '.exe' : '';
+    // npm installs only the variant matching this machine, so on linux just
+    // try both glibc and musl and take whichever exists.
+    const variants =
+      process.platform === 'linux'
+        ? [`linux-${process.arch}`, `linux-${process.arch}-musl`]
+        : [`${process.platform}-${process.arch}`];
+    for (const variant of variants) {
+      try {
+        const path = sdkRequire.resolve(`@anthropic-ai/claude-agent-sdk-${variant}/claude${ext}`);
+        if (existsSync(path)) return path;
+      } catch {
+        // this variant isn't installed; try the next
+      }
+    }
+  } catch {
+    // SDK itself missing — nothing to fall back to
+  }
+  return null;
+}
+
+let executableMemo: string | null | undefined;
+
+/**
+ * A concrete `claude` executable for direct CLI invocations — auth status,
+ * login, logout: the user's own install when resolveClaudeBinary() borrowed
+ * one, otherwise the SDK's vendored copy. Agent runs don't need this (the SDK
+ * finds its own binary when handed nothing), but these callers spawn the CLI
+ * themselves, and `claude` merely being off the daemon's PATH (bun installs,
+ * the native installer) must not break them. Both binaries share the same
+ * credential store, so a login through either is visible to both. Null only
+ * when no binary exists anywhere. Memoized: the answer can't change
+ * mid-session.
+ */
+export function claudeExecutablePath(): string | null {
+  if (executableMemo === undefined) {
+    const resolved = resolveClaudeBinary();
+    executableMemo = resolved.kind === 'borrowed' ? resolved.path : bundledClaudeBinary();
+  }
+  return executableMemo;
 }
 
 /** One-line summary for the startup banner. */
