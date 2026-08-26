@@ -248,7 +248,6 @@ export function TaskChat({
         if (e.dataTransfer?.files?.length) void addFiles(e.dataTransfer.files);
       }}
     >
-      {dragOver ? <DragOverlay theme={theme} /> : null}
       <ChatTabBar
         tabs={tabs}
         activeId={task.id}
@@ -327,6 +326,14 @@ export function TaskChat({
           boundary never remounts the textarea and typing keeps its focus. */}
       <div style={composerCard(theme, multiline || images.length > 0)}>
         <style>{chatCss(theme)}</style>
+        {/* The drop veil covers the composer, where the images land — the drop
+            itself is still accepted anywhere on the panel. */}
+        {dragOver ? (
+          <DragOverlay
+            theme={theme}
+            radius={multiline || images.length > 0 ? `${RADIUS}px` : '999px'}
+          />
+        ) : null}
         {/* Attached thumbnails, on their own full-width row above the input —
             order -1 keeps them first regardless of the pill/card flip. */}
         {images.length > 0 ? (
@@ -500,7 +507,6 @@ const shell = (theme: OverlayTheme) => ({
   flexDirection: 'column' as const,
   height: '100%',
   minHeight: 0,
-  // Anchors the drag-and-drop overlay (absolute, inset 0) to the chat.
   position: 'relative' as const,
   background: surfacePalette(theme).surface,
   color: chatInk(theme).ink,
@@ -526,6 +532,8 @@ const COMPOSER_MAX_H = 54;
 // single row; the corner squares off to match the other containers only once
 // the input wraps and the card gains a second row.
 const composerCard = (theme: OverlayTheme, multiline: boolean) => ({
+  // Anchors the drop veil (absolute, inset 0) to the composer.
+  position: 'relative' as const,
   display: 'flex',
   flexWrap: 'wrap' as const,
   alignItems: 'center',

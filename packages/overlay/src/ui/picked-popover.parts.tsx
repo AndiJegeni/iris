@@ -21,8 +21,19 @@ const DROP_PINK_INK = '#BE1865';
  * it, and one small line of text. It replaced a 2px dashed accent frame over a
  * heavy blue fill, which announced a file-upload widget on a card that is
  * really a message box.
+ *
+ * Covers the *composer*, not the whole surface. In the popover those are the
+ * same rectangle; in the chat they are not, and veiling the full panel turned a
+ * hint into a 440px pink sheet over a conversation you were still reading.
  */
-export function DragOverlay({ theme }: { theme: OverlayTheme }) {
+export function DragOverlay({
+  theme,
+  radius = SURFACE_RADIUS,
+}: {
+  theme: OverlayTheme;
+  /** Match the container being covered — the chat's composer flips pill/card. */
+  radius?: string;
+}) {
   const light = theme === 'light';
   const wash = light ? 'rgba(241, 87, 160, 0.05)' : 'rgba(241, 87, 160, 0.07)';
   return (
@@ -30,7 +41,7 @@ export function DragOverlay({ theme }: { theme: OverlayTheme }) {
       style={{
         position: 'absolute',
         inset: 0,
-        borderRadius: SURFACE_RADIUS,
+        borderRadius: radius,
         // Wash over veil: the veil mutes the card, the wash tints the result.
         // One rgba pink alone would leave the composer fully legible underneath.
         background: `linear-gradient(${wash}, ${wash}), ${
