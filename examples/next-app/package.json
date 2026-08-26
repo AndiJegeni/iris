@@ -11,7 +11,7 @@
   "dependencies": {
     "@iris/overlay": "workspace:*",
     "@iris/shared": "workspace:*",
-    "@useiris/react": "workspace:*",
+    "@andijegeni/iris": "workspace:*",
     "next": "^15.1.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

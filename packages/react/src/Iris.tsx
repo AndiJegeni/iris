@@ -70,7 +70,7 @@ export type IrisProps = {
  * Drop-in component that mounts the Iris overlay into the page in dev,
  * and is a no-op in production. Safe to leave in the layout permanently:
  *
- *   import { Iris } from '@useiris/react';
+ *   import { Iris } from '@andijegeni/iris';
  *   <Iris />
  *
  * Behavior:

@@ -10,7 +10,7 @@
 npx useiris init
 ```
 
-That adds `<Iris />` to your root component and installs `@useiris/react` — it shows you the diff and asks before writing anything. Then, with your dev server running:
+That adds `<Iris />` to your root component and installs `@andijegeni/iris` — it shows you the diff and asks before writing anything. Then, with your dev server running:
 
 ```bash
 npx useiris
@@ -24,12 +24,12 @@ Using Claude Code or Codex? `npx skills add AndiJegeni/iris`, then `/iris`.
 <summary>Doing it by hand</summary>
 
 ```bash
-npm i -D @useiris/react
+npm i -D @andijegeni/iris
 ```
 
 ```tsx
 // app/layout.tsx (or your root component)
-import { Iris } from '@useiris/react';
+import { Iris } from '@andijegeni/iris';
 
 export default function RootLayout({ children }) {
   return (
@@ -107,7 +107,7 @@ Any git host works for the push; `gh` is what turns it into an actual pull reque
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `init [-y]` | — | Wire `<Iris />` into your root component and install `@useiris/react`. `-y` skips the prompt (for scripts and agents). |
+| `init [-y]` | — | Wire `<Iris />` into your root component and install `@andijegeni/iris`. `-y` skips the prompt (for scripts and agents). |
 | `--port <n>` | `4747` | Port for the Iris daemon |
 | `--main-port <n>` | `3000` | The port your own dev server runs on |
 | `--dev-cmd <cmd>` | inferred | Command to start a dev server inside a worktree. `%PORT%` is substituted. Defaults to your lockfile's package manager. |
@@ -178,12 +178,12 @@ bun run lint        # biome
 | Package | Published as | Role |
 |---------|--------------|------|
 | `packages/cli` | `useiris` | the `npx` daemon (orchestrator + overlay bundled in) |
-| `packages/react` | `@useiris/react` | the `<Iris/>` drop-in |
+| `packages/react` | `@andijegeni/iris` | the `<Iris/>` drop-in |
 | `packages/overlay` | (bundled) | the Preact overlay UI |
 | `packages/orchestrator` | (bundled) | the daemon: server, agents, worktrees |
 | `packages/shared` | (bundled) | shared zod protocol |
 
-The npm names are `useiris` / `@useiris/react` because `iris` and `@iris/*` were already taken — the command you type is still `iris` once installed.
+The npm names are `useiris` / `@andijegeni/iris` because `iris`, `@iris/*`, and the `@useiris` scope were already taken — the command you type is still `iris` once installed.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 

@@ -17,7 +17,7 @@ bun install
 
 ```bash
 bun run dev         # run the daemon from source (packages/cli/src/index.ts)
-bun run build       # build the publishable packages (useiris + @useiris/react)
+bun run build       # build the publishable packages (useiris + @andijegeni/iris)
 bun run typecheck   # tsc, no emit
 bun run lint        # biome check
 bun run ci          # biome ci (non-mutating, for CI)
@@ -27,7 +27,7 @@ bun run format      # biome format --write
 To try it against the demo app:
 
 ```bash
-bun run build                       # @useiris/react resolves to its built dist
+bun run build                       # @andijegeni/iris resolves to its built dist
 cd examples/next-app && bun run dev # start the demo on :3000
 # then, from the repo root in another terminal:
 bun run dev -- --main-port 3000
@@ -49,7 +49,7 @@ bun run dev -- --main-port 3000
 | Package | Published as | Role |
 |---------|--------------|------|
 | `packages/cli` | `useiris` | the `npx` daemon entry; bundles the rest in at build time |
-| `packages/react` | `@useiris/react` | the `<Iris/>` drop-in (tsup → ESM/CJS/d.ts) |
+| `packages/react` | `@andijegeni/iris` | the `<Iris/>` drop-in (tsup → ESM/CJS/d.ts) |
 | `packages/overlay` | bundled | the Preact overlay UI (esbuild → `dist/overlay.js`) |
 | `packages/orchestrator` | bundled | server (`@hono/node-server` + `ws`), agents, worktrees, auth |
 | `packages/shared` | bundled | shared zod protocol |

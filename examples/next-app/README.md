@@ -4,7 +4,7 @@ A minimal Next.js app with the overlay wired in, used to develop Iris against a
 real page. The whole integration is two lines in [`app/layout.tsx`](app/layout.tsx):
 
 ```tsx
-import { Iris } from '@useiris/react';
+import { Iris } from '@andijegeni/iris';
 // …
 <Iris />
 ```
@@ -38,7 +38,7 @@ if your editor can run them for you.
 
 ## Notes
 
-- This example resolves `@useiris/react` through the workspace, not npm, so it
+- This example resolves `@andijegeni/iris` through the workspace, not npm, so it
   always exercises the local packages — see `transpilePackages` in
   [`next.config.ts`](next.config.ts).
 - Worktree mode clones the repo, so agents run against a copy of the whole

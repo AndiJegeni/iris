@@ -1,4 +1,4 @@
-# @useiris/react
+# @andijegeni/iris
 
 The drop-in React component for [Iris](https://github.com/AndiJegeni/iris) —
 agents that live in your tab.
@@ -7,12 +7,12 @@ In development it injects the Iris overlay into your page; in production it
 renders nothing.
 
 ```bash
-npm i -D @useiris/react
+npm i -D @andijegeni/iris
 ```
 
 ```tsx
 // app/layout.tsx (or your root component)
-import { Iris } from '@useiris/react';
+import { Iris } from '@andijegeni/iris';
 
 export default function RootLayout({ children }) {
   return (

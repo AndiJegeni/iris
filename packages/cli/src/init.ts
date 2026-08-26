@@ -4,7 +4,7 @@ import { join, relative } from 'node:path';
 import { createInterface } from 'node:readline';
 import { addDevDepCmd, detectPackageManager } from '@iris/orchestrator';
 
-const PKG = '@useiris/react';
+const PKG = '@andijegeni/iris';
 
 /**
  * Root components we know how to wire, most specific first. `<Iris />` goes

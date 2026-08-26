@@ -1,6 +1,6 @@
 {
   "name": "useiris",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Iris — agents that live in your tab. Click an element in your running app and an agent edits the code.",
   "type": "module",
   "bin": {

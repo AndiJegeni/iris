@@ -55,7 +55,7 @@ function printHelp(): void {
 Usage:
   iris                      Start the daemon beside your dev server
   iris init [-y]            Add <Iris /> to your root component and install
-                            @useiris/react. -y skips the confirmation.
+                            @andijegeni/iris. -y skips the confirmation.
 
 Options:
   --port <number>           Daemon port (default: 4747)
