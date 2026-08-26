@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process';
+import { basename } from 'node:path';
+import { claudeExecutablePath } from './claude-binary';
 import { commandExists } from './util';
 
 /**
@@ -63,7 +65,7 @@ function runLogin(cmd: string, args: string[]): Promise<LoginResult> {
       }
       resolveResult({
         ok: false,
-        error: `${cmd} ${args[0]} exited with code ${code}. ${(err || out).trim().slice(0, 200)}`,
+        error: `${basename(cmd)} ${args[0]} exited with code ${code}. ${(err || out).trim().slice(0, 200)}`,
       });
     });
   });
@@ -72,23 +74,28 @@ function runLogin(cmd: string, args: string[]): Promise<LoginResult> {
 /**
  * Sign into the Claude subscription via `claude auth login --claudeai` (browser
  * OAuth). The `claude` CLI caches the session; the Agent SDK reads it directly,
- * so no token capture is needed on our side.
+ * so no token capture is needed on our side. Runs the same resolved binary the
+ * agent runs use — the user's install when found, else the SDK's vendored copy
+ * — so `claude` being off the daemon's PATH (bun installs, the native
+ * installer) doesn't block login. Both share one credential store.
  */
 export async function loginAnthropic(): Promise<LoginResult> {
-  if (!commandExists('claude')) {
+  const claude = claudeExecutablePath();
+  if (!claude) {
     return {
       ok: false,
       error:
-        'claude CLI not found on PATH. Install with `npm install -g @anthropic-ai/claude-code`.',
+        'No Claude Code binary found (nothing on PATH, and the Agent SDK is missing its bundled copy). Install with `npm install -g @anthropic-ai/claude-code`.',
     };
   }
-  return runLogin('claude', ['auth', 'login', '--claudeai']);
+  return runLogin(claude, ['auth', 'login', '--claudeai']);
 }
 
 export async function logoutAnthropic(): Promise<LoginResult> {
-  if (!commandExists('claude')) return { ok: true };
+  const claude = claudeExecutablePath();
+  if (!claude) return { ok: true };
   return new Promise<LoginResult>((resolveResult) => {
-    const proc = spawn('claude', ['auth', 'logout'], { stdio: 'ignore' });
+    const proc = spawn(claude, ['auth', 'logout'], { stdio: 'ignore' });
     proc.on('error', (e) => resolveResult({ ok: false, error: e.message }));
     proc.on('exit', () => resolveResult({ ok: true }));
   });

@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { claudeExecutablePath } from './claude-binary';
 
 /**
  * Subscription-login detection for the agent CLIs.
@@ -23,8 +24,11 @@ import { join } from 'node:path';
 /**
  * Whether the `claude` CLI has a Claude *subscription* login cached (as opposed
  * to Console API-key auth). Runs `claude auth status --json` and checks for a
- * logged-in first-party claude.ai session. Returns false if the CLI is missing
- * or not logged in.
+ * logged-in first-party claude.ai session. Uses the same resolved binary as
+ * agent runs (the user's install, else the SDK's vendored copy — one shared
+ * credential store either way), so `claude` being off the daemon's PATH doesn't
+ * read as "not logged in". Returns false only when no binary exists at all or
+ * no session is cached.
  *
  * CAUTION — this proves a login *record* exists, not that it still works.
  * `claude auth status` keeps reporting `loggedIn: true, authMethod: "claude.ai"`
@@ -33,8 +37,10 @@ import { join } from 'node:path';
  * marks a provider expired when a run is actually rejected (see auth-errors.ts).
  */
 export function claudeSubscriptionLoggedIn(): boolean {
+  const claude = claudeExecutablePath();
+  if (!claude) return false;
   try {
-    const out = execFileSync('claude', ['auth', 'status', '--json'], {
+    const out = execFileSync(claude, ['auth', 'status', '--json'], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
       timeout: 5000,
