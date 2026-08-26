@@ -89,6 +89,7 @@ export function createClaudeRunner(auth: ProviderAuth, claudeBinary?: ClaudeBina
         ...(req.resumeSessionId ? { resume: req.resumeSessionId } : {}),
         ...(req.model ? { model: req.model } : {}),
         ...(req.effort ? { effort: req.effort } : {}),
+        ...(req.bypass ? { bypass: true } : {}),
       })}\n`,
     );
 

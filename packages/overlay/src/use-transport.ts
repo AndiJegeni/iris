@@ -29,5 +29,6 @@ export function useTransport() {
     logout: t.logoutProvider.bind(t),
     saveApiKey: t.saveApiKey.bind(t),
     refreshAuth: t.fetchAuthStatus.bind(t),
+    setBypassPermissions: t.setBypassPermissions.bind(t),
   };
 }

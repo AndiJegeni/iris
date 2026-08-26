@@ -30,6 +30,8 @@ export type TransportState = {
    * during the initial connect.
    */
   capabilities: Capabilities | null;
+  /** Daemon-wide "Bypass permissions" (yolo). Synced from the daemon on connect. */
+  bypassPermissions: boolean;
 };
 
 const LOG_CAP_PER_TASK = 40;
@@ -51,6 +53,7 @@ class Transport {
     transcripts: {},
     auth: null,
     capabilities: null,
+    bypassPermissions: false,
   };
   private listeners = new Set<Listener>();
   private ws: WebSocket | null = null;
@@ -103,6 +106,7 @@ class Transport {
           tasks: event.tasks,
           worktrees: event.worktrees,
           capabilities: event.capabilities,
+          bypassPermissions: event.bypassPermissions ?? false,
         });
         return;
       case 'task:created':
@@ -291,6 +295,27 @@ class Transport {
       method: 'POST',
     });
     if (!res.ok) throw new Error(await errorText(res));
+  }
+
+  /**
+   * Flip the daemon-wide "Bypass permissions" (yolo) toggle. Optimistic: the
+   * local flag flips immediately so the checkbox responds, and reverts if the
+   * daemon rejects the call.
+   */
+  async setBypassPermissions(enabled: boolean): Promise<void> {
+    const prev = this.state.bypassPermissions;
+    this.setState({ bypassPermissions: enabled });
+    try {
+      const res = await fetch(`${this.daemonUrl}/permissions/bypass`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      if (!res.ok) throw new Error(await errorText(res));
+    } catch (err) {
+      this.setState({ bypassPermissions: prev });
+      throw err;
+    }
   }
 
   /** Fetch the daemon's current provider auth status into state. */

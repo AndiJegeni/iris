@@ -176,6 +176,88 @@ function makeTask(partial: Partial<Task>): Task {
 }
 
 /**
+ * A TaskChat wired to local state so the question / permission flow is clickable
+ * in the gallery. The task starts in `awaiting-input` carrying a PendingQuestion,
+ * which is exactly what makes the real QuestionCard appear. Answering (clicking
+ * an option, or typing a reply) clears the question and drops the choice in as a
+ * user turn — the same thing the daemon does once it delivers the answer to the
+ * agent. The ↺ button restores the pending state so the flow can be replayed.
+ */
+function InteractiveChat({
+  task: initialTask,
+  entries: initialEntries,
+  theme,
+}: {
+  task: Task;
+  entries: TranscriptEntry[];
+  theme: ThemeName;
+}) {
+  const [task, setTask] = useState<Task>(initialTask);
+  const [entries, setEntries] = useState<TranscriptEntry[]>(initialEntries);
+  const onSend = async (text: string) => {
+    setEntries((e) => [...e, { id: `ans-${e.length}`, role: 'user', at: Date.now(), text }]);
+    setTask((t) => {
+      // Advance through a batch the way the daemon does: record the answer
+      // against the current unanswered question and stay in awaiting-input until
+      // every question has one, then finish.
+      const pending = t.question;
+      if (pending) {
+        const current = pending.questions.find((q) => pending.answers[q.question] === undefined);
+        const answers = current
+          ? { ...pending.answers, [current.question]: text }
+          : pending.answers;
+        if (pending.questions.some((q) => answers[q.question] === undefined)) {
+          return { ...t, question: { ...pending, answers } };
+        }
+      }
+      return { ...t, status: 'done', question: undefined };
+    });
+  };
+  return (
+    <div style={{ position: 'absolute', inset: 0 }}>
+      <PreactMount
+        component={TaskChat}
+        props={{
+          task,
+          tabs: [{ id: task.id, title: task.prompt, status: task.status }],
+          entries,
+          logsFallback: [],
+          theme,
+          busy: false,
+          onBack: () => {},
+          onSelectTab: () => {},
+          onCloseTab: () => {},
+          onSend,
+        }}
+        source="packages/overlay/src/ui/task-chat.tsx"
+      />
+      <button
+        type="button"
+        onClick={() => {
+          setTask(initialTask);
+          setEntries(initialEntries);
+        }}
+        style={{
+          position: 'absolute',
+          top: 8,
+          right: 8,
+          zIndex: 5,
+          fontSize: 11,
+          padding: '3px 9px',
+          borderRadius: 6,
+          border: '1px solid rgba(128,128,128,0.4)',
+          background: 'rgba(128,128,128,0.12)',
+          color: 'inherit',
+          cursor: 'pointer',
+        }}
+      >
+        ↺ reset
+      </button>
+    </div>
+  );
+}
+
+/**
  * A TaskRow on the drawer's own surface, at the drawer's own width.
  *
  * The row is the real component with the real class names, so it needs the
@@ -468,6 +550,99 @@ export default function Gallery() {
   // TaskChat paints its own background now; the frame only supplies the outline.
   const chatSurface = 'transparent';
   const chatBorder = SURFACE_PALETTE[theme].stroke;
+
+  // --- Question flow (multiple-choice) + permission flow (Bash) ---
+  // Both put the task in `awaiting-input` with a PendingQuestion, which is what
+  // makes the real QuestionCard render inside TaskChat. The permission prompt is
+  // just a question the worker synthesises for a gated tool (see ASK_TOOLS /
+  // permissionHandler in claude-worker.ts): tool name as header, the command as
+  // the body, and Allow / Allow-for-task / Deny as the options.
+  const questionFlowEntries: TranscriptEntry[] = [
+    { id: 'qf-u', role: 'user', at: now, text: 'Wire up the newsletter signup form' },
+    {
+      id: 'qf-t',
+      role: 'thinking',
+      at: now,
+      durationMs: 6000,
+      text: 'There is no backend for signups yet, so I should ask where they ought to go before wiring the form to anything.',
+    },
+  ];
+  const questionFlowTask = makeTask({
+    id: 'qflow',
+    status: 'awaiting-input',
+    prompt: 'Wire up the newsletter signup form',
+    backend: 'claude',
+    createdAt: now - 9000,
+    updatedAt: now,
+    question: {
+      id: 'q1',
+      questions: [
+        {
+          question: 'Where should newsletter signups go?',
+          header: 'Signup sink',
+          options: [
+            { label: 'Console log for now', description: 'Stub it — wire a real endpoint later' },
+            { label: 'POST to /api/subscribe', description: 'Create the route and call it' },
+            { label: 'Mailchimp', description: 'Use the Mailchimp API (needs a key)' },
+          ],
+        },
+        {
+          question: 'How should the form report success?',
+          header: 'Success UX',
+          options: [
+            { label: 'Inline message', description: 'Swap the form for a thank-you line' },
+            { label: 'Toast', description: 'A dismissable toast in the corner' },
+          ],
+        },
+      ],
+      answers: {},
+    },
+  });
+
+  const permissionFlowEntries: TranscriptEntry[] = [
+    { id: 'pf-u', role: 'user', at: now, text: 'Make the CTA bigger, then run the tests' },
+    {
+      id: 'pf-e',
+      role: 'tool',
+      at: now,
+      toolName: 'Edit',
+      toolInput: 'app/globals.css',
+      toolStatus: 'ok',
+      toolOutput: 'Updated .cta: padding 12px 22px; box-shadow: 0 4px 14px rgba(0,0,0,0.12)',
+      durationMs: 120,
+    },
+    {
+      id: 'pf-a',
+      role: 'assistant',
+      at: now,
+      text: 'Bumped the CTA padding and added a soft shadow. Now running the test suite to confirm nothing broke.',
+    },
+  ];
+  const permissionFlowTask = makeTask({
+    id: 'pflow',
+    status: 'awaiting-input',
+    prompt: 'Make the CTA bigger, then run the tests',
+    backend: 'claude',
+    createdAt: now - 12000,
+    updatedAt: now,
+    question: {
+      id: 'perm1',
+      questions: [
+        {
+          kind: 'permission',
+          question: 'Run this command?',
+          resource: 'npm test',
+          header: 'Bash',
+          options: [
+            { label: 'Allow once', description: 'Run it this once' },
+            { label: 'Allow for this task', description: "Don't ask again for Bash this run" },
+            { label: 'Deny', description: 'Skip it — the agent continues without it' },
+          ],
+        },
+      ],
+      answers: {},
+    },
+  });
 
   return (
     <main
@@ -972,6 +1147,32 @@ export default function Gallery() {
               props: {},
             },
             {
+              label: 'awaiting input · needs you',
+              height: 130,
+              hint: 'blocked on a question / permission — amber dot, the way failed is red',
+              task: {
+                id: 'rq',
+                status: 'awaiting-input',
+                prompt: 'Wire up the newsletter signup form',
+                model: 'claude-opus-5',
+                question: {
+                  id: 'gq',
+                  questions: [
+                    {
+                      question: 'Where should newsletter signups go?',
+                      header: 'Signup sink',
+                      options: [
+                        { label: 'Console log for now', description: '' },
+                        { label: 'POST to /api/subscribe', description: '' },
+                      ],
+                    },
+                  ],
+                  answers: {},
+                },
+              },
+              props: { onCancel: () => {} },
+            },
+            {
               label: 'running · Stop + View chat',
               height: 150,
               hint: 'Stop sits far right at 50% ink, lifting on hover',
@@ -1262,6 +1463,49 @@ export default function Gallery() {
             </div>
           </Frame>
         </div>
+      </Section>
+
+      <Section title="Agent questions & permission prompts" columns={2}>
+        <Frame
+          label="Asking a question — multiple choice"
+          height={560}
+          hint="agent blocks on awaiting-input; click an option or type a reply"
+        >
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: chatSurface,
+              border: `1px solid ${chatBorder}`,
+              borderRadius: 8,
+              overflow: 'hidden',
+            }}
+          >
+            <InteractiveChat task={questionFlowTask} entries={questionFlowEntries} theme={theme} />
+          </div>
+        </Frame>
+        <Frame
+          label="Asking permission — Bash command"
+          height={560}
+          hint="new: Bash / network tools stop for Allow · Allow-for-task · Deny"
+        >
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: chatSurface,
+              border: `1px solid ${chatBorder}`,
+              borderRadius: 8,
+              overflow: 'hidden',
+            }}
+          >
+            <InteractiveChat
+              task={permissionFlowTask}
+              entries={permissionFlowEntries}
+              theme={theme}
+            />
+          </div>
+        </Frame>
       </Section>
 
       <Section title="Example page chrome" columns={1}>

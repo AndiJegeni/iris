@@ -11,12 +11,6 @@ export type ProviderAuth = {
   method: AuthMethod;
   /** The API key, when method === 'api-key'. */
   apiKey: string | null;
-  /**
-   * The subscription OAuth token, when method === 'oauth'. Only Anthropic
-   * stores one here (CLAUDE_CODE_OAUTH_TOKEN); for OpenAI the `codex` CLI owns
-   * its own token store, so this stays null even when logged in.
-   */
-  oauthToken: string | null;
   source: AuthSource;
 };
 
@@ -37,6 +31,8 @@ type ConfigShape = {
   /** User's chosen auth method per provider; set when they log in or save a key. */
   anthropicAuthMethod?: AuthMethod;
   openaiAuthMethod?: AuthMethod;
+  /** Daemon-wide "Bypass permissions" (yolo), remembered per repo. */
+  bypassPermissions?: boolean;
 };
 
 function configPath(repoRoot: string): string {
@@ -50,6 +46,11 @@ function configPath(repoRoot: string): string {
  */
 function legacyConfigPath(repoRoot: string): string {
   return join(repoRoot, '.localagents', 'config.json');
+}
+
+/** The persisted "Bypass permissions" flag for this repo (default false). */
+export function readBypassPermissions(repoRoot: string): boolean {
+  return readConfig(repoRoot).bypassPermissions === true;
 }
 
 function readConfig(repoRoot: string): ConfigShape {
@@ -179,14 +180,11 @@ export function resolveAuth(opts: ResolveAuthOptions): AuthState {
     anthropic: {
       method: anthropicMethod,
       apiKey: anthropicMethod === 'api-key' ? anthropicKey : null,
-      // No token to carry: the SDK reads the claude CLI's cached session itself.
-      oauthToken: null,
       source: anthropicMethod === 'oauth' ? 'oauth' : anthropicKeySource,
     },
     openai: {
       method: openaiMethod,
       apiKey: openaiMethod === 'api-key' ? openaiKey : null,
-      oauthToken: null,
       source: openaiMethod === 'oauth' ? 'oauth' : openaiKeySource,
     },
   };

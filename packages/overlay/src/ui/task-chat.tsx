@@ -15,6 +15,7 @@ import { DragOverlay, ImageStrip } from './picked-popover.parts';
 import { ACCEPTED_IMAGE_TYPES, fileToImage } from './picked-popover.styles';
 import {
   Entry,
+  PermissionCard,
   QuestionCard,
   ToolRun,
   WorkingRow,
@@ -284,20 +285,41 @@ export function TaskChat({
         {/* The question replaces the "Working…" pulse rather than joining it:
             nothing is working, and two live-looking rows would say otherwise. */}
         {asked ? (
-          <div key="question" style={{ marginTop: entries.length === 0 ? 0 : LOOSE }}>
-            <QuestionCard
-              question={asked.question}
-              options={asked.options}
-              header={asked.header}
-              remaining={
-                pending
-                  ? pending.questions.filter((q) => pending.answers[q.question] === undefined)
-                      .length
-                  : 1
-              }
-              theme={theme}
-              onAnswer={answer}
-            />
+          // `marginTop: auto` docks the card to the bottom of the list, right
+          // above the composer (Claude Code's ask sits there), instead of
+          // floating at the top with dead space between it and the input. It
+          // collapses to nothing once the transcript is long enough to scroll,
+          // so a full conversation keeps its normal top-down flow. The negative
+          // bottom margin exactly cancels the list's 16px bottom padding (no
+          // more, or the list gains a 2px scrollbar), so the only gap left to
+          // the input is the composer's 8px top margin.
+          <div
+            key="question"
+            style={{
+              marginTop: 'auto',
+              paddingTop: entries.length === 0 ? 0 : LOOSE,
+              marginBottom: '-16px',
+            }}
+          >
+            {asked.kind === 'permission' ? (
+              <PermissionCard
+                title={asked.question}
+                resource={asked.resource}
+                options={asked.options}
+                header={asked.header}
+                theme={theme}
+                onAnswer={answer}
+              />
+            ) : (
+              <QuestionCard
+                question={asked.question}
+                options={asked.options}
+                index={pending ? Object.keys(pending.answers).length + 1 : 1}
+                total={pending ? pending.questions.length : 1}
+                theme={theme}
+                onAnswer={answer}
+              />
+            )}
           </div>
         ) : busy && !isToolRunLive(lastRow) ? (
           // Keyed so streaming entries reconcile around it instead of rebuilding
@@ -525,7 +547,7 @@ const composerCard = (theme: OverlayTheme, multiline: boolean) => ({
   flexWrap: 'wrap' as const,
   alignItems: 'center',
   gap: '8px 6px',
-  margin: `10px ${SURFACE_PAD}px 10px`,
+  margin: `8px ${SURFACE_PAD}px 10px`,
   padding: multiline ? '12px 12px 8px' : '7px 8px',
   border: `1px solid ${chatInk(theme).stroke}`,
   borderRadius: multiline ? `${RADIUS}px` : '999px',

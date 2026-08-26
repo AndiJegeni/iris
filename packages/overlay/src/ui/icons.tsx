@@ -51,21 +51,6 @@ export function CheckboxCheckIcon({ size = 10, ...props }: IconProps) {
   );
 }
 
-/** Result-row check (vb 16×16, sw 1.6) — the chat transcript "done" row. */
-export function ResultCheckIcon({ size = 13, ...props }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true" {...props}>
-      <path
-        d="M3.5 8.5 L6.5 11.5 L12.5 5"
-        stroke="currentColor"
-        stroke-width="1.6"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-    </svg>
-  );
-}
-
 // ---------- chevrons ----------
 
 /** Right chevron (vb 16×16, sw 1.33333) — model submenu + settings rows. */
@@ -112,21 +97,6 @@ export function ChevronLeftIcon({ size = 16, ...props }: IconProps) {
         d="M10 4L6 8L10 12"
         stroke="currentColor"
         stroke-width="1.33333"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-    </svg>
-  );
-}
-
-/** Thin right chevron (vb 16×16, sw 1.5) — chat thinking/tool disclosure. */
-export function ThinChevronRightIcon({ size = 12, ...props }: IconProps) {
-  return (
-    <svg viewBox="0 0 16 16" width={size} height={size} fill="none" aria-hidden="true" {...props}>
-      <path
-        d="M6 3 L11 8 L6 13"
-        stroke="currentColor"
-        stroke-width="1.5"
         stroke-linecap="round"
         stroke-linejoin="round"
       />

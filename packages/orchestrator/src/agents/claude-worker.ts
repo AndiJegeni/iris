@@ -25,7 +25,7 @@
  *   ANTHROPIC_API_KEY is inherited from the spawn env.
  */
 import { randomUUID } from 'node:crypto';
-import { type CanUseTool, query } from '@anthropic-ai/claude-agent-sdk';
+import { type CanUseTool, type SettingSource, query } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentQuestion, TranscriptEntry } from '@iris/shared';
 import { isAuthError } from '../auth-errors';
 import { CLAUDE_BINARY_ENV } from '../claude-binary';
@@ -45,13 +45,45 @@ function emitEntry(entry: TranscriptEntry): void {
 /**
  * The SDK's built-in tool for putting a multiple-choice question to the user.
  *
- * It is reachable under `permissionMode: 'bypassPermissions'` and without being
- * named in `allowedTools`: the tool declares `requiresUserInteraction`, and the
- * CLI returns its "ask" decision *before* it consults either the permission mode
- * or the allow rules. So the only thing standing between the agent and a human
- * is the `canUseTool` callback below.
+ * It is reachable under `permissionMode: 'acceptEdits'` and without being named
+ * in `allowedTools`: the tool declares `requiresUserInteraction`, and the CLI
+ * returns its "ask" decision *before* it consults either the permission mode or
+ * the allow rules. So the only thing standing between the agent and a human is
+ * the `canUseTool` callback below.
  */
 const ASK_USER_QUESTION = 'AskUserQuestion';
+
+/**
+ * Tools that run without asking. Reads, searches, edits inside the worktree, and
+ * the agent's own scratch tools are the expected, low-blast-radius operations —
+ * and edits are additionally covered by `permissionMode: 'acceptEdits'`.
+ * Everything NOT listed here — `Bash` above all, plus anything that reaches the
+ * network or spawns further work — falls through to `canUseTool` and asks the
+ * user before it runs. This is the list the SDK auto-approves; keep it to
+ * operations whose worst case is confined to the task's own worktree.
+ */
+const AUTO_ALLOWED_TOOLS = ['Read', 'Edit', 'Write', 'Glob', 'Grep', 'TodoWrite', 'NotebookEdit'];
+
+/**
+ * The tools whose every call must pause for the user. `permissionMode` and
+ * `allowedTools` are NOT enough on their own: verified against the SDK
+ * (v0.3.152), a tool the agent reaches for that isn't explicitly asked-for runs
+ * *without* ever calling `canUseTool` — the non-interactive default is allow.
+ * Only an explicit `ask` rule in the flag-settings layer routes a tool through
+ * `canUseTool`, and that layer overrides every filesystem settings source
+ * (user/project/local), including one that tries to escalate to
+ * `bypassPermissions`. So this list is the real gate: shell execution and every
+ * way out to the network or a subagent. Keep it in sync with the toolset — a
+ * new execution/network tool not named here would run unprompted.
+ */
+const ASK_TOOLS = ['Bash', 'WebFetch', 'WebSearch', 'Task'];
+
+// The option labels for a permission prompt. The user's click comes back as the
+// exact label (queue.ts matches the click to an option label), so these strings
+// are the wire contract between the prompt we emit and the decision we read.
+const ALLOW_ONCE = 'Allow once';
+const ALLOW_ALWAYS = 'Allow for this task';
+const DENY = 'Deny';
 
 /**
  * The line-oriented half of stdin, shared by the start payload and every answer
@@ -237,30 +269,90 @@ function parseQuestions(input: any): AgentQuestion[] | null {
 }
 
 /**
+ * Splits a gated tool call into the title the user reads and the concrete
+ * `resource` they're actually approving. Bash's command is the thing that most
+ * needs to be seen verbatim; other tools show a short summary of their input.
+ * The card renders `resource` in a monospace block under the title.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: SDK tool input shape
+function permissionPrompt(name: string, input: any): { title: string; resource?: string } {
+  if (name === 'Bash' && input && typeof input.command === 'string') {
+    return { title: 'Run this command?', resource: truncate(input.command, MAX_INPUT) };
+  }
+  const detail = summarizeInput(name, input);
+  return detail
+    ? { title: `Allow the ${name} tool to run?`, resource: detail }
+    : { title: `Allow the ${name} tool to run?` };
+}
+
+/**
  * The permission callback, and the hinge of the whole feature.
  *
  * `canUseTool` is async and the SDK holds the turn open for as long as its
- * promise is pending — so awaiting a human here *is* the pause. Answering is an
- * `allow` carrying an `updatedInput`: the tool reads `answers` out of its own
- * input, which is exactly how the interactive CLI feeds a choice back, so the
- * agent receives a real tool result ("Your questions have been answered: …")
- * and continues the same turn rather than being told it was denied.
+ * promise is pending — so awaiting a human here *is* the pause. It is invoked
+ * only for tool calls the mode and `allowedTools` did NOT auto-approve, which is
+ * exactly the set we want a human on: `AskUserQuestion`, `Bash`, and anything
+ * that reaches the network or spawns more work.
+ *
+ * Two shapes of pause, both over the same question channel:
+ *  - AskUserQuestion — the agent's own multiple-choice question. Answering is an
+ *    `allow` carrying `updatedInput`: the tool reads `answers` out of its own
+ *    input, exactly how the interactive CLI feeds a choice back, so the agent
+ *    gets a real tool result and continues the same turn.
+ *  - Everything else — a synthetic Allow / Allow-always / Deny prompt. We read
+ *    the click and allow or deny the tool itself; nothing is written into the
+ *    tool's input. "Allow for this task" remembers the tool for the rest of the
+ *    run so the user isn't asked on every `Bash` call.
+ *
+ * Fail closed: a missing answer, a dropped channel, or any reply that isn't an
+ * explicit allow is a deny, so the agent never runs a gated tool on silence.
  */
 function permissionHandler(router: AnswerRouter): CanUseTool {
+  const sessionAllowed = new Set<string>();
   return async (toolName, input, { signal, toolUseID }) => {
-    if (toolName !== ASK_USER_QUESTION) return { behavior: 'allow' };
-    const questions = parseQuestions(input);
-    if (!questions) return { behavior: 'allow' };
-
-    emit({ kind: 'question', id: toolUseID, questions });
-    const answers = await router.await(toolUseID, signal);
-    if (!answers) {
-      // Cancelled, or the daemon went away. Deny with a reason rather than
-      // hanging: if anything is still listening, the agent gets a coherent
-      // tool result instead of a stall.
-      return { behavior: 'deny', message: 'The user did not answer; stop and wait for them.' };
+    if (toolName === ASK_USER_QUESTION) {
+      const questions = parseQuestions(input);
+      if (!questions) return { behavior: 'allow' };
+      emit({ kind: 'question', id: toolUseID, questions });
+      const answers = await router.await(toolUseID, signal);
+      if (!answers) {
+        // Cancelled, or the daemon went away. Deny with a reason rather than
+        // hanging: if anything is still listening, the agent gets a coherent
+        // tool result instead of a stall.
+        return { behavior: 'deny', message: 'The user did not answer; stop and wait for them.' };
+      }
+      return { behavior: 'allow', updatedInput: { ...input, answers } };
     }
-    return { behavior: 'allow', updatedInput: { ...input, answers } };
+
+    // A tool the user already blessed for the rest of this run.
+    if (sessionAllowed.has(toolName)) return { behavior: 'allow' };
+
+    const { title, resource } = permissionPrompt(toolName, input);
+    const question: AgentQuestion = {
+      kind: 'permission',
+      question: title,
+      header: toolName.slice(0, 12),
+      ...(resource ? { resource } : {}),
+      options: [
+        { label: ALLOW_ONCE, description: 'Run it this once' },
+        { label: ALLOW_ALWAYS, description: `Don't ask again for ${toolName} this run` },
+        { label: DENY, description: 'Skip it — the agent continues without it' },
+      ],
+    };
+    emit({ kind: 'question', id: toolUseID, questions: [question] });
+    const answers = await router.await(toolUseID, signal);
+    // One question in the set, so its answer is the only value — read it
+    // positionally rather than by the (long) question text used as the key.
+    const choice = answers ? Object.values(answers)[0] : null;
+    if (choice === ALLOW_ALWAYS) {
+      sessionAllowed.add(toolName);
+      return { behavior: 'allow' };
+    }
+    if (choice === ALLOW_ONCE) return { behavior: 'allow' };
+    return {
+      behavior: 'deny',
+      message: `The user declined to run ${toolName}. Do not retry it; continue without it, or use AskUserQuestion to ask them how to proceed.`,
+    };
   };
 }
 
@@ -271,17 +363,22 @@ async function main(): Promise<void> {
   let resume: string | undefined;
   let model: string | undefined;
   let effort: string | undefined;
+  // Yolo: the user turned on Settings → Bypass permissions, opting every agent
+  // out of the approval prompt for this daemon session.
+  let bypass = false;
   try {
     const parsed = JSON.parse(first ?? '') as {
       prompt: string;
       resume?: string;
       model?: string;
       effort?: string;
+      bypass?: boolean;
     };
     prompt = parsed.prompt;
     resume = parsed.resume;
     model = parsed.model;
     effort = parsed.effort && SDK_EFFORTS.has(parsed.effort) ? parsed.effort : undefined;
+    bypass = parsed.bypass === true;
   } catch {
     emit({ kind: 'error', message: 'worker: invalid input' });
     lines.close();
@@ -297,17 +394,36 @@ async function main(): Promise<void> {
   // limit is a failure or a soft landing by how far the run got.
   const tracker = new TranscriptTracker();
 
+  // The permission posture, and the whole point of the Bypass toggle.
+  //  - Off (default): 'acceptEdits' auto-accepts edits, while the `ask` rule
+  //    routes Bash and the network/subagent tools through canUseTool so the user
+  //    approves them. An `ask` rule is the ONLY thing that reaches canUseTool —
+  //    without it the SDK's non-interactive default runs a tool unprompted — and
+  //    the flag layer overrides any filesystem settings that would pre-allow it.
+  //    `settingSources: ['project']` still loads the project's CLAUDE.md.
+  //  - On (yolo): 'bypassPermissions' skips every check, exactly the pre-gate
+  //    behaviour. `allowDangerouslySkipPermissions` is the SDK's required
+  //    acknowledgement that the caller means it.
+  const permissionOptions = bypass
+    ? { permissionMode: 'bypassPermissions' as const, allowDangerouslySkipPermissions: true }
+    : {
+        permissionMode: 'acceptEdits' as const,
+        settings: { permissions: { ask: ASK_TOOLS } },
+        settingSources: ['project'] as SettingSource[],
+      };
+
   try {
     const iter = query({
       prompt,
       options: {
         // process.cwd() is the worktree (set by the parent's spawn cwd).
         cwd: process.cwd(),
-        allowedTools: ['Read', 'Edit', 'Write', 'Bash', 'Glob', 'Grep'],
-        permissionMode: 'bypassPermissions',
-        // Everything except a question is allowed straight through — the mode
-        // above already decided that. This is here for AskUserQuestion, whose
-        // "ask" the CLI raises regardless of mode (see ASK_USER_QUESTION).
+        // Auto-approve the low-blast-radius tools; edits are additionally
+        // covered by the mode below.
+        allowedTools: AUTO_ALLOWED_TOOLS,
+        ...permissionOptions,
+        // Fires for every tool the mode and allow-list did not auto-approve:
+        // AskUserQuestion, plus (when not bypassing) everything in ASK_TOOLS.
         canUseTool: permissionHandler(router),
         maxTurns: MAX_TURNS,
         // The default Claude Code prompt plus our budget note — the preset form

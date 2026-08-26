@@ -158,6 +158,7 @@ export function Overlay() {
     createPr,
     discard,
     archive,
+    setBypassPermissions,
   } = useTransport();
 
   useEffect(() => {
@@ -484,6 +485,8 @@ export function Overlay() {
           onToggleTheme={() => setThemeOverride(theme === 'dark' ? 'light' : 'dark')}
           blockInteractions={blockInteractions}
           onToggleBlockInteractions={toggleBlockInteractions}
+          bypassPermissions={state.bypassPermissions}
+          onToggleBypassPermissions={setBypassPermissions}
           auth={state.auth}
           onLogin={login}
           onLogout={logout}

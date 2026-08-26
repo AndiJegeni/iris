@@ -49,7 +49,7 @@ In a Next.js root layout `<Iris />` must go **inside `<body>`** — anything bet
 
 ## Signing in
 
-No API key required. Open the overlay's Settings and **Connect** with your Claude or ChatGPT subscription — Iris shells out to the provider's own CLI login and never sees a token. Setting `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` works too, as does `--anthropic-key` / `--openai-key`, though flags are visible in `ps` and shell history.
+No API key required. Open the overlay's Settings and **Connect** with your Claude or ChatGPT subscription — Iris shells out to the provider's own CLI login and never sees a token. To use an API key instead, save it in Settings or pass `--anthropic-key` / `--openai-key` (flags are visible in `ps` and shell history). Iris deliberately **ignores** an ambient `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` in your shell, so every credential is one you handed it explicitly and can remove in Settings.
 
 ## Landing the work
 
@@ -149,9 +149,10 @@ Iris is a **localhost-only** tool by design:
 
 Understand the inherent risks before running it:
 
-- The agent runs with broad permissions: it can **read, edit, and write files and run shell commands** in the target directory, with no per-action confirmation.
-- Page content the overlay captures (nearby text, source hints) is fed into the agent prompt — point it only at **trusted pages**. Untrusted page content is a prompt-injection vector.
+- The agent can **read, edit, and write files** in the target directory freely. **Running a shell command (`Bash`) — and any network or subagent tool — pauses and asks you to Allow or Deny first**; "Allow for this task" stops it asking again for that tool for the rest of the run. File edits are not gated, since editing your code is the point.
+- Page content the overlay captures (nearby text, source hints) is fed into the agent prompt — point it only at **trusted pages**. Untrusted page content is a prompt-injection vector, though the shell-command prompt above is your backstop against it.
 - Prefer **worktree mode** so the agent works in an isolated clone instead of your working tree.
+- Worktree mode creates a sibling `../.iris-worktrees/` directory next to your repo (a local `git clone`), so Iris writes just outside the project folder — not only inside it.
 - **"Create PR" publishes to your remote.** A worktree is seeded with your *uncommitted* changes so
   the agent sees your work in progress, but only the agent's own edits are committed — files it
   never touched are left out. A file the agent *did* edit is pushed, so glance at the branch before
