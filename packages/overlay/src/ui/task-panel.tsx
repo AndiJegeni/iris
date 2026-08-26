@@ -50,7 +50,7 @@ type TaskPanelProps = {
   onRetry?: (id: string) => void | Promise<void>;
   /**
    * Live worktrees, used to decide which finished rows still have something to
-   * ship, PR, or discard. Optional — the gallery renders rows without them.
+   * ship, PR, or discard.
    */
   worktrees?: Worktree[];
   /** False when the repo has no git remote, which disables Create PR alone. */
@@ -62,8 +62,6 @@ type TaskPanelProps = {
   open?: boolean;
   /** Fired when the panel wants to open/close — pairs with `open` for control. */
   onOpenChange?: (open: boolean) => void;
-  /** Seed for the self-managed open state (uncontrolled use, e.g. the gallery). */
-  defaultOpen?: boolean;
   /** Where the launcher circle parks — left of the pill (see overlay.tsx). */
   launcherStyle?: Record<string, string> | undefined;
   /**
@@ -146,7 +144,6 @@ export function TaskPanel({
   onDiscard,
   open: openProp,
   onOpenChange,
-  defaultOpen = false,
   launcherStyle,
   launcherDragging = false,
   showLauncher = true,
@@ -158,8 +155,8 @@ export function TaskPanel({
   // it is chrome, not part of the drawer's surface.
   const pill = PILL_PALETTE[theme];
   // Controlled when `open` is provided (the overlay's pill button), else
-  // self-managed — the gallery seeds `defaultOpen` since there's no launcher.
-  const [openSelf, setOpenSelf] = useState(defaultOpen);
+  // self-managed for a host that renders the drawer without a launcher.
+  const [openSelf, setOpenSelf] = useState(false);
   const open = openProp ?? openSelf;
   const setOpen = (next: boolean | ((o: boolean) => boolean)) => {
     const value = typeof next === 'function' ? next(open) : next;

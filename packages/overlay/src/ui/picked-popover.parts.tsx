@@ -46,7 +46,7 @@ export function ImageStrip({
         display: 'flex',
         gap: '6px',
         flexWrap: 'wrap',
-        marginBottom: 'var(--la-pp-gap, 8px)',
+        marginBottom: '8px',
       }}
     >
       {images.map((img, i) => (

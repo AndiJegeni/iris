@@ -116,7 +116,7 @@ export type TaskRowProps = {
   onCancel?: () => void;
   /** Re-run this task; only rendered for failed rows. */
   onRetry?: () => void;
-  /** Worktree actions. Optional — the gallery example renders rows without them. */
+  /** Worktree actions. Absent on running rows, which have nothing to land yet. */
   worktree?: WorktreeAction;
   /**
    * Hide this finished row from the drawer. When the row still has a worktree,
