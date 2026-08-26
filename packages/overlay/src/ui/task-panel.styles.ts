@@ -99,8 +99,8 @@ export const countStyle = () => ({
  * which paints above it, and the toolbar ends up sitting on the task list.
  * Ending above the row avoids the collision without shoving the toolbar aside.
  *
- * These offsets are the un-dragged defaults so the panel stands on its own when
- * rendered outside the overlay (the gallery).
+ * These offsets are the un-dragged defaults, so the panel stands on its own
+ * before the pill has been moved.
  */
 export const panelStyle = (theme: OverlayTheme) => ({
   position: 'fixed' as const,
@@ -177,10 +177,8 @@ export const iconBtn = () => ({
  * declaration outranks a stylesheet `:hover`).
  *
  * Lives here rather than inline in task-panel.tsx so anything rendering a
- * TaskRow outside the drawer — today the gallery, which drives one row per
- * worktree state — gets the real rules instead of a copy. A copy would drift,
- * and a gallery that renders Stop and Discard at full opacity while the product
- * renders them at 50% is worse than no gallery at all.
+ * TaskRow outside the drawer gets the real rules instead of a copy that would
+ * drift out of sync with the product.
  */
 export const taskPanelCss = (theme: OverlayTheme): string => {
   const p = surfacePalette(theme);

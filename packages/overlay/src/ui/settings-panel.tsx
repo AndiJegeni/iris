@@ -35,13 +35,6 @@ type SettingsPanelProps = {
   onLogout?: (provider: Provider) => Promise<void>;
   /** Persist (or clear, when empty) a provider API key. */
   onSaveKey?: (provider: Provider, value: string) => Promise<void>;
-  /**
-   * Which view to open on. The panel owns `view` after mount, so this only
-   * seeds it — for the gallery, which renders the Accounts view's credential
-   * states directly rather than making you click through to find them.
-   * Mirrors TaskPanel's `defaultOpen`.
-   */
-  defaultView?: 'settings' | 'accounts';
 };
 
 const PANEL_WIDTH = 320;
@@ -107,10 +100,9 @@ export function SettingsPanel({
   onLogin,
   onLogout,
   onSaveKey,
-  defaultView = 'settings',
 }: SettingsPanelProps) {
   const t = tokens(theme);
-  const [view, setView] = useState<'settings' | 'accounts'>(defaultView);
+  const [view, setView] = useState<'settings' | 'accounts'>('settings');
 
   return (
     <div style={{ ...panelStyle(t), ...anchorStyle }}>

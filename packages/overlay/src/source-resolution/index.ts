@@ -26,10 +26,9 @@ const MAX_TEXT_LEN = 120;
  * Source resolution for a picked DOM element, best confidence first:
  *
  *   explicit — a `data-iris-source` attribute on the element or an
- *              ancestor pins the file directly. Wins over fiber walking. Used by
- *              the component gallery (Preact-in-React mounts whose fiber points
- *              at the wrapper, not the real source) and handy for wrapping
- *              third-party widgets.
+ *              ancestor pins the file directly. Wins over fiber walking. The
+ *              escape hatch for mounts whose fiber points at a wrapper rather
+ *              than the real source, and for wrapping third-party widgets.
  *   high     — `_debugSource` found on the fiber chain (Vite, dev React with the
  *              Babel JSX-dev transform).
  *   medium   — throwing-dispatcher probe succeeded (works on Next.js + SWC +

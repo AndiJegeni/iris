@@ -9,8 +9,6 @@
     "start": "next start"
   },
   "dependencies": {
-    "@iris/overlay": "workspace:*",
-    "@iris/shared": "workspace:*",
     "@useiris/react": "workspace:*",
     "next": "^15.1.4",
     "react": "^19.0.0",

@@ -24,14 +24,33 @@ bun run ci          # biome ci (non-mutating, for CI)
 bun run format      # biome format --write
 ```
 
-To try it against the demo app:
+## Running the example app
+
+Iris is **two processes** — your app, and the daemon that runs the agents — so
+both need to be up. First build, because the example resolves `@useiris/react`
+through the workspace to its built `dist`:
 
 ```bash
-bun run build                       # @useiris/react resolves to its built dist
-cd examples/next-app && bun run dev # start the demo on :3000
-# then, from the repo root in another terminal:
-bun run dev -- --main-port 3000
+bun run build
 ```
+
+Then, in one terminal, start [`examples/next-app`](examples/next-app) on 3200:
+
+```bash
+bun run --cwd examples/next-app dev --port 3200
+```
+
+And in another, the daemon pointed at that port:
+
+```bash
+bun run dev -- --port 4747 --main-port 3200
+```
+
+Open <http://localhost:4747>. Hold **Alt** and click any element (or click the
+pill to keep select mode on), describe a change, and the agent edits the source.
+
+Both processes are also defined in [`.claude/launch.json`](.claude/launch.json)
+if your editor can run them for you.
 
 ## Conventions
 

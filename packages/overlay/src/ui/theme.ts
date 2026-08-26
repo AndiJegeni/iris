@@ -5,7 +5,7 @@
  * only the surfaces, text, borders, and field fills swap.
  *
  * The real overlay picks a theme from `prefers-color-scheme` (see overlay.tsx);
- * the component gallery drives it from its toggle. Components default to `dark`.
+ * a host can drive it from its own toggle. Components default to `dark`.
  */
 export type OverlayTheme = 'dark' | 'light';
 

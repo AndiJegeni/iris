@@ -87,7 +87,7 @@ export function ImageStrip({
         display: 'flex',
         gap: '6px',
         flexWrap: 'wrap',
-        marginBottom: 'var(--la-pp-gap, 8px)',
+        marginBottom: '8px',
       }}
     >
       {/* Scoped here, not in the host's style block: the strip renders in both

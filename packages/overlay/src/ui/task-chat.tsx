@@ -521,9 +521,9 @@ const chatCss = (theme: OverlayTheme): string => {
 //
 // It paints its own surface rather than inheriting whatever it's dropped into.
 // Inside the drawer that's a no-op (the panel is already this colour), but the
-// chat used to be transparent, so a host that framed it — the gallery did,
-// with a hand-picked #161619 — silently showed it on a lighter, bluer card than
-// the popover's. A component that owns its background can't be mis-framed.
+// chat used to be transparent, so any host that framed it in a hand-picked
+// colour silently showed it on a lighter card than the popover's. A component
+// that owns its background can't be mis-framed.
 const shell = (theme: OverlayTheme) => ({
   display: 'flex',
   flexDirection: 'column' as const,

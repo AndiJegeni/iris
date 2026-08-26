@@ -319,9 +319,8 @@ export function PickedPopover({
         border: `1px solid ${t.surfaceBorder}`,
         borderRadius: '8px',
         boxShadow: t.surfaceShadow,
-        // Spacing tokens (overridable via CSS vars for the gallery playground).
-        // top / x / bottom — places the input 12px from the top and left edges.
-        padding: 'var(--la-pp-pad-t, 10px) var(--la-pp-pad-x, 12px) var(--la-pp-pad-b, 6px)',
+        // top / x / bottom. Places the input 12px from the top and left edges.
+        padding: '10px 12px 6px',
         fontSize: '13px',
         fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif',
         lineHeight: 1.5,
@@ -383,9 +382,9 @@ export function PickedPopover({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          marginTop: 'var(--la-pp-gap, 12px)',
-          marginLeft: 'calc(-1 * var(--la-pp-pad-x, 12px))',
-          marginRight: 'calc(-1 * var(--la-pp-pad-x, 12px))',
+          marginTop: '12px',
+          marginLeft: '-12px',
+          marginRight: '-12px',
           paddingLeft: '6px',
           paddingRight: '6px',
           gap: '8px',
@@ -448,7 +447,7 @@ export function PickedPopover({
       {error ? (
         <div
           style={{
-            marginTop: 'var(--la-pp-gap, 8px)',
+            marginTop: '8px',
             padding: '8px 10px',
             background: errorBg,
             border: `1px solid ${errorBorder}`,
