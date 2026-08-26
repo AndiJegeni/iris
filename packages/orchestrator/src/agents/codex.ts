@@ -91,11 +91,19 @@ export function createCodexRunner(auth: ProviderAuth): AgentRunner {
     // effort has no flag of its own, so it goes through the generic config
     // override for `model_reasoning_effort`. Both are omitted when unset, which
     // leaves codex on whatever the user's ~/.codex/config.toml says.
-    const proc = spawn('codex', ['exec', ...codexModelArgs(req), ...imageArgs, prompt], {
-      cwd: req.cwd,
-      env: childEnv,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    // Yolo: the "Bypass permissions" toggle drops codex's own sandbox and
+    // approval gate, the codex analogue of Claude's bypassPermissions. Off, it
+    // keeps whatever `codex exec` defaults to (its sandbox).
+    const bypassArgs = req.bypass ? ['--dangerously-bypass-approvals-and-sandbox'] : [];
+    const proc = spawn(
+      'codex',
+      ['exec', ...bypassArgs, ...codexModelArgs(req), ...imageArgs, prompt],
+      {
+        cwd: req.cwd,
+        env: childEnv,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    );
     // `codex exec` appends stdin to the prompt, and it reads to EOF before it
     // starts work — so an open pipe it never gets to close hangs the run
     // forever ("Reading additional input from stdin..." and nothing after).

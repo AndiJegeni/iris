@@ -139,16 +139,19 @@ export const worktreePill = (
   whiteSpace: 'nowrap' as const,
 });
 
-export const thumbRemove = (t: ThemeTokens) => ({
+// Sits inside the thumbnail's corner on a dark scrim, so one style reads over
+// any image in either theme — a themed bubble hovering outside the corner both
+// clipped awkwardly and pulled the eye away from the picture.
+export const thumbRemove = () => ({
   position: 'absolute' as const,
-  top: '-6px',
-  right: '-6px',
-  width: '16px',
-  height: '16px',
+  top: '3px',
+  right: '3px',
+  width: '15px',
+  height: '15px',
   borderRadius: '999px',
-  border: `1px solid ${t.surfaceBorder}`,
-  background: t.surfaceBg,
-  color: t.textMuted,
+  border: 'none',
+  background: 'rgba(0, 0, 0, 0.55)',
+  color: '#ffffff',
   fontSize: '11px',
   lineHeight: '1',
   cursor: 'pointer',
@@ -200,3 +203,23 @@ export const sendBtn = (t: ThemeTokens) => ({
   color: t.submitText,
   fontFamily: 'inherit',
 });
+
+/**
+ * Does this drag actually carry files? Without the check, dragging a text
+ * selection or a link across the popover lit up the "Drop to attach" veil for a
+ * payload it would have silently discarded.
+ */
+export function dragHasFiles(e: DragEvent): boolean {
+  const types = e.dataTransfer?.types;
+  return types ? Array.from(types).includes('Files') : false;
+}
+
+/**
+ * True when a dragleave means the cursor really left `el` — not that it crossed
+ * onto a child. `relatedTarget` is where the cursor went; null means it left the
+ * window entirely.
+ */
+export function dragLeftElement(e: DragEvent, el: EventTarget | null): boolean {
+  const to = e.relatedTarget as Node | null;
+  return !to || !(el as HTMLElement | null)?.contains(to);
+}

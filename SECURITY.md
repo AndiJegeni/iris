@@ -24,18 +24,26 @@ service and must not be exposed to untrusted networks.
 
 ### Inherent risks you accept by running it
 
-- **Autonomous code execution.** The agent can read, edit, and write files and
-  run shell commands in the target directory, with no per-action confirmation.
-  This is the point of the tool — only run it on projects you trust.
+- **Code execution.** The agent reads, edits, and writes files in the target
+  directory freely — that is the point of the tool, so only run it on projects
+  you trust. Shell commands (`Bash`) and any network or subagent tool are not
+  automatic: each one pauses and asks you to Allow or Deny (with an "Allow for
+  this task" option to stop asking for that tool for the rest of the run). File
+  edits are not gated. This gating applies to the Claude backend; the Codex
+  backend relies on its own CLI sandbox and approval policy.
 - **Prompt injection.** Text captured from the page (nearby content, source
   hints) is included in the agent prompt. If you point the overlay at a page
-  rendering untrusted content, that content can influence the agent. Point it
+  rendering untrusted content, that content can influence the agent — the
+  Allow/Deny prompt on shell and network tools is your backstop, but point it
   only at trusted pages.
 - **`--dev-cmd` runs a shell.** The worktree dev command is executed via
   `sh -c`; only pass commands you control.
 - **API keys.** Passing `--anthropic-key` / `--openai-key` puts the key in your
-  process list and shell history. Prefer environment variables or
-  `.iris/config.json` (which is gitignored).
+  process list and shell history. Prefer saving the key in Settings, which
+  writes `.iris/config.json` (gitignored, `0600`). Note Iris deliberately does
+  **not** read an ambient `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` from your
+  shell, so setting one has no effect — this keeps every credential to one you
+  handed Iris explicitly and can remove in Settings.
 
 ### Hardening recommendations
 

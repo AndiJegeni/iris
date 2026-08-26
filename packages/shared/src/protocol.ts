@@ -35,6 +35,10 @@ export const HealthResponse = z.object({
   repo: z.string(),
   version: z.string(),
   capabilities: Capabilities,
+  /** Daemon-wide "Bypass permissions" (yolo) state, so the overlay opens the
+   *  Settings toggle in the right position. Absent on older daemons → treat as
+   *  off. */
+  bypassPermissions: z.boolean().optional(),
 });
 export type HealthResponse = z.infer<typeof HealthResponse>;
 
@@ -232,12 +236,6 @@ export const PullRequestResult = z.object({
   pushed: z.literal(true),
   /** A new PR was opened. False = one already existed, or `url` is a compare page. */
   created: z.boolean(),
-  /**
-   * `url` is a compare page rather than a pull request — the GitHub CLI is
-   * missing or refused, so opening it is still on the user. `created` can't
-   * answer this on its own: it is equally false when an existing PR was found.
-   */
-  compare: z.boolean().default(false),
   /** PR, existing-PR, or compare URL. Null when there's none to name (non-GitHub host). */
   url: z.string().nullable(),
   branch: z.string(),
@@ -282,6 +280,19 @@ export const AgentQuestion = z.object({
   header: z.string().default(''),
   /** 2-4 choices. Always answerable in free text as well — see PendingQuestion. */
   options: z.array(QuestionOption).default([]),
+  /**
+   * `'permission'` is a tool the agent wants to run and needs the user to approve
+   * (Bash, network, subagent). It renders as the compact approve/deny card rather
+   * than the multiple-choice one — same answer channel, different treatment.
+   * Absent means an ordinary question.
+   */
+  kind: z.enum(['question', 'permission']).optional(),
+  /**
+   * For a permission prompt: the concrete thing being approved — the shell
+   * command, the URL, the path — shown verbatim in a monospace block so the user
+   * decides on the actual action, not a paraphrase. Ignored for plain questions.
+   */
+  resource: z.string().optional(),
 });
 export type AgentQuestion = z.infer<typeof AgentQuestion>;
 
@@ -391,6 +402,8 @@ export const WsEvent = z.discriminatedUnion('type', [
     worktrees: z.array(Worktree),
     tasks: z.array(Task),
     capabilities: Capabilities,
+    /** Daemon-wide "Bypass permissions" state at connect (absent → off). */
+    bypassPermissions: z.boolean().optional(),
   }),
   z.object({ type: z.literal('task:created'), task: Task }),
   z.object({ type: z.literal('task:updated'), task: Task }),

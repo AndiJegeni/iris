@@ -23,6 +23,8 @@ import {
   annotationConfidence,
   computeAnchor,
   defaultWorktreeMode,
+  dragHasFiles,
+  dragLeftElement,
   fileToImage,
   textarea,
   worktreePill,
@@ -288,12 +290,12 @@ export function PickedPopover({
     <div
       ref={rootRef}
       onDragOver={(e) => {
+        if (!dragHasFiles(e)) return;
         e.preventDefault();
         if (!dragOver) setDragOver(true);
       }}
       onDragLeave={(e) => {
-        // Only clear when the cursor actually leaves the popover, not on child enter.
-        if (e.currentTarget === e.target) setDragOver(false);
+        if (dragLeftElement(e, e.currentTarget)) setDragOver(false);
       }}
       onDrop={(e) => {
         e.preventDefault();
@@ -341,7 +343,7 @@ export function PickedPopover({
         {`.la-pp-ta::placeholder{color:var(--la-ph);opacity:1}@keyframes la-pp-in{from{opacity:0;transform:translateY(6px) scale(0.96)}to{opacity:1;transform:none}}@keyframes la-pp-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(6px) scale(0.96)}}.la-pp-wt{border-color:var(--la-wt-stroke);transition:background 80ms,border-color 80ms}.la-pp-wt:not(:disabled):hover{border-color:var(--la-wt-stroke-hover)}.la-pp-soft{color:${placeholderColor};transition:color 80ms}.la-pp-soft:hover{color:${t.textPrimary}}.la-pp-send{transition:opacity 80ms}.la-pp-ta{scrollbar-width:thin;scrollbar-color:${scrollThumb} transparent}.la-pp-ta::-webkit-scrollbar{width:4px}.la-pp-ta::-webkit-scrollbar-thumb{background:${scrollThumb};border-radius:4px}.la-pp-ta::-webkit-scrollbar-track{background:transparent}`}
       </style>
 
-      {dragOver ? <DragOverlay t={t} theme={theme} /> : null}
+      {dragOver ? <DragOverlay theme={theme} /> : null}
 
       {/* Attached image thumbnails — shown above the prompt input. */}
       {images.length > 0 ? <ImageStrip images={images} onRemove={removeImage} t={t} /> : null}
