@@ -12,7 +12,12 @@ import { type ChatTab, ChatTabBar } from './chat-tab-bar';
 import { PlusThinIcon, SendIcon, StopIcon } from './icons';
 import { DEFAULT_MODEL, EFFORTS, MODELS, ModelReasoningPicker } from './model-picker';
 import { DragOverlay, ImageStrip } from './picked-popover.parts';
-import { ACCEPTED_IMAGE_TYPES, fileToImage } from './picked-popover.styles';
+import {
+  ACCEPTED_IMAGE_TYPES,
+  dragHasFiles,
+  dragLeftElement,
+  fileToImage,
+} from './picked-popover.styles';
 import {
   Entry,
   QuestionCard,
@@ -230,12 +235,12 @@ export function TaskChat({
     <div
       style={shell(theme)}
       onDragOver={(e) => {
+        if (!dragHasFiles(e)) return;
         e.preventDefault();
         if (!dragOver) setDragOver(true);
       }}
       onDragLeave={(e) => {
-        // Only clear when the cursor actually leaves the chat, not on child enter.
-        if (e.currentTarget === e.target) setDragOver(false);
+        if (dragLeftElement(e, e.currentTarget)) setDragOver(false);
       }}
       onDrop={(e) => {
         e.preventDefault();
@@ -243,7 +248,7 @@ export function TaskChat({
         if (e.dataTransfer?.files?.length) void addFiles(e.dataTransfer.files);
       }}
     >
-      {dragOver ? <DragOverlay t={t} theme={theme} /> : null}
+      {dragOver ? <DragOverlay theme={theme} /> : null}
       <ChatTabBar
         tabs={tabs}
         activeId={task.id}
