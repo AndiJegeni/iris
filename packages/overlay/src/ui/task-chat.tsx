@@ -12,7 +12,12 @@ import { type ChatTab, ChatTabBar } from './chat-tab-bar';
 import { PlusThinIcon, SendIcon, StopIcon } from './icons';
 import { DEFAULT_MODEL, EFFORTS, MODELS, ModelReasoningPicker } from './model-picker';
 import { DragOverlay, ImageStrip } from './picked-popover.parts';
-import { ACCEPTED_IMAGE_TYPES, fileToImage } from './picked-popover.styles';
+import {
+  ACCEPTED_IMAGE_TYPES,
+  dragHasFiles,
+  dragLeftElement,
+  fileToImage,
+} from './picked-popover.styles';
 import {
   Entry,
   PermissionCard,
@@ -231,12 +236,12 @@ export function TaskChat({
     <div
       style={shell(theme)}
       onDragOver={(e) => {
+        if (!dragHasFiles(e)) return;
         e.preventDefault();
         if (!dragOver) setDragOver(true);
       }}
       onDragLeave={(e) => {
-        // Only clear when the cursor actually leaves the chat, not on child enter.
-        if (e.currentTarget === e.target) setDragOver(false);
+        if (dragLeftElement(e, e.currentTarget)) setDragOver(false);
       }}
       onDrop={(e) => {
         e.preventDefault();
@@ -244,7 +249,6 @@ export function TaskChat({
         if (e.dataTransfer?.files?.length) void addFiles(e.dataTransfer.files);
       }}
     >
-      {dragOver ? <DragOverlay t={t} theme={theme} /> : null}
       <ChatTabBar
         tabs={tabs}
         activeId={task.id}
@@ -344,6 +348,14 @@ export function TaskChat({
           boundary never remounts the textarea and typing keeps its focus. */}
       <div style={composerCard(theme, multiline || images.length > 0)}>
         <style>{chatCss(theme)}</style>
+        {/* The drop veil covers the composer, where the images land — the drop
+            itself is still accepted anywhere on the panel. */}
+        {dragOver ? (
+          <DragOverlay
+            theme={theme}
+            radius={multiline || images.length > 0 ? `${RADIUS}px` : '999px'}
+          />
+        ) : null}
         {/* Attached thumbnails, on their own full-width row above the input —
             order -1 keeps them first regardless of the pill/card flip. */}
         {images.length > 0 ? (
@@ -517,7 +529,6 @@ const shell = (theme: OverlayTheme) => ({
   flexDirection: 'column' as const,
   height: '100%',
   minHeight: 0,
-  // Anchors the drag-and-drop overlay (absolute, inset 0) to the chat.
   position: 'relative' as const,
   background: surfacePalette(theme).surface,
   color: chatInk(theme).ink,
@@ -543,6 +554,8 @@ const COMPOSER_MAX_H = 54;
 // single row; the corner squares off to match the other containers only once
 // the input wraps and the card gains a second row.
 const composerCard = (theme: OverlayTheme, multiline: boolean) => ({
+  // Anchors the drop veil (absolute, inset 0) to the composer.
+  position: 'relative' as const,
   display: 'flex',
   flexWrap: 'wrap' as const,
   alignItems: 'center',
