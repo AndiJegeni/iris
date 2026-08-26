@@ -24,6 +24,9 @@ type SettingsPanelProps = {
   /** Whether the overlay blocks clicks/scrolls on the host page. */
   blockInteractions?: boolean;
   onToggleBlockInteractions?: (next: boolean) => void;
+  /** Daemon-wide yolo mode: agents run with no approval prompts when on. */
+  bypassPermissions?: boolean;
+  onToggleBypassPermissions?: (next: boolean) => void | Promise<void>;
   /** Current provider auth status from the daemon (null until fetched). */
   auth?: AuthStatus | null;
   /** Start a subscription login (opens the browser via the daemon). */
@@ -98,6 +101,8 @@ export function SettingsPanel({
   onToggleTheme,
   blockInteractions = false,
   onToggleBlockInteractions,
+  bypassPermissions = false,
+  onToggleBypassPermissions,
   auth,
   onLogin,
   onLogout,
@@ -120,6 +125,8 @@ export function SettingsPanel({
           onToggleTheme={onToggleTheme}
           blockInteractions={blockInteractions}
           onToggleBlockInteractions={onToggleBlockInteractions}
+          bypassPermissions={bypassPermissions}
+          onToggleBypassPermissions={onToggleBypassPermissions}
           onOpenAccounts={() => setView('accounts')}
         />
       ) : (
@@ -142,6 +149,8 @@ function SettingsView({
   onToggleTheme,
   blockInteractions,
   onToggleBlockInteractions,
+  bypassPermissions,
+  onToggleBypassPermissions,
   onOpenAccounts,
 }: {
   t: ThemeTokens;
@@ -149,6 +158,8 @@ function SettingsView({
   onToggleTheme: (() => void) | undefined;
   blockInteractions: boolean;
   onToggleBlockInteractions: ((next: boolean) => void) | undefined;
+  bypassPermissions: boolean;
+  onToggleBypassPermissions: ((next: boolean) => void | Promise<void>) | undefined;
   onOpenAccounts: () => void;
 }) {
   return (
@@ -181,6 +192,30 @@ function SettingsView({
         >
           <span style={{ fontSize: '12px', color: t.textPrimary }}>Block page interactions</span>
           <Checkbox checked={blockInteractions} t={t} />
+        </button>
+
+        {/* Yolo mode: turns off the per-tool approval prompt for every agent.
+            Two-line so the consequence is spelled out — it's a footgun, not a
+            preference. */}
+        <button
+          type="button"
+          className="la-sp-row"
+          style={rowStyle(t)}
+          onClick={() => {
+            void Promise.resolve(onToggleBypassPermissions?.(!bypassPermissions)).catch(() => {});
+          }}
+        >
+          <span style={{ minWidth: 0 }}>
+            <span style={{ display: 'block', fontSize: '12px', color: t.textPrimary }}>
+              Bypass permissions
+            </span>
+            <span
+              style={{ display: 'block', fontSize: '11px', color: t.textFaint, marginTop: '1px' }}
+            >
+              Agents run with no approval prompts
+            </span>
+          </span>
+          <Checkbox checked={bypassPermissions} t={t} />
         </button>
 
         <div style={dividerStyle(t)} />

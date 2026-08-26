@@ -95,6 +95,22 @@ export class TaskQueue {
   private byId = new Map<string, QueueEntry>();
   /** Per-task structured conversation, retained after completion for follow-ups. */
   private transcripts = new Map<string, TranscriptEntry[]>();
+  /**
+   * Daemon-wide "Bypass permissions" (yolo). The runtime copy: seeded from the
+   * repo's saved config at startup and rewritten there on every toggle (see
+   * server.ts), and read at spawn time in `pump` so flipping it applies to the
+   * next run.
+   */
+  private bypass = false;
+
+  /** Current bypass state, for `/health` to report to the overlay. */
+  get bypassEnabled(): boolean {
+    return this.bypass;
+  }
+
+  setBypass(enabled: boolean): void {
+    this.bypass = enabled;
+  }
 
   /**
    * @param onAuthResult Told, after each finished run, whether the backend's
@@ -108,7 +124,10 @@ export class TaskQueue {
     /** Directory for per-task JSON files; omit (non-git repos) to stay memory-only. */
     private readonly stateDir?: string,
   ) {
-    if (stateDir && !existsSync(stateDir)) mkdirSync(stateDir, { recursive: true });
+    // 0700: task files can hold whatever the agent read (command output, file
+    // contents) and the verbatim prompt, so keep the store owner-only rather
+    // than the umask default that left it group/world-readable.
+    if (stateDir && !existsSync(stateDir)) mkdirSync(stateDir, { recursive: true, mode: 0o700 });
   }
 
   /**
@@ -192,6 +211,9 @@ export class TaskQueue {
           request: entry.request,
           ...(entry.sessionId ? { sessionId: entry.sessionId } : {}),
         }),
+        // Owner-only: the transcript can contain secrets the agent read. Set on
+        // the tmp file so the final rename never exposes a wider-mode window.
+        { mode: 0o600 },
       );
       renameSync(tmp, file);
     } catch (err) {
@@ -475,6 +497,9 @@ export class TaskQueue {
       ...next.request,
       answers: next.answers,
       signal: next.abort.signal,
+      // Read live, not baked in at enqueue, so toggling Bypass affects the very
+      // next run rather than only tasks submitted afterwards.
+      bypass: this.bypass,
     };
     try {
       // The worktree may still be cloning. Stay 'queued' until it lands, so the

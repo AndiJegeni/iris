@@ -28,16 +28,18 @@ export class EventBus {
     }
   }
 
-  sendHello(ws: WebSocket, worktrees: Worktree[], tasks: Task[], capabilities: Capabilities): void {
-    const hello: WsEvent = { type: 'hello', worktrees, tasks, capabilities };
+  sendHello(
+    ws: WebSocket,
+    worktrees: Worktree[],
+    tasks: Task[],
+    capabilities: Capabilities,
+    bypassPermissions: boolean,
+  ): void {
+    const hello: WsEvent = { type: 'hello', worktrees, tasks, capabilities, bypassPermissions };
     try {
       ws.send(JSON.stringify(hello));
     } catch {
       // ignore
     }
-  }
-
-  get size(): number {
-    return this.clients.size;
   }
 }

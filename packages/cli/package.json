@@ -51,8 +51,6 @@
   "devDependencies": {
     "@iris/orchestrator": "workspace:*",
     "@iris/overlay": "workspace:*",
-    "@iris/shared": "workspace:*",
-    "@types/ws": "^8.5.13",
     "esbuild": "^0.24.2"
   }
 }

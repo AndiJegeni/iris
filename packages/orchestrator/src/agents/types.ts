@@ -45,6 +45,13 @@ export type RunRequest = {
   /** Absolute path to the working directory the agent should operate in. */
   cwd: string;
   /**
+   * When true, the agent runs with permissions bypassed — no approval prompt for
+   * shell/network tools. Set from the daemon-wide "Bypass permissions" toggle at
+   * spawn time, so flipping it takes effect on the next run. Backends that have
+   * their own sandbox honour it their own way.
+   */
+  bypass?: boolean;
+  /**
    * When set, the runner resumes a prior agent session (for follow-up
    * messages) instead of starting fresh. Carries the backend's session id.
    */

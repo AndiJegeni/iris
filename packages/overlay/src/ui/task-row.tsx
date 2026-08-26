@@ -77,7 +77,10 @@ export function capitalize(s: string): string {
 export function dotColor(status: Task['status'], theme: OverlayTheme): string {
   const p = surfacePalette(theme);
   if (status === 'failed') return p.error;
-  return status === 'awaiting-input' ? p.ink : p.soft;
+  // A task blocked on the user reads amber — the same warm gold as the question
+  // card's n/m pill — so "needs you" stands out the way a failed run reads red.
+  if (status === 'awaiting-input') return theme === 'dark' ? '#e6c583' : '#c8941f';
+  return p.soft;
 }
 
 /**

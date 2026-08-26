@@ -15,7 +15,7 @@ import { Hono } from 'hono';
 import { WebSocketServer } from 'ws';
 import { getRunner } from './agents';
 import type { RunRequest } from './agents/types';
-import { type AuthState, resolveAuth, writeConfig } from './auth';
+import { type AuthState, readBypassPermissions, resolveAuth, writeConfig } from './auth';
 import { backendProvider } from './auth-errors';
 import { type ClaudeBinary, resolveClaudeBinary } from './claude-binary';
 import { EventBus } from './events';
@@ -200,6 +200,10 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
   // frames already carry it. (Down here because runners need `claudeBinary`.)
   queue.load((backend) => getRunner(backend, auth, claudeBinary));
 
+  // Seed the bypass flag from the repo's saved config, so yolo mode survives a
+  // daemon restart (the toggle writes it back below).
+  queue.setBypass(readBypassPermissions(opts.repoRoot));
+
   const app = new Hono();
 
   app.use('*', async (c, next) => {
@@ -228,8 +232,20 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
       repo: opts.repoRoot,
       version: VERSION,
       capabilities,
+      bypassPermissions: queue.bypassEnabled,
     };
     return c.json(body);
+  });
+
+  // Daemon-wide "Bypass permissions" (yolo) toggle. Persisted to the repo's
+  // config so it survives a restart, and applied live via the queue. Mutating,
+  // so the loopback-Origin guard already gates it against cross-site pages.
+  app.post('/permissions/bypass', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { enabled?: unknown };
+    const enabled = body.enabled === true;
+    queue.setBypass(enabled);
+    writeConfig(opts.repoRoot, { bypassPermissions: enabled });
+    return c.json({ ok: true, bypassPermissions: enabled });
   });
 
   app.get('/auth/status', (c) => c.json(authStatus()));
@@ -511,7 +527,7 @@ export async function start(opts: StartOptions): Promise<Orchestrator> {
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
       bus.attach(ws);
-      bus.sendHello(ws, worktrees.list(), queue.list(), capabilities);
+      bus.sendHello(ws, worktrees.list(), queue.list(), capabilities, queue.bypassEnabled);
       ws.on('close', () => bus.detach(ws));
     });
   });

@@ -9,6 +9,13 @@
       "autoPort": false
     },
     {
+      "name": "gallery-alt",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "--cwd", "examples/next-app", "dev", "--port", "3210"],
+      "port": 3210,
+      "autoPort": false
+    },
+    {
       "name": "iris-shell",
       "runtimeExecutable": "bun",
       "runtimeArgs": [

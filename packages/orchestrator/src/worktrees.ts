@@ -262,10 +262,6 @@ export class WorktreeManager {
     return Array.from(this.worktrees.values()).map((w) => w.worktree);
   }
 
-  get(slug: string): Worktree | null {
-    return this.worktrees.get(slug)?.worktree ?? null;
-  }
-
   /**
    * Name a new worktree and start populating it. Returns as soon as the slug,
    * branch and port are decided — the clone, the node_modules copy and the dev

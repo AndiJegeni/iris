@@ -320,10 +320,6 @@ export function shellHtml(mainPort: number): string {
         render();
         updateShipButtons();
 
-        // Detect missing main dev server with a soft probe.
-        fetch('http://localhost:${mainPort}/', { method: 'HEAD', mode: 'no-cors' }).catch(function() {
-          // can't tell from no-cors HEAD reliably; only show banner if iframe never loads
-        });
         var iframeLoaded = false;
         iframeEl.addEventListener('load', function() {
           iframeLoaded = true; emptyEl.style.display = 'none'; iframeEl.style.display = '';

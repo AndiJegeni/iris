@@ -334,48 +334,186 @@ export function FileCard({ path, theme }: { path: string; theme: OverlayTheme })
  * hands back whichever is still outstanding, so the user is never asked to hold
  * four decisions in their head to make one.
  */
+/**
+ * The agent's multiple-choice question. Modelled on Claude Code's own ask card:
+ * a progress pill when it's one of several, numbered option rows you select then
+ * confirm, and an always-present "Other" free-text escape hatch. Selection is
+ * local — nothing goes back to the agent until Submit — so a misclick is free to
+ * correct, and the answer is still a single label the daemon matches to a choice.
+ */
 export function QuestionCard({
   question,
   options,
-  header,
-  remaining,
+  index,
+  total,
   theme,
   onAnswer,
 }: {
   question: string;
   options: QuestionOption[];
-  header: string;
-  /** How many questions, this one included, are still unanswered. */
-  remaining: number;
+  /** 1-based position of this question in the batch, for the "n/m" pill. */
+  index: number;
+  /** How many questions the agent asked at once. */
+  total: number;
   theme: OverlayTheme;
   onAnswer: (label: string) => void;
 }) {
   const c = chatInk(theme);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [other, setOther] = useState('');
+  const [otherActive, setOtherActive] = useState(false);
+  const chosen = otherActive ? other.trim() : selected;
+  const submit = () => {
+    if (chosen) onAnswer(chosen);
+  };
   return (
-    <div style={questionCard(c.stroke, c.fill)}>
-      <div style={questionHeader(c.muted)}>
-        <span>{header.trim() || 'Needs your answer'}</span>
-        {remaining > 1 ? <span style={{ color: c.faint }}>{remaining} questions left</span> : null}
+    <div style={qCard(theme, c)}>
+      <div style={qHead}>
+        {total > 1 ? (
+          <span style={qPill(theme)}>
+            {index}/{total}
+          </span>
+        ) : null}
+        <span style={qTitle(c.ink)}>{renderInline(question, theme)}</span>
       </div>
-      <div style={questionText(c.ink)}>{renderInline(question, theme)}</div>
-      {options.length > 0 ? (
-        <div style={optionList}>
-          {options.map((o) => (
+      <div style={qList}>
+        {options.map((o, i) => {
+          const on = !otherActive && selected === o.label;
+          return (
             <button
               key={o.label}
               type="button"
-              className="la-tc-act la-tc-hit"
-              style={optionBtn(c.stroke)}
-              onClick={() => onAnswer(o.label)}
+              className="la-tc-hit"
+              style={qRow(theme, c, on)}
+              onClick={() => {
+                setOtherActive(false);
+                setSelected(o.label);
+              }}
               title={o.description}
             >
-              <span style={{ color: c.ink, fontWeight: 500 }}>{o.label}</span>
-              {o.description ? <span style={optionWhy(c.faint)}>{o.description}</span> : null}
+              <span style={qRowText}>
+                <span style={{ color: c.ink, fontWeight: 500 }}>{o.label}</span>
+                {o.description ? <span style={qWhy(c.faint)}>{o.description}</span> : null}
+              </span>
+              <span style={qBadge(c)}>{i + 1}</span>
             </button>
-          ))}
+          );
+        })}
+        <div style={qRow(theme, c, otherActive && other.trim().length > 0)}>
+          <span style={{ ...qRowText, width: '100%' }}>
+            <span style={qOtherHead}>
+              <span style={{ color: c.ink, fontWeight: 500 }}>Other</span>
+              <span style={qBadge(c)}>{options.length + 1}</span>
+            </span>
+            <input
+              value={other}
+              placeholder="Type your own answer here"
+              onFocus={() => setOtherActive(true)}
+              onInput={(e) => {
+                setSelected(null);
+                setOtherActive(true);
+                setOther((e.target as HTMLInputElement).value);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && other.trim()) {
+                  e.preventDefault();
+                  onAnswer(other.trim());
+                }
+              }}
+              style={qInput(theme, c)}
+            />
+          </span>
         </div>
-      ) : null}
-      <div style={questionHint(c.faint)}>Or reply below in your own words.</div>
+      </div>
+      <div style={qFooter}>
+        <button
+          type="button"
+          className="la-tc-hit"
+          style={qPrimary(theme, Boolean(chosen))}
+          disabled={!chosen}
+          onClick={submit}
+        >
+          {index >= total ? 'Submit' : 'Next'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A tool the agent wants to run and needs the user to approve — Bash above all.
+ * Deliberately not the question card: it's a yes/no on a concrete action, so it
+ * leads with that action in a monospace block and puts the decision in the
+ * buttons. Deny sits apart on the left; the allows are the affirmative side on
+ * the right, the primary one filled. Each click is the answer — no confirm step.
+ */
+export function PermissionCard({
+  title,
+  resource,
+  options,
+  header,
+  theme,
+  onAnswer,
+}: {
+  title: string;
+  resource?: string | undefined;
+  options: QuestionOption[];
+  /** The tool's name — shown in the subtitle so the user knows what's asking. */
+  header: string;
+  theme: OverlayTheme;
+  onAnswer: (label: string) => void;
+}) {
+  const c = chatInk(theme);
+  const deny = options.find((o) => /^deny\b/i.test(o.label));
+  const allows = options.filter((o) => o !== deny);
+  const primary = allows[0];
+  const secondaries = allows.slice(1);
+  return (
+    <div style={pCard(theme, c)}>
+      <div style={pHead}>
+        <div style={pTitle(c.ink)}>{renderInline(title, theme)}</div>
+        <div style={pSub(c.faint)}>
+          {header ? `${header} — ` : ''}requires your approval regardless of permission mode.
+        </div>
+      </div>
+      {resource ? <div style={pResource(theme, c)}>{resource}</div> : null}
+      <div style={pFooter}>
+        {deny ? (
+          <button
+            type="button"
+            className="la-tc-hit"
+            style={pGhost(c)}
+            title={deny.description}
+            onClick={() => onAnswer(deny.label)}
+          >
+            {deny.label}
+          </button>
+        ) : null}
+        <span style={{ flex: 1 }} />
+        {secondaries.map((o) => (
+          <button
+            key={o.label}
+            type="button"
+            className="la-tc-hit"
+            style={pGhost(c)}
+            title={o.description}
+            onClick={() => onAnswer(o.label)}
+          >
+            {o.label}
+          </button>
+        ))}
+        {primary ? (
+          <button
+            type="button"
+            className="la-tc-hit"
+            style={pPrimary(theme)}
+            title={primary.description}
+            onClick={() => onAnswer(primary.label)}
+          >
+            {primary.label}
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -593,75 +731,229 @@ const inlineCode = (theme: OverlayTheme) => ({
  * page still waiting on you. No hue: the palette has none, and a yellow "alert"
  * band would be the only colour in the overlay.
  */
-const questionCard = (stroke: string, fill: string) => ({
-  border: `1px solid ${stroke}`,
-  background: fill,
-  borderRadius: `${RADIUS}px`,
-  padding: '12px',
-});
+type Ink = ReturnType<typeof chatInk>;
 
-// The agent's own chip label, and the count when it asked more than one — the
-// same 13px as everything else, separated by ink rather than by size.
-const questionHeader = (muted: string) => ({
+// The fill that marks the *selected* option row — one soft wash of ink, a touch
+// heavier than the transcript's own fill so a pick reads as chosen.
+const rowFill = (theme: OverlayTheme) =>
+  theme === 'dark' ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.05)';
+const disabledFill = (theme: OverlayTheme) =>
+  theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)';
+
+// ---- Question card ----
+// Corner radii track the background-tasks surfaces: 8px on the card, 6px on the
+// rows and controls inside it (see SURFACE_RADIUS and the task row).
+
+const qCard = (theme: OverlayTheme, c: Ink) => ({
   display: 'flex',
-  alignItems: 'baseline',
-  justifyContent: 'space-between',
-  gap: '8px',
-  color: muted,
-  fontSize: `${SIZE_META}px`,
-  lineHeight: 1.5,
-  fontWeight: 500,
+  flexDirection: 'column' as const,
+  gap: '10px',
+  border: `1px solid ${c.stroke}`,
+  background: surfacePalette(theme).surface,
+  borderRadius: '8px',
+  padding: '16px',
 });
 
-const questionText = (ink: string) => ({
+const qHead = {
+  display: 'flex',
+  alignItems: 'center' as const,
+  gap: '9px',
+};
+
+// The "n/m" progress pill — Claude's warm amber, the one non-ink accent in the
+// card, dulled on dark so it doesn't glow.
+const qPill = (theme: OverlayTheme) => ({
+  flex: 'none' as const,
+  fontSize: '11px',
+  fontWeight: 600,
+  lineHeight: 1,
+  padding: '4px 8px',
+  borderRadius: '999px',
+  background: theme === 'dark' ? 'rgba(232, 197, 131, 0.16)' : '#f4e4be',
+  color: theme === 'dark' ? '#e6c583' : '#856521',
+  fontVariantNumeric: 'tabular-nums' as const,
+});
+
+const qTitle = (ink: string) => ({
   color: ink,
-  fontSize: `${SIZE_BODY}px`,
-  lineHeight: 1.55,
-  marginTop: '4px',
-  whiteSpace: 'pre-wrap' as const,
+  fontSize: '15px',
+  fontWeight: 500,
+  lineHeight: 1.4,
   wordBreak: 'break-word' as const,
 });
 
-const optionList = {
+const qList = {
   display: 'flex',
   flexDirection: 'column' as const,
-  gap: '6px',
-  marginTop: '10px',
+  gap: '8px',
 };
 
-// Stacked full-width rows rather than a row of pills: an option carries a label
-// *and* the agent's explanation of it, and neither survives being squeezed into
-// a pill. No inline `opacity`/`transition` — `.la-tc-hit` owns the hover dip.
-const optionBtn = (stroke: string) => ({
+// The selected row is the filled one; the rest are plain, outlined by the same
+// hairline stroke as the card. `.la-tc-hit` owns the hover dip on top.
+const qRow = (theme: OverlayTheme, c: Ink, on: boolean) => ({
   display: 'flex',
-  flexDirection: 'column' as const,
-  alignItems: 'flex-start',
-  gap: '2px',
+  alignItems: 'flex-start' as const,
+  justifyContent: 'space-between' as const,
+  gap: '12px',
   width: '100%',
   textAlign: 'left' as const,
-  background: 'transparent',
-  border: `1px solid ${stroke}`,
-  borderRadius: `${RADIUS}px`,
-  padding: '8px 10px',
-  fontSize: `${SIZE_META}px`,
-  lineHeight: 1.5,
+  borderRadius: '6px',
+  padding: '8px 14px',
   fontFamily: 'inherit',
   cursor: 'pointer',
+  border: `1px solid ${c.stroke}`,
+  background: on ? rowFill(theme) : 'transparent',
 });
 
-const optionWhy = (faint: string) => ({
+const qRowText = {
+  display: 'flex',
+  flexDirection: 'column' as const,
+  gap: '3px',
+  minWidth: 0,
+  fontSize: '14px',
+  lineHeight: 1.45,
+};
+
+const qOtherHead = {
+  display: 'flex',
+  alignItems: 'center' as const,
+  justifyContent: 'space-between' as const,
+  gap: '8px',
+};
+
+const qWhy = (faint: string) => ({
   color: faint,
   fontWeight: 400,
+  fontSize: '13px',
   whiteSpace: 'normal' as const,
 });
 
-// Says the buttons are not the whole answer. Quietest ink in the card, because
-// it is the fallback rather than the offer.
-const questionHint = (faint: string) => ({
+// The trailing key number: 1..n on the options, n+1 on Other. Just the digit in
+// faint ink — no box around it.
+const qBadge = (c: Ink) => ({
+  flex: 'none' as const,
+  marginLeft: '8px',
+  fontSize: '12px',
+  fontWeight: 600,
+  fontVariantNumeric: 'tabular-nums' as const,
+  color: c.faint,
+});
+
+const qInput = (theme: OverlayTheme, c: Ink) => ({
+  width: '100%',
+  boxSizing: 'border-box' as const,
+  background: surfacePalette(theme).surface,
+  border: `1px solid ${c.stroke}`,
+  borderRadius: '6px',
+  padding: '8px 10px',
+  color: c.ink,
+  fontSize: '13px',
+  fontFamily: 'inherit',
+  outline: 'none',
+});
+
+const qFooter = {
+  display: 'flex',
+  justifyContent: 'flex-end' as const,
+};
+
+// Filled dark when a choice is live, greyed until then — the same submit ink the
+// popover uses, so the affirmative button reads the same across the overlay.
+const qPrimary = (theme: OverlayTheme, enabled: boolean) => ({
+  border: 'none',
+  borderRadius: '6px',
+  padding: '8px 18px',
+  fontSize: '13px',
+  fontWeight: 600,
+  fontFamily: 'inherit',
+  cursor: enabled ? 'pointer' : 'default',
+  background: enabled ? surfacePalette(theme).submitBg : disabledFill(theme),
+  color: enabled
+    ? surfacePalette(theme).submitText
+    : theme === 'dark'
+      ? 'rgba(245, 245, 245, 0.4)'
+      : 'rgba(55, 55, 52, 0.4)',
+});
+
+// ---- Permission card ----
+
+const pCard = (theme: OverlayTheme, c: Ink) => ({
+  display: 'flex',
+  flexDirection: 'column' as const,
+  gap: '12px',
+  border: `1px solid ${c.stroke}`,
+  background: surfacePalette(theme).surface,
+  borderRadius: '8px',
+  padding: '16px',
+});
+
+// Title + subtitle are one pair, so they hug (3px) inside the card's wider 12px
+// rhythm instead of floating 12px apart.
+const pHead = {
+  display: 'flex',
+  flexDirection: 'column' as const,
+  gap: '3px',
+};
+
+const pTitle = (ink: string) => ({
+  color: ink,
+  fontSize: '15px',
+  fontWeight: 500,
+  lineHeight: 1.4,
+  wordBreak: 'break-word' as const,
+});
+
+const pSub = (faint: string) => ({
   color: faint,
-  fontSize: `${SIZE_META}px`,
+  fontSize: '13px',
   lineHeight: 1.5,
-  marginTop: '10px',
+});
+
+// The concrete action, verbatim, in mono — the one thing the user is really
+// deciding on. Wraps rather than truncates so a long command stays readable.
+const pResource = (theme: OverlayTheme, c: Ink) => ({
+  background: rowFill(theme),
+  border: `1px solid ${c.stroke}`,
+  borderRadius: '6px',
+  padding: '10px 12px',
+  color: c.ink,
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+  fontSize: '12.5px',
+  lineHeight: 1.5,
+  whiteSpace: 'pre-wrap' as const,
+  wordBreak: 'break-word' as const,
+  overflowX: 'auto' as const,
+});
+
+const pFooter = {
+  display: 'flex',
+  alignItems: 'center' as const,
+  gap: '8px',
+  marginTop: '2px',
+};
+
+const pGhost = (c: Ink) => ({
+  border: `1px solid ${c.stroke}`,
+  background: 'transparent',
+  borderRadius: '6px',
+  padding: '8px 15px',
+  fontSize: '13px',
+  fontWeight: 500,
+  fontFamily: 'inherit',
+  color: c.ink,
+  cursor: 'pointer',
+});
+
+const pPrimary = (theme: OverlayTheme) => ({
+  border: 'none',
+  borderRadius: '6px',
+  padding: '8px 16px',
+  fontSize: '13px',
+  fontWeight: 600,
+  fontFamily: 'inherit',
+  background: surfacePalette(theme).submitBg,
+  color: surfacePalette(theme).submitText,
+  cursor: 'pointer',
 });
 
 // The one hue that isn't ink — the popover's own error red, so a failed turn
