@@ -11,7 +11,7 @@ type WindowBridge = {
   reactVersion: string | null;
 };
 
-/** Read the dispatcher bridge installed by `<Iris />` from `@useiris/react`. */
+/** Read the dispatcher bridge installed by `<Iris />` from `@andijegeni/iris`. */
 export function getDispatcherBridge(): DispatcherBridge | null {
   if (typeof window === 'undefined') return null;
   // biome-ignore lint/suspicious/noExplicitAny: window bridge

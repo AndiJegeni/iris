@@ -25,7 +25,7 @@ and the daemon running beside the dev server.
    ```
 
    This finds the root component, adds `<Iris />` as the last child of `<body>`
-   (or the outermost returned element), and installs `@useiris/react` with
+   (or the outermost returned element), and installs `@andijegeni/iris` with
    whichever package manager the lockfile implies. `-y` skips the confirmation
    prompt, which can't be answered without a terminal.
 
@@ -37,7 +37,7 @@ and the daemon running beside the dev server.
    yourself, then add:
 
    ```tsx
-   import { Iris } from '@useiris/react';
+   import { Iris } from '@andijegeni/iris';
    ```
 
    and render `<Iris />` once, as the last child of the outermost element. In a

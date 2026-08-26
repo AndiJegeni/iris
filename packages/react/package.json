@@ -1,5 +1,5 @@
 {
-  "name": "@useiris/react",
+  "name": "@andijegeni/iris",
   "version": "0.1.0",
   "description": "Drop-in React component that injects the Iris overlay in dev (no-op in production).",
   "sideEffects": false,

@@ -16,7 +16,7 @@ npx useiris        # start the daemon (with your dev server running)
 Then open <http://localhost:4747>, click an element, and describe the change.
 
 This package is the CLI/daemon. The React component ships separately as
-[`@useiris/react`](https://www.npmjs.com/package/@useiris/react).
+[`@andijegeni/iris`](https://www.npmjs.com/package/@andijegeni/iris).
 
 Requires Node ≥ 18, macOS or Linux. Full docs, security model, and configuration:
 **https://github.com/AndiJegeni/iris**

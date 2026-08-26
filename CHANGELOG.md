@@ -51,8 +51,8 @@ Initial public release.
   an agent edits the code, optionally in an isolated git worktree with its own
   live preview.
 - `npx useiris init` — wires `<Iris />` into your root component and installs
-  `@useiris/react`, showing the diff and asking before it writes.
-- `@useiris/react` — the drop-in component, published as a dual ESM/CJS package
+  `@andijegeni/iris`, showing the diff and asking before it writes.
+- `@andijegeni/iris` — the drop-in component, published as a dual ESM/CJS package
   with type declarations. No-op in production.
 - Subscription sign-in for both backends: Iris shells out to the provider's own
   CLI login (`claude`, `codex`) and never handles a token itself. API keys work

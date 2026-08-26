@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "bun packages/cli/src/index.ts",
     "test": "bun test",
-    "build": "bun run --filter '@useiris/react' build && bun run --filter 'useiris' build",
+    "build": "bun run --filter '@andijegeni/iris' build && bun run --filter 'useiris' build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "format": "biome format --write .",
     "lint": "biome check .",

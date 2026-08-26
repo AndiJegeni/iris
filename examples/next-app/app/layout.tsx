@@ -1,5 +1,5 @@
 import './globals.css';
-import { Iris } from '@useiris/react';
+import { Iris } from '@andijegeni/iris';
 import type { ReactNode } from 'react';
 
 export const metadata = {
